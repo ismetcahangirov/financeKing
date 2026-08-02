@@ -71,16 +71,22 @@ jobs:
         # passing.
         run: uv run lint-imports
 
-      - name: AST checks
+      - name: AST and documentation checks
         if: ${{ !cancelled() }}
-        # `set +e` plus an accumulated status, for the same reason: four checks, one
-        # report. Without it the first failing check hides the other three.
+        # `set +e` plus an accumulated status, for the same reason: five checks, one
+        # report. Without it the first failing check hides the other four.
+        #
+        # adr_index runs check-only here, never --write: a CI job that repairs the
+        # thing it is checking always passes, which is a green light that verified
+        # nothing. Regeneration is `make adr-index`, on the author's machine, in the
+        # diff.
         run: |
           set +e
           status=0
-          for check in money_types clock_isolation no_catch_safety naming; do
+          for check in money_types clock_isolation no_catch_safety naming adr_index; do
             targets="src/fking"
             if [ "$check" = "no_catch_safety" ]; then targets="src/fking tests"; fi
+            if [ "$check" = "adr_index" ]; then targets="docs/adr"; fi
             echo "::group::$check"
             uv run python "tools/checks/$check.py" $targets || status=1
             echo "::endgroup::"
