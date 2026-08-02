@@ -6,7 +6,7 @@
 
 1. **Every response is parsed into a Pydantic v2 model with `extra="forbid"`, `frozen=True`, and explicit types.** Decimals arrive as JSON strings and are converted with an explicit validator; a JSON number has already lost precision before you see it.
 2. **An unparseable response is a failure, not something to interpret charitably.** No regex extraction of a JSON block from prose, no "it probably meant long", no fallback default.
-3. **Exactly one repair attempt**, with the `ValidationError` fed back verbatim, then escalate. Never a loop that eventually gets lucky.
+3. **Zero re-asks at runtime.** A schema failure fails the agent call. The raw response is recorded verbatim in the audit table, `fking_agents_parse_failures_total` is incremented, and the caller takes its deterministic path. The repair loop lives in the golden-set harness, where the `ValidationError` is fed back to the *prompt author*, not to the model mid-decision.
 4. **Nothing derived from model output is ever passed to `eval`, `exec`, `__import__`, `subprocess`, a SQL string, a file path, a URL, or an import statement.** Model output selects among enumerated constants; it never names them freely.
 5. **Market data, news and social text entering a prompt is untrusted input.** It is fenced with a per-call nonce and labelled as data. It is never concatenated into the instruction region.
 6. **Every agent declares** mission, allowed decisions, **forbidden decisions**, typed input and output models, token budget, timeout, and escalation path. The forbidden list is the load-bearing half.
@@ -18,9 +18,19 @@
 
 An LLM in the hypothesis path is a research accelerator; an LLM in the order path is an unbounded-risk design (`../../ARCHITECTURE.md` §9). Everything here is the machinery that keeps the first from becoming the second by accident.
 
-The charitable-interpretation ban is the clause people resist. It feels wasteful to discard a response that "obviously" meant `direction="long"` because the model wrote `"LONG"` or wrapped its JSON in a code fence. But every act of charitable repair is a decision made by *your parser* rather than by the model, and it is made under no schema, with no audit trail, in a code path that was never designed to make trading decisions. The failure is not that the parser guesses wrong once — it is that the parser's guesses accumulate into an undocumented second decision layer that nobody reviews. Reject, repair once with the error in hand, escalate.
+The charitable-interpretation ban is the clause people resist. It feels wasteful to discard a response that "obviously" meant `direction="long"` because the model wrote `"LONG"` or wrapped its JSON in a code fence. But every act of charitable repair is a decision made by *your parser* rather than by the model, and it is made under no schema, with no audit trail, in a code path that was never designed to make trading decisions. The failure is not that the parser guesses wrong once — it is that the parser's guesses accumulate into an undocumented second decision layer that nobody reviews. Reject, record, escalate.
 
-The retry policy is one attempt for a reason that is easy to state and easy to forget: **a retry loop over a stochastic generator is a search for a response that passes validation, not a search for a correct response.** With three retries and a permissive schema you will eventually get a parse, and you will have selected for the output that best fit your types rather than the output that best fit the market. One repair attempt with the validation error attached is a genuine correction signal. A second is sampling.
+The retry policy is **zero**, and the reason is easy to state and easy to forget: **a retry loop over a stochastic generator is a search for a response that passes validation, not a search for a correct response.** With three retries and a permissive schema you will eventually get a parse, and you will have selected for the output that best fit your types rather than the output that best fit the market.
+
+The tempting compromise — *one* repair with the `ValidationError` attached, on the grounds that an error-carrying retry is a genuine correction signal rather than sampling — was considered and rejected, and this file previously stated it. Three arguments beat it:
+
+- **The parse-failure rate is the instrument.** It is the signal that a prompt and its schema are not doing their job. A re-ask suppresses exactly that signal, so a systematically bad prompt reports a healthy failure rate while paying double for every call.
+- **Quota is scarce and shared.** A re-ask spends the budget the golden set needs (`./quota-management.md`), on the failure path, unattended, at whatever hour it happens.
+- **"Exactly one" is not a stable boundary.** It is one line from "exactly two", and it is the kind of limit raised at 1am by someone whose research run is stalling. Zero has no adjacent value.
+
+The repair capability is not lost — it moves to where it belongs. The golden-set harness feeds the `ValidationError` back to the prompt author, in a loop that costs a developer's attention rather than the runtime's quota, and produces a prompt fix rather than a per-call patch.
+
+This is fixed as `max_reask_attempts: Literal[0]` in `../../CONFIGURATION.md` §9 — a `Literal`, not an `int`, so it cannot be raised by configuration at all. `../../PROMPT_LIBRARY.md` §3 states the same rule from the prompt side.
 
 Fencing untrusted text is not paranoia about a hypothetical adversary. This system ingests news headlines and social text, and headlines are written by people who want them read a particular way; some of them will contain instruction-shaped strings, whether authored deliberately or scraped from a page that was. The defence that actually works is structural — the model's decision surface is a `Literal` union and a bounded `Decimal`, so the worst an injected instruction can achieve is a *valid* decision, which the risk engine and the validation gate then evaluate exactly as they evaluate any other proposal. Fencing reduces the probability; the type system bounds the damage. Both are required, and the type system is the one you rely on.
 
@@ -111,40 +121,41 @@ class ThesisProposal(BaseModel):
     rationale: RationaleText
 ```
 
-The parse-and-repair path:
+The parse path. Note what is absent: there is no second call to the gateway anywhere in this function, and there is no `gateway` parameter to make one with.
 
 ```python
 # src/fking/agents/gateway/parse.py
 from pydantic import BaseModel, ValidationError
 
-from fking.platform.metrics import AGENT_SCHEMA_FAILURES, AGENT_SCHEMA_REPAIRS
+from fking.platform.metrics import AGENT_SCHEMA_FAILURES
 
 
 class AgentOutputInvalid(RuntimeError):
-    """Two validation failures. Escalates; never falls back to a default decision."""
+    """Schema validation failed. Escalates; never re-asks, never falls back to a default."""
 
 
-async def parse_or_repair[T: BaseModel](
-    gateway: LlmGateway, call: AgentCall, schema: type[T], raw: CompletionResult
+def parse_or_fail[T: BaseModel](
+    call: AgentCall, schema: type[T], raw: CompletionResult
 ) -> T:
+    """Validate a completion against its schema. One attempt, no repair.
+
+    The signature is the enforcement: with no gateway in scope, a re-ask cannot
+    be added here without changing the function's dependencies, which is a
+    reviewable diff rather than a two-line patch on the failure path.
+    """
     try:
         return schema.model_validate_json(raw.text)
-    except ValidationError as first:
-        AGENT_SCHEMA_REPAIRS.labels(agent=call.agent_id, model=raw.model_id).inc()
-        repaired = await gateway.complete(
-            call.with_repair(errors=first.errors(include_url=False, include_input=False)),
-        )
-        try:
-            return schema.model_validate_json(repaired.text)
-        except ValidationError as second:
-            AGENT_SCHEMA_FAILURES.labels(agent=call.agent_id, model=raw.model_id).inc()
-            raise AgentOutputInvalid(
-                f"{call.agent_id} failed validation twice; "
-                f"audit_refs={[raw.audit_ref, repaired.audit_ref]}"
-            ) from second
+    except ValidationError as invalid:
+        AGENT_SCHEMA_FAILURES.labels(agent=call.agent_id, model=raw.model_id).inc()
+        # The raw text is already in the audit row written by the gateway; it is
+        # deliberately not repeated in the exception message, which is logged.
+        raise AgentOutputInvalid(
+            f"{call.agent_id} produced output failing {schema.__name__}; "
+            f"audit_ref={raw.audit_ref}"
+        ) from invalid
 ```
 
-`include_input=False` on the repair prompt is deliberate: echoing the model's own malformed output back inside the error text re-injects whatever was in it into the instruction region.
+The caller catches `AgentOutputInvalid` and takes its deterministic path — the same path it takes under `Degraded` from quota exhaustion (`./quota-management.md`). An agent that cannot produce valid output and an agent that cannot be called at all are the same condition from the caller's side, and collapsing them is what keeps the deterministic fallback on one well-exercised code path instead of two.
 
 Fencing untrusted text with a per-call nonce:
 
@@ -279,7 +290,7 @@ def test_no_free_text_field_escapes_to_the_bus(event_type: type) -> None:
         ), f"{event_type.__name__}.{name} is unconstrained free text on the bus"
 ```
 
-**Schema-failure counter and alert.** `AGENT_SCHEMA_FAILURES` and `AGENT_SCHEMA_REPAIRS` are Prometheus counters labelled by `agent` and `model`. The alert rule:
+**Schema-failure counter and alert.** `AGENT_SCHEMA_FAILURES` is a Prometheus counter labelled by `agent` and `model`. The alert rule:
 
 ```yaml
 - alert: AgentSchemaFailuresElevated
@@ -293,7 +304,9 @@ def test_no_free_text_field_escapes_to_the_bus(event_type: type) -> None:
     runbook: "A step change here usually means the provider rolled the model despite model_pin, or a prompt edit shipped without its schema. Check the audit table for the first failing row."
 ```
 
-A rising repair rate with a flat failure rate is the early warning: the model is still producing valid output on the second attempt, which means the first-attempt prompt has drifted.
+With no re-ask, the failure rate is a direct measurement rather than a residual — every schema failure is one failed call, so the ratio is exactly the fraction of decisions the agent could not contribute to. That is the property the zero-re-ask rule buys, and it is why the alert threshold can be as tight as 2%: there is no repair mechanism quietly absorbing the first two-thirds of the problem before the counter sees it.
+
+**`AGENT_SCHEMA_REPAIRS` does not exist.** If it appears in the metrics module, a re-ask was reintroduced.
 
 **Prompt-injection test**, two tiers because injection resistance cannot honestly be unit-tested against a stochastic model:
 

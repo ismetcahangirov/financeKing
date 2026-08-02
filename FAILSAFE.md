@@ -68,7 +68,7 @@ In order:
 3. **Cancel all resting orders**, best effort, in parallel, with a 2-second deadline. Failures to cancel are recorded and retried by the recovery path, not by the trip path.
 4. **Disable strategy signal consumption.** Strategies keep running and keep emitting signals; the signals are recorded and dropped. Keeping them running means the post-incident audit shows what the system *would* have done, which is often the most useful artefact in the investigation.
 5. **Emit alerts** across every configured channel, with the incident ID.
-6. **Do not touch open positions.** See below.
+6. **Flatten open positions, sized from venue state.** See §2.4. If venue state cannot be read, do not flatten — stay halted with positions open and page.
 
 ### 2.3 Latency
 
@@ -82,17 +82,32 @@ Split into three requirements, because they have genuinely different characters:
 
 The first row is the important one and it is the reason the kill switch is not implemented as an event-bus subscriber. A subscriber has a queue, and a queue has a window in which the switch is tripped and the order path has not yet heard about it. That window is exactly when orders are most dangerous.
 
-### 2.4 Why the default is cancel, not flatten
+### 2.4 Why the default is flatten, and why it reads from the venue
 
-The obvious design flattens all positions on trip. We cancel resting orders and leave positions open, with `on_trip_flatten` defaulting to `false`.
+`on_trip_flatten` defaults to **`true`**. The trip closes the book. The full argument, including the rejected alternative at its strongest, is [ADR 0014](docs/adr/0014-kill-switch-flattens-on-trip.md); this section states the operational shape.
 
-**Flattening is itself a trading decision, and it is a market order.** The conditions that trip a kill switch — a fast drawdown, a data outage, a reconciliation mismatch, a spike in rejections — are precisely the conditions under which market orders execute worst. A stale-data trip that responds by market-selling the entire book is trading blind on the specific belief that our prices are unreliable, which is self-contradictory.
+The decisive reason is internal consistency. `.claude/rules/error-handling.md` gives the supervisor exactly one sanctioned `except Exception`, and that handler trips the switch, calls `execution.flatten_all()`, audits and exits. An unhandled exception is the least-understood state this system can reach, and it is already answered by flattening. A kill switch that instead left positions open would make the response to uncertainty depend on which code path happened to notice it, which is not a safety design.
 
-Worse, several triggers indicate that our view of positions may be *wrong*. Flattening on a reconciliation divergence means sending closing orders sized from a position record we have just established we do not trust. That can open a position rather than close one.
+The second reason is that **this system runs unattended.** "Stop making it worse and let a human decide" needs a human inside the window over which an open crypto position can move, and between an 03:00 trip and someone waking up there is no such human. The cost of a flatten you did not need is slippage on one exit. The cost of a position you could not supervise is not bounded by anything.
 
-So the default is: stop making it worse, and let a human decide. Existing positions keep their invalidation-level protective orders — those are already resting at the venue and are not cancelled by the trip, which is the one exception to step 3 above and the reason strategies are required to declare invalidation in the first place.
+**The objection that survives, and shapes the implementation.** Several triggers indicate that our view of positions may be *wrong* — a reconciliation divergence most obviously. Closing orders sized from a position record we have just established we do not trust can open a position rather than close one. That is a real bug and it is not answered by arguing about slippage.
 
-`on_trip_flatten = true` is a legitimate configuration for a specific deployment where positions cannot be supervised. It is off here because a human is reachable and the demo account cannot be margin-called into oblivion.
+So the flatten never reads local position records:
+
+1. Snapshot positions, open orders and the last reconciliation result **to the audit log first**. This is the post-mortem artefact, and it is the thing the old cancel-only default gave us for free (see §2.4.1).
+2. Query the venue for current positions. This is the same source-of-truth principle as reconciliation (`ARCHITECTURE.md` §7).
+3. Close **what the venue says we hold**, not what we believe we hold.
+4. If the venue cannot be read — network failure, `SafetyViolation`, auth rejection — **do not flatten.** Stay halted with positions open, emit `killswitch.flatten_blocked` at `CRITICAL`, and page. Flattening on a guess is the failure this ordering exists to prevent.
+
+Invalidation-level protective orders are the one exception to step 3 of §2.2 and are not cancelled until the flatten supersedes them, so there is no window in which the book is both unprotected and unclosed.
+
+`on_trip_flatten = false` remains a legitimate configuration for a supervised deployment where a human is genuinely on call within minutes. It is not the default here, and it is bounded by the same compiled-in ceiling pattern as every other risk parameter.
+
+#### 2.4.1 What flattening costs us, stated plainly
+
+You can no longer trip the switch to freeze the book and inspect it — by the time an investigator looks, the positions are gone. That is a real loss, and step 1 above exists specifically to replace it. If a genuine freeze-and-inspect mode is ever needed, it is a separate halt mode and a superseding ADR, not a flag on this one.
+
+Slippage on kill-switch flattens is therefore a tracked metric with an alert (`killswitch.flatten_slippage_bps`), because a switch that is expensive to trip creates pressure to raise its thresholds, and that pressure is how kill switches quietly stop working.
 
 ### 2.5 Persistence
 

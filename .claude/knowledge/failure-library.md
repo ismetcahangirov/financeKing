@@ -338,7 +338,7 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 
 **Mechanism**: a permissive parse — regex-extracting a JSON block, coercing types, defaulting a missing field. Each individually looks like robustness. Together they mean the deterministic gate is validating something the model never actually said.
 
-**Prevention**: parse into a Pydantic v2 model with `extra="forbid"` and strict types; an unparseable response is a failure, not something to interpret charitably; exactly one repair attempt with the validation error fed back, then escalate — never a loop that eventually gets lucky.
+**Prevention**: parse into a Pydantic v2 model with `extra="forbid"` and strict types; an unparseable response is a failure, not something to interpret charitably; zero re-asks at runtime — the call fails, the raw response is audited, and the caller takes its deterministic path. A retry loop over a stochastic generator searches for output that passes validation, not output that is correct, and it suppresses the parse-failure rate that is the signal the prompt is broken. See [`../rules/llm-output-handling.md`](../rules/llm-output-handling.md).
 
 ---
 
