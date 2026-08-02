@@ -185,7 +185,14 @@ def test_a_configured_fallback_venue_is_validated_too() -> None:
     settings = Settings.model_validate(
         {"exchange": {"bybit": {"rest_url": "https://api-testnet.bybit.com"}}}
     )
-    assert "https://api-testnet.bybit.com/" in venue_endpoints(settings)
+    # `.count(...) == 1` rather than `in`: `in` against a URL reads as a substring
+    # check whether or not the operand is a tuple, and a substring check on an
+    # unparsed URL is bypassable -- which is why CodeQL rejects the shape on sight and
+    # why the safety kernel parses hosts rather than matching strings. This also
+    # asserts the endpoint is swept exactly once rather than merely present.
+    endpoints = venue_endpoints(settings)
+    assert endpoints.count("https://api-testnet.bybit.com/") == 1
+    assert endpoints.count("wss://stream-testnet.bybit.com/v5/public/linear") == 1
     assert bootstrap(settings) is settings
 
 
