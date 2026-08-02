@@ -64,6 +64,14 @@ A missing configuration file must never produce a *less* safe system than a pres
 
 Secrets have no default and no placeholder value. A missing exchange key is a startup failure, not an empty string that fails later with a confusing 401.
 
+That requirement and "a fresh clone with no credentials runs" are both true because the subsystems that need credentials are **off by default and mandatory once on**: `exchange.enabled` and `agents.enabled` are `False` on the shipped defaults, and switching either to `True` makes its credentials required, with the failure naming the exact missing field. A credential is never an empty string, and the offline half of the system — backtest, validation, the whole evolution loop — runs with neither.
+
+### Where the tree lives
+
+`src/fking/platform/config/`. The root `Settings` is the only `BaseSettings`; every section below it is a frozen `BaseModel`, which is what makes `FKING_EXCHANGE__BINANCE__FUTURES_API_KEY` resolve through one nested-delimiter pass rather than through each sub-model reading the environment on its own.
+
+`.env.example` is generated from that tree and checked against it in both directions by `tests/platform/config/test_env_example.py` — a new setting with no entry fails, and an entry for a setting that no longer exists fails. Every value in it is blank rather than a plausible-looking placeholder: a placeholder shaped like a credential is a credential somebody pastes over with a real one and then commits.
+
 ---
 
 ## 3. Validation at startup
@@ -74,9 +82,9 @@ The `Settings` tree is constructed exactly once, in `fking.platform.config.load_
 
 ```
 1.  Construct Settings  (pydantic field + model validators)      → exit 78 on failure
-2.  Resolve every configured endpoint host                       → exit 78 on failure
-3.  Validate every host against ALLOWED_HOSTS                    → exit 78 on failure
-4.  Assert every risk limit is within its compiled-in ceiling    → exit 78 on failure
+2.  Resolve every configured venue endpoint                      → exit 78 on failure
+3.  Validate every host against ALLOWED_HOSTS                    → SafetyViolation; see below
+4.  Assert every risk limit is within its compiled-in ceiling    → folded into step 1
 5.  Verify secret file permissions (Ed25519 key mode <= 0600)    → exit 78 on failure
 6.  Log the allowlist and every resolved endpoint
 7.  Log the full effective config, redacted
@@ -84,7 +92,15 @@ The `Settings` tree is constructed exactly once, in `fking.platform.config.load_
 9.  Start
 ```
 
-Exit code **78** (`EX_CONFIG`) throughout, so a supervisor can distinguish a configuration error from a crash and decline to restart-loop on it.
+Steps 1 and 5 are `load_settings()` and `bootstrap()` in `fking.platform.config`; steps 2, 3, 6 and 7 are `bootstrap()`. Exit code **78** (`EX_CONFIG`), so a supervisor can distinguish a configuration error from a crash and decline to restart-loop on it.
+
+Two of those lines are not what a first reading suggests, and both differences make the guarantee stronger rather than weaker:
+
+**Step 4 happens during step 1.** The ceiling check is a `model_validator` on `RiskSettings`, so a `Settings` object holding an out-of-bounds limit cannot be constructed at all. No code path can obtain one — including a test fixture, which is the path a separate post-construction check would leave open.
+
+**Step 3 does not exit 78.** It delegates to `fking.platform.safety.verify_endpoints_or_abort`, which raises `SafetyViolation` — a `BaseException` that `tools/checks/no_catch_safety.py` forbids catching anywhere in `src/` or `tests/`. A non-allowlisted endpoint therefore terminates the process on an uncaught exception rather than exiting tidily. That is deliberate: a process whose model of what it is talking to is wrong should die loudly, and the kernel outranks this document's exit-code convention.
+
+The **archive host and the LLM provider base URLs are deliberately not in step 2.** They are not venues and are not in the trading allowlist; adding them so one download or one completion works would widen the allowlist permanently, which `.claude/rules/safety-kernel.md` refuses. Those paths get their own egress checks.
 
 ### The process refuses to start
 
@@ -315,7 +331,12 @@ This is the section with the rule that matters.
 > **Risk limits are configuration, bounded by compiled-in hard ceilings. Configuration can only make the system more conservative. It can never make it more permissive than the ceiling.**
 
 ```python
-# fking/risk/ceilings.py — compiled in. Not config, not env, not database.
+# fking/platform/config/_ceilings.py — compiled in. Not config, not env, not database.
+#
+# Under platform/config rather than under risk/ because the validator that enforces it
+# hangs off RiskSettings in the configuration tree, and platform imports no other fking
+# module (.claude/rules/module-boundaries.md). risk may import platform; not the reverse.
+#
 # Widening any of these requires a source edit and a PR labelled safety:critical.
 HARD_CEILINGS: Final[Mapping[str, Decimal]] = MappingProxyType({
     "max_portfolio_notional_usd":     Decimal("100000"),
@@ -395,10 +416,10 @@ class AgentSettings(BaseSettings):
     max_reask_attempts: Literal[0] = 0           # no free-text fallback, ever
     degrade_to_deterministic_on_quota_exhaustion: Literal[True] = True
 
-    per_agent_token_budget: Mapping[str, int] = {...}
-    per_agent_timeout_seconds: Mapping[str, float] = {...}
-    per_agent_daily_invocations: Mapping[str, int] = {...}
+    budgets: tuple[AgentBudget, ...] = ()      # agent_id, token_budget, timeout, invocations
 ```
+
+The per-agent budgets are **one record per agent** rather than three mappings keyed by agent id. Three parallel mappings can disagree about which agents exist, and the disagreement is silent — an agent present in the token map and absent from the timeout map gets whatever the lookup's fallback happens to be. A duplicate `agent_id` is refused at construction for the same reason: which record wins would depend on iteration order, and the loser would be a budget somebody believes is in force.
 
 `enabled` defaults to `False`. The system must be fully functional with every LLM agent disabled — that is the degraded mode, and a degraded mode that has never been the default is a degraded mode that does not work. It also means a fresh clone with no API keys runs.
 
@@ -422,7 +443,7 @@ class TelemetrySettings(BaseSettings):
 
     log_level: Literal["debug", "info", "warning", "error"] = "info"
     log_format: Literal["json"] = "json"             # json in every environment
-    log_field_allowlist: frozenset[str] = ...        # allowlist, never denylist
+    log_field_allowlist: tuple[str, ...] = ...       # allowlist, never denylist
 
     trace_sample_ratio: Decimal = Decimal("0.10")    # feature/background paths
     order_path_sample_ratio: Literal[1] = 1          # never sampled
@@ -434,6 +455,8 @@ class TelemetrySettings(BaseSettings):
 `log_format` is `Literal["json"]` so that no environment ever runs a different serialisation path from the one whose parsing is tested. `order_path_sample_ratio` is fixed at 1 for the reason in `OBSERVABILITY.md` §5: a sampled order path means some trades are unreconstructable and you will not know which until you need one.
 
 `metric_prefix` is fixed because renaming metrics breaks every dashboard and alert simultaneously and silently (`OBSERVABILITY.md` §4).
+
+`log_field_allowlist` is an ordered `tuple`, not the `frozenset` its semantics suggest, because it is serialised into `config_hash` and a set's iteration order varies with `PYTHONHASHSEED` — which would make two processes holding identical configuration report different hashes, and the hash's whole job is to say when configuration is the same.
 
 ---
 
