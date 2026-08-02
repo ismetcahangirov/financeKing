@@ -1,0 +1,72 @@
+# Local development. Loaded automatically, so a bare `docker compose up` is the
+# developer experience and the demo runtime has to be asked for by name.
+#
+# Every published port binds to 127.0.0.1 explicitly. Never the wildcard address,
+# and never a bare "9090:9090" -- the short form binds every interface, which puts
+# a Grafana holding a view of exchange credentials on the local network.
+# DEPLOYMENT.md 2.
+#
+# The wildcard address is spelled out nowhere in these files, not even inside a
+# comment: DEPLOYMENT.md 7's pre-flight check greps the compose files for that
+# literal, and a checklist item that keeps returning a harmless comment is a
+# checklist item people learn to skim past.
+
+# The HOST port is a variable; the host INTERFACE never is. A developer with a
+# PostgreSQL already listening on 5432 -- which is common, and was the case on
+# the machine this was first brought up on -- can set FKING_POSTGRES_PORT in
+# .env instead of editing a tracked file and risking committing it. Making
+# 127.0.0.1 a variable too would let the same convenience widen the binding to
+# every interface, which is the one thing these files must not permit, so the
+# interface stays a literal on every line.
+#
+# These carry the FKING_ prefix and reach the app container through env_file,
+# which looks like it should collide with env_prefix="FKING_" plus extra="forbid"
+# on the settings model. It does not -- pydantic-settings reads only variables
+# matching a declared field and ignores the rest. Verified 2026-08-03 rather than
+# assumed, because the failure would be the app exiting 78 because someone moved
+# a port. DEPLOYMENT.md 5.5.1.
+
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${FKING_POSTGRES_PORT:-5432}:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:${FKING_REDIS_PORT:-6379}:6379"
+
+  otel-collector:
+    ports:
+      - "127.0.0.1:${FKING_OTLP_GRPC_PORT:-4317}:4317"   # OTLP/gRPC
+      - "127.0.0.1:${FKING_OTLP_HTTP_PORT:-4318}:4318"   # OTLP/HTTP
+      - "127.0.0.1:${FKING_OTEL_HEALTH_PORT:-13133}:13133"
+
+  prometheus:
+    ports:
+      - "127.0.0.1:${FKING_PROMETHEUS_PORT:-9090}:9090"
+
+  loki:
+    ports:
+      - "127.0.0.1:${FKING_LOKI_PORT:-3100}:3100"
+
+  tempo:
+    ports:
+      - "127.0.0.1:${FKING_TEMPO_PORT:-3200}:3200"
+
+  grafana:
+    # 3001 rather than 3000 by default: 3000 is the Next.js dev-server port and
+    # the dashboard (#103) will want it.
+    ports:
+      - "127.0.0.1:${FKING_GRAFANA_PORT:-3001}:3000"
+
+  app:
+    environment:
+      FKING_TELEMETRY__LOG_LEVEL: debug
+      FKING_TELEMETRY__ENVIRONMENT: local
+    volumes:
+      # Source mounted read-only for development. Read-only rather than
+      # read-write on purpose: a container writing back into the working tree
+      # produces root-owned files that the next `git status` reports and the
+      # next `make format` cannot fix.
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro

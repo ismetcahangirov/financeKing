@@ -1,0 +1,42 @@
+# Tempo -- traces, 7d.
+#
+# Retention here is `block_retention` in the compactor, not a flag and not a
+# limits key. Traces are the cheapest thing to lose in this stack
+# (DEPLOYMENT.md 6, row 5) and the most expensive to store, so 7d is a
+# deliberate floor rather than a default: long enough to investigate an
+# incident from the week it happened, short enough that traces never become the
+# reason the disk is full.
+
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+  log_level: info
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    block_retention: 168h        # 7d
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+usage_report:
+  reporting_enabled: false

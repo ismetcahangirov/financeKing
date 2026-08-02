@@ -1,0 +1,20 @@
+# Dashboard provider. Reads JSON from a read-only mount of ops/grafana/dashboards.
+#
+# allowUiUpdates is false: a dashboard edited in the browser and not committed
+# is a dashboard that disappears on the next recreate, and worse, one that
+# disagrees with the repository while looking authoritative on screen.
+# Edit the JSON, commit it, restart Grafana.
+
+apiVersion: 1
+
+providers:
+  - name: fking
+    orgId: 1
+    folder: financeKing
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

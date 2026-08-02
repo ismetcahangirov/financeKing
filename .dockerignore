@@ -1,0 +1,55 @@
+# Keep the build context small and, more importantly, keep credentials and
+# host-specific state out of it. Anything sent to the daemon can end up in an
+# image layer, and a layer cannot be un-shipped.
+
+.git/
+.github/
+
+# Credentials. secrets/ is mounted read-only at runtime; it must never be
+# baked into an image, where it would survive every `docker rmi` that forgets
+# the intermediate layers.
+secrets/
+.env
+.env.*
+!.env.example
+
+# Host virtualenv. The image builds its own from uv.lock; copying this one in
+# would ship a Windows-built or host-linked venv into a Linux container.
+.venv/
+
+# Caches and build state
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.import_linter_cache/
+
+# Coverage artefacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Local market archives -- hundreds of gigabytes, mounted as a volume.
+/data/
+*.parquet
+backups/
+
+# Not needed to run the application
+docs/
+.claude/
+*.md
+!README.md
+docker-compose*.yml
+Makefile
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

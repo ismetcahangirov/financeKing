@@ -27,6 +27,15 @@ htmlcov/
 .env.*
 !.env.example
 
+# Exchange credential material. The directory itself is tracked (via .gitkeep)
+# so that a clean clone owns it before Docker does; everything inside it is not.
+/secrets/*
+!/secrets/.gitkeep
+
+# Backups. Written by `make backup` to a different physical device in practice;
+# ignored here so a local run cannot commit a database dump.
+/backups/
+
 # Local market archives. Anchored to the repository root on purpose: an unanchored
 # `data/` also matches src/fking/data/, which silently drops a source package from
 # every commit.

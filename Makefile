@@ -8,8 +8,10 @@ UV ?= uv
 SRC := src/fking
 ARGS ?=
 
+COMPOSE ?= docker compose
+
 .DEFAULT_GOAL := help
-.PHONY: help check lint format types imports checks test cover secrets
+.PHONY: help check lint format types imports checks test cover secrets up down logs ps config
 
 help:  ## Show the available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -61,3 +63,31 @@ cover:  ## Enforce per-module coverage floors
 ## that has only run `uv sync`. CI wires it in separately (#15).
 secrets:  ## Scan the working tree for committed secrets (requires gitleaks on PATH)
 	gitleaks detect --config .gitleaks.toml --redact --verbose
+
+# ---------------------------------------------------------------------------
+# Local stack. DEPLOYMENT.md is the specification.
+# ---------------------------------------------------------------------------
+
+## Compose loads docker-compose.yml + docker-compose.override.yml automatically,
+## so `up` is the developer stack. The demo runtime must be asked for by name:
+##   docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d
+## That friction is deliberate -- the mode that places orders should not be the
+## mode you get by accident.
+up:  ## Start the local stack in the background
+	$(COMPOSE) up -d --wait
+
+## NOTE: no -v, and there is deliberately no target that adds it. Dropping the
+## volumes destroys every audit row and hours of checksum-verified archives, and
+## that is an act you perform by typing the full command with the volume name on
+## purpose. DEPLOYMENT.md 3.
+down:  ## Stop the stack. Never removes volumes
+	$(COMPOSE) down
+
+logs:  ## Follow logs; scope with ARGS="postgres redis"
+	$(COMPOSE) logs -f --tail=100 $(ARGS)
+
+ps:  ## Show service state and health
+	$(COMPOSE) ps
+
+config:  ## Render the merged compose configuration without starting anything
+	$(COMPOSE) config
