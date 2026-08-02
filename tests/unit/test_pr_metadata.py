@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from tools.ci.check_pr_metadata import PullRequestFacts, commit_type, main, violations
 
 pytestmark = pytest.mark.unit

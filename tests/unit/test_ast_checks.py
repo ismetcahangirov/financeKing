@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 
 import pytest
+
 from tools.checks import clock_isolation, money_types, naming, no_catch_safety
 
 pytestmark = pytest.mark.unit
