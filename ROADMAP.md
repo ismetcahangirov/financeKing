@@ -69,6 +69,8 @@ Exists first because every later phase writes code touching money-shaped objects
 ### P1 — Data Platform
 *Epic [#2](https://github.com/ismetcahangirov/financeKing/issues/2) · depends on P0*
 
+**12 task issues** — [P1 milestone](https://github.com/ismetcahangirov/financeKing/milestone/2)
+
 Bulk historical ingestion, live streaming, normalization, feature store with point-in-time semantics, data-quality gates, alternative data.
 
 **Exit:** ingesting BTCUSDT and ETHUSDT 1m from 2017 to present is one reproducible command · quality gate fails on injected corruption · the look-ahead test passes.
@@ -79,6 +81,8 @@ Bulk historical ingestion, live streaming, normalization, feature store with poi
 
 ### P2 — Backtest & Validation Engine
 *Epic [#3](https://github.com/ismetcahangirov/financeKing/issues/3) · depends on P1 · **critical path***
+
+**13 task issues** — [P2 milestone](https://github.com/ismetcahangirov/financeKing/milestone/3)
 
 Event-driven engine, venue abstraction, cost model, walk-forward, CPCV, Monte Carlo, deflated Sharpe, tearsheets.
 
@@ -91,6 +95,8 @@ Event-driven engine, venue abstraction, cost model, walk-forward, CPCV, Monte Ca
 ### P3 — Strategy & Risk Core
 *Epic [#4](https://github.com/ismetcahangirov/financeKing/issues/4) · depends on P2*
 
+**12 task issues** — [P3 milestone](https://github.com/ismetcahangirov/financeKing/milestone/4)
+
 Strategy contract, three baseline strategies, risk engine, sizing, correlation-aware exposure, drawdown and daily loss limits, kill switch.
 
 The baselines (trend, mean reversion, funding carry) are **not expected to be profitable.** They are expected to be *correct*, and to serve as the control group an evolved strategy must beat. Without a control, "the evolution engine produced something good" is unfalsifiable.
@@ -101,6 +107,8 @@ The baselines (trend, mean reversion, funding carry) are **not expected to be pr
 
 ### P4 — Demo Execution
 *Epic [#5](https://github.com/ismetcahangirov/financeKing/issues/5) · depends on P3 · `safety:critical`*
+
+**12 task issues** — [P4 milestone](https://github.com/ismetcahangirov/financeKing/milestone/5)
 
 Binance testnet adapters (two user-data paths), OMS, reconciliation, clock-skew monitoring, rate limiting, promotion gate, execution quality analysis.
 
@@ -113,6 +121,8 @@ Binance testnet adapters (two user-data paths), OMS, reconciliation, clock-skew 
 ### P5 — Multi-Agent Intelligence
 *Epic [#6](https://github.com/ismetcahangirov/financeKing/issues/6) · depends on P0, P2 · **off critical path***
 
+**12 task issues** — [P5 milestone](https://github.com/ismetcahangirov/financeKing/milestone/6)
+
 LLM gateway with quota-aware routing and failover, agent runtime, versioned prompt library, three-tier memory with pgvector, agent evaluation harness.
 
 **Exit:** a research cycle produces a typed, validated hypothesis · every LLM call logged with prompt, response, model, latency, tokens · quota exhaustion degrades to deterministic operation · a prompt regression suite catches a deliberately degraded prompt.
@@ -124,6 +134,8 @@ LLM gateway with quota-aware routing and failover, agent runtime, versioned prom
 ### P6 — Evolution Engine
 *Epic [#7](https://github.com/ismetcahangirov/financeKing/issues/7) · depends on P2, P3*
 
+**12 task issues** — [P6 milestone](https://github.com/ismetcahangirov/financeKing/milestone/7)
+
 Lifecycle state machine, survival scoring, mutation and crossover, global trial registry, held-out period manager, champion/challenger promotion, population diversity, lineage store.
 
 **Exit:** a full generation runs autonomously · a deliberately overfit strategy is rejected by the promotion gate with a recorded reason · trial counts survive process restarts and generation boundaries · diversity is measured per generation.
@@ -134,6 +146,8 @@ Lifecycle state machine, survival scoring, mutation and crossover, global trial 
 
 ### P7 — Observability & Control Plane
 *Epic [#8](https://github.com/ismetcahangirov/financeKing/issues/8) · instrumented throughout, assembled last*
+
+**12 task issues** — [P7 milestone](https://github.com/ismetcahangirov/financeKing/milestone/8)
 
 OpenTelemetry coverage, provisioned dashboards, correlation ID propagation, append-only audit log, Next.js dashboard, alert rules, runbooks.
 
