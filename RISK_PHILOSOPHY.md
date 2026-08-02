@@ -265,7 +265,7 @@ The kill switch check is **the first statement in `RiskEngine.decide()`**, guard
 
 Latency is a design parameter for the two halves that involve the outside world: trip decision within 100 ms p99 of the triggering event reaching the bus, and cancellation of all resting orders submitted within 2 s p99.
 
-`FAILSAFE.md` §2.4 explains why the default on trip is **cancel, not flatten**. Briefly: flattening is itself a trading decision, and the conditions that trip a kill switch are exactly the conditions in which market orders execute worst.
+`FAILSAFE.md` §2.4 and [ADR 0014](docs/adr/0014-kill-switch-flattens-on-trip.md) explain why the trip **flattens the book**, and why it sizes the exit from venue state rather than from local position records. Briefly: an unhandled exception already flattens (`.claude/rules/error-handling.md`), so a kill switch that did not would make the response to uncertainty depend on which code path noticed it; and "let a human decide" needs a human, which an unattended system does not have at 03:00. The cost — flattening is a market order under the conditions that produce the worst fills — is real, tracked as `killswitch.flatten_slippage_bps`, and is the ADR's stated revisit trigger.
 
 Resume requires a human command with an incident ID, a non-empty root cause, and a clean reconciliation within the preceding five minutes. There is no automatic resume, including when the drawdown recovers. A system that unhalts itself has a kill switch in name only.
 

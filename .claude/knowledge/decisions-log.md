@@ -52,6 +52,7 @@ Status: **active** · **SUPERSEDED by D-NNN** · **open to revisit** (a decision
 | D-028 | Two concrete callers before an abstraction exists | Designing the interface first | active | `CLAUDE.md` §3 |
 | D-029 | `import-linter` contracts as executable architecture | Documented conventions and code review | active | `ARCHITECTURE.md` §2 |
 | D-030 | Self-hosted OpenTelemetry stack, instrumented from P0 | A hosted APM, or instrumenting later | active | `ARCHITECTURE.md` §11 |
+| D-031 | Kill switch flattens on trip, sized from venue state | Cancel-only with positions left open; flatten-or-cancel per trigger class | active | ADR 0014 |
 
 ---
 
@@ -108,6 +109,16 @@ Testnet is an **execution-plumbing** environment: it proves your order was forme
 The behavioural corollary is the point: **a hypothesis with a large parameter grid is expensive to everyone, forever.** So the right design is one or two parameters fixed a priori from a mechanism, tested once. If you cannot fix a parameter from theory, that is evidence you do not have a mechanism — and a hypothesis without a mechanism is a search.
 
 **Revisit trigger**: none. Exempting "exploratory" runs is the exact hole that makes the whole defence ornamental. See [`../rules/overfitting-defences.md`](../rules/overfitting-defences.md).
+
+### D-031 — The kill switch flattens on trip, sized from venue state
+
+**Rejected**: cancel resting orders and leave positions open — which `FAILSAFE.md` §2.4 previously argued for, at length and well.
+
+**Why it lost**: two documents in this repository stated opposite defaults, so one had to go. The argument that settled it was not about slippage but about **consistency**: `.claude/rules/error-handling.md` already has the supervisor flatten the book on any unhandled exception, which is the least-understood state the system can reach. A kill switch that left positions open would make the response to maximum uncertainty depend on which code path happened to notice it. Second, cancel-only's premise — *stop making it worse and let a human decide* — requires a human inside the window a crypto position can move in, and this system runs unattended.
+
+**What survived the rejection**: cancel-only's sharpest objection was not about execution quality. It was that several triggers indicate our *position record itself* is untrustworthy, so closing orders sized from it can open a position rather than close one. That is correct, and it is why the flatten reads quantities from the venue and refuses to proceed at all when the venue cannot be read — halting with positions open and paging, rather than guessing.
+
+**Revisit trigger**: median flatten slippage above 50bp across ten consecutive trips, or the flatten's realised loss exceeding the drawdown that triggered it in three of them. Observed on `killswitch.flatten_slippage_bps`. Then reconsider the per-trigger-class variant with incident data rather than prediction. Full argument in ADR 0014.
 
 ---
 
