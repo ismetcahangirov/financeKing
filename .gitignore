@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# uv / virtualenv. uv.lock is committed on purpose -- CONTRIBUTING.md documents
+# `uv sync --frozen`, which is only reproducible if the lockfile is in the tree.
+.venv/
+
+# Tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Secrets and local configuration. There is no .env in this repository and there
+# never will be one -- see SECURITY.md.
+.env
+.env.*
+!.env.example
+
+# Local market archives. Anchored to the repository root on purpose: an unanchored
+# `data/` also matches src/fking/data/, which silently drops a source package from
+# every commit.
+/data/
+*.parquet
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
