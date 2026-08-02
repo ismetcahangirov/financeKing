@@ -54,23 +54,41 @@ jobs:
       - name: ruff check
         run: uv run ruff check --output-format=github .
 
+      # Every check below runs even when an earlier one failed. Steps stop the job by
+      # default, which means a ruff error hides whatever import-linter would have said,
+      # and you learn about three violations across three round trips instead of one.
+      # `!cancelled()` rather than `always()`: a cancelled run should stop, not grind
+      # through the remaining checks on a branch nobody is waiting for. A failed step
+      # still fails the job -- a later success does not mask it.
       - name: ruff format --check
+        if: ${{ !cancelled() }}
         run: uv run ruff format --check .
 
       - name: import-linter contracts
+        if: ${{ !cancelled() }}
         # Not `python -m importlinter.cli`: that imports the module, evaluates no
         # contracts and exits 0, which is indistinguishable from every contract
         # passing.
         run: uv run lint-imports
 
       - name: AST checks
+        if: ${{ !cancelled() }}
+        # `set +e` plus an accumulated status, for the same reason: four checks, one
+        # report. Without it the first failing check hides the other three.
         run: |
-          uv run python tools/checks/money_types.py src/fking
-          uv run python tools/checks/clock_isolation.py src/fking
-          uv run python tools/checks/no_catch_safety.py src/fking tests
-          uv run python tools/checks/naming.py src/fking
+          set +e
+          status=0
+          for check in money_types clock_isolation no_catch_safety naming; do
+            targets="src/fking"
+            if [ "$check" = "no_catch_safety" ]; then targets="src/fking tests"; fi
+            echo "::group::$check"
+            uv run python "tools/checks/$check.py" $targets || status=1
+            echo "::endgroup::"
+          done
+          exit $status
 
       - name: gitleaks
+        if: ${{ !cancelled() }}
         uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
