@@ -608,6 +608,19 @@ make check
 2. `ruff format --check`
 3. `mypy --strict`
 4. `lint-imports` — the `import-linter` architecture contracts
-5. `pytest` with per-module coverage floors
+5. `tools/checks/` — the AST checks for rules no linter can express
+6. `pytest`
+7. `tools/coverage_floors.py` — the per-module coverage floors
+
+Step 5 exists because four rules in this document cannot be written as a ruff rule or a
+type: `money_types` rejects a float annotation on a money-shaped name, `clock_isolation`
+rejects a wall-clock read inside `strategy/` or `risk/`, `no_catch_safety` rejects
+`except SafetyViolation` and `except BaseException`, and `naming` rejects the ambiguous
+trading nouns in §7. Each has a test asserting it catches a known violation as well as
+one asserting it passes clean code — a check that cannot fail proves nothing.
+
+Step 7 is separate from step 6 because `coverage.py` has one `fail_under`, and one
+global number lets a well-tested utility subsidise untested risk logic. The floors are
+enforced as separate report passes over the same data.
 
 Every rule in this document is either in that list or is marked **review only**. If you add a rule to this document, add its check or mark it honestly — a rule that is neither enforced nor labelled unenforced is a rule everyone assumes someone else is checking.
