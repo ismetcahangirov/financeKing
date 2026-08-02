@@ -61,15 +61,17 @@ Exists first because every later phase writes code touching money-shaped objects
 | Schema, migrations, audit substrate | [#17](https://github.com/ismetcahangirov/financeKing/issues/17) | L |
 | Event bus, logging, telemetry | [#18](https://github.com/ismetcahangirov/financeKing/issues/18) | L |
 | Re-verify free-tier landscape | [#19](https://github.com/ismetcahangirov/financeKing/issues/19) | M |
+| Database roles, least-privilege grants | [#106](https://github.com/ismetcahangirov/financeKing/issues/106) | M |
+| Container and network hardening | [#107](https://github.com/ismetcahangirov/financeKing/issues/107) | M |
 
-**Exit:** `docker compose up` healthy · `make check` green · a test proves the safety kernel rejects mainnet and cannot be overridden by config.
+**Exit:** `docker compose up` healthy · `make check` green · a test proves the safety kernel rejects mainnet and cannot be overridden by config, and that an outbound connection to a production host fails at the network layer with the in-process kernel bypassed.
 
 ---
 
 ### P1 — Data Platform
 *Epic [#2](https://github.com/ismetcahangirov/financeKing/issues/2) · depends on P0*
 
-**12 task issues** — [P1 milestone](https://github.com/ismetcahangirov/financeKing/milestone/2)
+**13 task issues** — [P1 milestone](https://github.com/ismetcahangirov/financeKing/milestone/2)
 
 Bulk historical ingestion, live streaming, normalization, feature store with point-in-time semantics, data-quality gates, alternative data.
 
@@ -82,7 +84,7 @@ Bulk historical ingestion, live streaming, normalization, feature store with poi
 ### P2 — Backtest & Validation Engine
 *Epic [#3](https://github.com/ismetcahangirov/financeKing/issues/3) · depends on P1 · **critical path***
 
-**13 task issues** — [P2 milestone](https://github.com/ismetcahangirov/financeKing/milestone/3)
+**14 task issues** — [P2 milestone](https://github.com/ismetcahangirov/financeKing/milestone/3)
 
 Event-driven engine, venue abstraction, cost model, walk-forward, CPCV, Monte Carlo, deflated Sharpe, tearsheets.
 
@@ -95,7 +97,7 @@ Event-driven engine, venue abstraction, cost model, walk-forward, CPCV, Monte Ca
 ### P3 — Strategy & Risk Core
 *Epic [#4](https://github.com/ismetcahangirov/financeKing/issues/4) · depends on P2*
 
-**12 task issues** — [P3 milestone](https://github.com/ismetcahangirov/financeKing/milestone/4)
+**14 task issues** — [P3 milestone](https://github.com/ismetcahangirov/financeKing/milestone/4)
 
 Strategy contract, three baseline strategies, risk engine, sizing, correlation-aware exposure, drawdown and daily loss limits, kill switch.
 
@@ -108,7 +110,7 @@ The baselines (trend, mean reversion, funding carry) are **not expected to be pr
 ### P4 — Demo Execution
 *Epic [#5](https://github.com/ismetcahangirov/financeKing/issues/5) · depends on P3 · `safety:critical`*
 
-**12 task issues** — [P4 milestone](https://github.com/ismetcahangirov/financeKing/milestone/5)
+**13 task issues** — [P4 milestone](https://github.com/ismetcahangirov/financeKing/milestone/5)
 
 Binance testnet adapters (two user-data paths), OMS, reconciliation, clock-skew monitoring, rate limiting, promotion gate, execution quality analysis.
 
@@ -134,7 +136,7 @@ LLM gateway with quota-aware routing and failover, agent runtime, versioned prom
 ### P6 — Evolution Engine
 *Epic [#7](https://github.com/ismetcahangirov/financeKing/issues/7) · depends on P2, P3*
 
-**12 task issues** — [P6 milestone](https://github.com/ismetcahangirov/financeKing/milestone/7)
+**13 task issues** — [P6 milestone](https://github.com/ismetcahangirov/financeKing/milestone/7)
 
 Lifecycle state machine, survival scoring, mutation and crossover, global trial registry, held-out period manager, champion/challenger promotion, population diversity, lineage store.
 
@@ -147,7 +149,7 @@ Lifecycle state machine, survival scoring, mutation and crossover, global trial 
 ### P7 — Observability & Control Plane
 *Epic [#8](https://github.com/ismetcahangirov/financeKing/issues/8) · instrumented throughout, assembled last*
 
-**12 task issues** — [P7 milestone](https://github.com/ismetcahangirov/financeKing/milestone/8)
+**14 task issues** — [P7 milestone](https://github.com/ismetcahangirov/financeKing/milestone/8)
 
 OpenTelemetry coverage, provisioned dashboards, correlation ID propagation, append-only audit log, Next.js dashboard, alert rules, runbooks.
 
