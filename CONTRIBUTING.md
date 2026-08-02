@@ -151,9 +151,11 @@ An ADR is required when a decision **constrains future changes** — when someon
 
 **Not required:** adding a strategy that uses existing primitives; adding a feature to the existing registry; bug fixes; refactors that preserve behaviour and contracts; performance work that does not change semantics; documentation.
 
-**Write it with `/adr`.** The load-bearing section is **Alternatives considered** — specifically, the strongest rejected alternative, given its best case. An ADR whose alternatives are all obviously bad is an ADR that did not consider any. Include "do nothing" explicitly; it is frequently right and nobody writes it down.
+**Write it with `/adr`**, from [`.claude/templates/adr.md`](.claude/templates/adr.md), into [`docs/adr/`](docs/adr/README.md). The load-bearing section is **Alternatives considered** — specifically, the strongest rejected alternative, given its best case. An ADR whose alternatives are all obviously bad is an ADR that did not consider any. Include "do nothing" explicitly; it is frequently right and nobody writes it down.
 
-ADRs are **immutable once accepted**. Changing a decision means writing a new ADR that supersedes the old one, adding exactly one line (`> Superseded by ADR-00XX`) to the old one and changing nothing else in it. The record of rejected paths is the valuable part; editing it destroys the reason the record exists.
+ADRs are **immutable once accepted**. Changing a decision means writing a new ADR that supersedes the old one, updating the old one's `status` line to name its successor and changing nothing else in it. The record of rejected paths is the valuable part; editing it destroys the reason the record exists.
+
+The mechanical parts are checked rather than reviewed. `tools/checks/adr_index.py` runs in `make check` and in CI's fast gate, and fails on a filename that disagrees with its `number`, a reused number, a malformed `status` or `date`, a supersession recorded on only one side, or a stale index table. Regenerate the table with `make adr-index` — never by hand. [`docs/adr/README.md`](docs/adr/README.md) states each rejection and why it exists.
 
 An ADR cannot decide to weaken demo-only execution, backtest/live parity, risk's exclusive authority to construct orders, point-in-time features, or append-only audit. If it touches one of those, it needs the user's explicit agreement before its status becomes Accepted.
 
