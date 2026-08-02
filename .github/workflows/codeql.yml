@@ -1,0 +1,43 @@
+name: CodeQL
+
+# Separate workflow from ci.yml because it has a schedule and needs
+# security-events: write, which the main pipeline should not carry. A workflow that
+# holds a permission for one of its seven jobs holds it for all of them.
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "tools/**"
+      - ".github/workflows/codeql.yml"
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, so a newly published query finds old code. A PR-only scan never
+    # re-examines anything already merged.
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: CodeQL (python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          # security-and-quality over the default `security`: the extra queries
+          # include the ones about swallowed exceptions and unreachable code, which
+          # are correctness rules here rather than style ones.
+          queries: security-and-quality
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:python"

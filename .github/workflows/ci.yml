@@ -1,0 +1,291 @@
+name: CI
+
+# Pull requests and pushes to main. The repository is public, so Actions minutes are
+# not a constraint -- wall time is, because a gate nobody waits for is a gate people
+# merge around.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to a branch makes the previous run's answer obsolete. main is excluded:
+# cancelling there would leave the merged commit with no recorded verdict.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  # Pinned rather than floating: CI and the developer machine must run the same
+  # interpreter, or a difference in behaviour gets attributed to the change under
+  # review. Matches .python-version.
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Fast gate. Runs first and alone, so the expensive jobs never start on a diff
+  # that a two-second linter would have rejected.
+  # --------------------------------------------------------------------------
+  fast:
+    name: Fast gate (lint, format, imports, secrets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # gitleaks scans history, not just the tip. A secret committed and then
+          # "removed" in a later commit is still in the pack file and still valid.
+          fetch-depth: 0
+
+      # Exact version, not a major. astral-sh/setup-uv publishes only precise tags --
+      # there is no moving `v9` ref, and referencing one fails the run at action
+      # resolution, before a single check has had the chance to say anything.
+      # Dependabot keeps this current.
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen
+
+      - name: ruff check
+        run: uv run ruff check --output-format=github .
+
+      # Every check below runs even when an earlier one failed. Steps stop the job by
+      # default, which means a ruff error hides whatever import-linter would have said,
+      # and you learn about three violations across three round trips instead of one.
+      # `!cancelled()` rather than `always()`: a cancelled run should stop, not grind
+      # through the remaining checks on a branch nobody is waiting for. A failed step
+      # still fails the job -- a later success does not mask it.
+      - name: ruff format --check
+        if: ${{ !cancelled() }}
+        run: uv run ruff format --check .
+
+      - name: import-linter contracts
+        if: ${{ !cancelled() }}
+        # Not `python -m importlinter.cli`: that imports the module, evaluates no
+        # contracts and exits 0, which is indistinguishable from every contract
+        # passing.
+        run: uv run lint-imports
+
+      - name: AST checks
+        if: ${{ !cancelled() }}
+        # `set +e` plus an accumulated status, for the same reason: four checks, one
+        # report. Without it the first failing check hides the other three.
+        run: |
+          set +e
+          status=0
+          for check in money_types clock_isolation no_catch_safety naming; do
+            targets="src/fking"
+            if [ "$check" = "no_catch_safety" ]; then targets="src/fking tests"; fi
+            echo "::group::$check"
+            uv run python "tools/checks/$check.py" $targets || status=1
+            echo "::endgroup::"
+          done
+          exit $status
+
+      - name: gitleaks
+        if: ${{ !cancelled() }}
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  # --------------------------------------------------------------------------
+  # Type gate
+  # --------------------------------------------------------------------------
+  types:
+    name: Type gate (mypy --strict)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: fast
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen
+
+      - name: Cache the mypy incremental store
+        uses: actions/cache@v6
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ github.sha }}
+          restore-keys: mypy-${{ runner.os }}-${{ hashFiles('uv.lock') }}-
+
+      - name: mypy --strict
+        run: uv run python -m mypy
+
+  # --------------------------------------------------------------------------
+  # Test gate, including the per-module coverage floors.
+  #
+  # No Postgres or Redis service container yet, deliberately. Nothing opens a
+  # connection until the schema (#17) and the event bus (#18) exist, and a service
+  # nothing connects to is CI time spent proving the runner can start Postgres.
+  # They arrive with the first test that needs them, at which point TESTING.md's
+  # "never mock the database" becomes enforceable rather than aspirational.
+  # --------------------------------------------------------------------------
+  test:
+    name: Test gate (pytest, coverage floors)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: fast
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen
+
+      - name: pytest
+        # The ci profile is derandomized: a pull-request gate that fails on a newly
+        # drawn Hypothesis example is a flaky gate, and the search for new
+        # counterexamples belongs in the nightly job.
+        env:
+          HYPOTHESIS_PROFILE: ci
+        run: uv run python -m pytest
+
+      - name: Per-module coverage floors
+        # Separate from pytest on purpose: coverage.py has one fail_under, and one
+        # global number lets well-tested utilities subsidise untested risk logic.
+        run: uv run python tools/coverage_floors.py
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------------
+  # Safety gate.
+  #
+  # Separate from `test` so its failure is unmistakable in the checks list rather
+  # than buried among unit tests, per issue #15.
+  #
+  # The kernel does not exist until #11. That makes this gate's honesty the whole
+  # problem: a check named "Safety gate" that is green because it verified nothing
+  # is worse than no check at all -- it is exactly the failure this repository
+  # already hit once, where a command exited 0 having evaluated no contracts. So
+  # the job annotates itself as inert while the module is absent, and enforces
+  # 100% the moment it appears.
+  # --------------------------------------------------------------------------
+  safety:
+    name: Safety gate (platform/safety at 100%)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: fast
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen
+
+      - name: Enforce the safety-kernel coverage floor
+        run: |
+          if [ ! -d src/fking/platform/safety ]; then
+            echo "::warning title=Safety gate inert::src/fking/platform/safety does not exist yet (#11). This gate verifies nothing until the kernel lands."
+            exit 0
+          fi
+          if [ ! -d tests/platform/safety ]; then
+            echo "::error title=Safety gate::the safety kernel exists but tests/platform/safety does not; the demo-only guarantee is unverified"
+            exit 1
+          fi
+          uv run python -m pytest tests/platform/safety --cov=fking.platform.safety --cov-report=term-missing
+          uv run python -m coverage report --include='src/fking/platform/safety/*' --fail-under=100
+
+  # --------------------------------------------------------------------------
+  # safety-kernel-diff -- fails by design. GIT_WORKFLOW.md section 7.
+  #
+  # This is not a bug to be fixed. It is a forced stop: merging past it requires an
+  # admin override with a written reason on the pull request. That friction is the
+  # feature, and it is why branch protection must NOT enable enforce_admins.
+  # --------------------------------------------------------------------------
+  safety-kernel-diff:
+    name: Safety kernel diff (forced stop)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Fail if the safety kernel changed
+        run: |
+          base="origin/${{ github.base_ref }}"
+          git fetch --quiet origin "${{ github.base_ref }}"
+          changed="$(git diff --name-only "$base"...HEAD -- src/fking/platform/safety tests/platform/safety)"
+          if [ -z "$changed" ]; then
+            echo "safety kernel untouched"
+            exit 0
+          fi
+          echo "::error title=Safety kernel changed::$changed"
+          echo "This check fails by design (GIT_WORKFLOW.md section 7). Merging requires an"
+          echo "explicit human override with a written reason on the pull request."
+          exit 1
+
+  # --------------------------------------------------------------------------
+  # Pull-request metadata
+  # --------------------------------------------------------------------------
+  pr-metadata:
+    name: PR metadata (docs/src split, safety label)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Check title, labels and changed paths
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          git fetch --quiet origin "${{ github.base_ref }}"
+          git diff --name-only "origin/${{ github.base_ref }}"...HEAD > changed-files.txt
+          uv run python tools/ci/check_pr_metadata.py \
+            --pr-title "$PR_TITLE" \
+            --labels "$PR_LABELS" \
+            --changed-files changed-files.txt
+
+  # --------------------------------------------------------------------------
+  # Dependency CVEs
+  # --------------------------------------------------------------------------
+  security:
+    name: Security gate (pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: fast
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Audit the locked dependency set
+        # Exported from uv.lock rather than from the installed environment, so the
+        # audit covers exactly what a reproducible install would produce.
+        run: |
+          uv export --frozen --all-groups --no-emit-project --format requirements.txt \
+            > audited-requirements.txt
+          uvx pip-audit --strict --requirement audited-requirements.txt
