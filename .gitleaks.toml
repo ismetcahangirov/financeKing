@@ -1,0 +1,46 @@
+# gitleaks configuration.
+#
+# Not part of `make check`: gitleaks is a standalone binary rather than a uv
+# dependency, so requiring it would make `make check` fail on a clean checkout that
+# has only run `uv sync`. It runs via `make secrets` and, from #15, in CI.
+#
+# The threat this closes is not an attacker. It is a developer filling in a
+# .env.example from the credentials they actually had to hand -- which, on a project
+# whose prime directive is that it never touches a production exchange, is the one way
+# a real key enters the repository.
+
+title = "financeKing"
+
+[extend]
+# The upstream ruleset already covers PEM private keys, cloud provider credentials and
+# generic high-entropy assignments. Redefining those here would mean maintaining a
+# copy that silently falls behind upstream.
+useDefault = true
+
+[[rules]]
+id = "binance-api-credential"
+description = "Binance API key or secret (64-character base62, HMAC-SHA256 keys)"
+# Binance issues 64-char alphanumeric keys. Anchoring on the assignment keyword rather
+# than on entropy alone: a bare 64-char hex string is far more often a git SHA, a
+# checksum from a recorded fixture, or a row_hash from the audit chain.
+regex = '''(?i)\b(?:binance)[_-]?(?:api)?[_-]?(?:key|secret)\b\s*[:=]\s*["']?([A-Za-z0-9]{64})["']?'''
+secretGroup = 1
+keywords = ["binance"]
+
+[[rules]]
+id = "ed25519-private-key-material"
+description = "Ed25519 private key, used by Binance spot session.logon"
+regex = '''-----BEGIN(?: OPENSSH)? PRIVATE KEY-----'''
+keywords = ["BEGIN"]
+
+[allowlist]
+description = "Documentation and lockfiles carry hash-shaped strings that are not secrets"
+paths = [
+    # uv.lock is nothing but package hashes.
+    '''uv\.lock''',
+    # The operating-manual documents show illustrative payloads and digests. They are
+    # reviewed prose, not configuration, and they are where the example
+    # `row_hash`/`sha256` values live.
+    '''\.claude/rules/.*\.md''',
+    '''\.claude/agents/.*\.md''',
+]

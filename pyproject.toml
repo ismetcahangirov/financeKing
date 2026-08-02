@@ -1,0 +1,260 @@
+[project]
+name = "fking"
+version = "0.1.0"
+description = "Autonomous AI trading platform. Demo accounts only."
+readme = "README.md"
+# Pinned to a single minor version rather than ">=3.12": CI, Docker Compose and the
+# developer machine must run the same interpreter, because a version skew in a
+# money-handling codebase surfaces as a behaviour difference nobody attributes to
+# Python. See .claude/agents/devops.md.
+requires-python = ">=3.12,<3.13"
+
+# Deliberately empty. A runtime dependency is added by the pull request that first
+# imports it, with its justification in that PR body -- CONTRIBUTING.md requires an
+# ADR for any significant dependency adoption. Locking the full ARCHITECTURE.md
+# technology set here would pin ~40 packages whose version constraints nobody can
+# yet defend, which is the failure mode issue #1 names as this phase's main risk.
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fking"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.0",
+    "mypy>=1.18.0",
+    "import-linter>=2.3",
+    "pytest>=8.3",
+    "pytest-asyncio>=1.0",
+    "pytest-cov>=6.0",
+    "pytest-randomly>=3.16",
+    "hypothesis>=6.130",
+    "coverage>=7.6",
+]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests", "tools"]
+# ruff also formats Python code blocks embedded in Markdown. The documentation set is
+# hand-authored, and its examples are shaped for reading rather than for the
+# formatter -- letting ruff reflow them puts 81 unrelated files into every pull
+# request that runs `make format`, which is how a diff becomes unreviewable.
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+# The union of the rule sets named across .claude/rules/. Each set is load-bearing
+# for at least one rule in that directory: DTZ for time-and-timezones, BLE/TRY for
+# error-handling, G/LOG for logging-rules, ANN/N for naming, S for the eval/exec and
+# SQL-string bans in llm-output-handling.
+select = [
+    "A",    # flake8-builtins
+    "ANN",  # flake8-annotations
+    "ARG",  # flake8-unused-arguments
+    "B",    # flake8-bugbear
+    "BLE",  # flake8-blind-except
+    "C4",   # flake8-comprehensions
+    "DTZ",  # flake8-datetimez
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "FURB", # refurb
+    "G",    # flake8-logging-format
+    "I",    # isort
+    "LOG",  # flake8-logging
+    "N",    # pep8-naming
+    "PL",   # pylint
+    "PT",   # flake8-pytest-style
+    "RUF",  # ruff-specific
+    "S",    # flake8-bandit
+    "SIM",  # flake8-simplify
+    "TID",  # flake8-tidy-imports
+    "TRY",  # tryceratops
+    "UP",   # pyupgrade
+]
+ignore = [
+    # verbose-decimal-constructor rewrites Decimal("0") to Decimal(0). String
+    # construction is mandatory here even where the value is integral, because the
+    # spelling is what reviewers and tools/checks/money_types.py key on.
+    "FURB157",
+    # raise-vanilla-args: this project deliberately puts context in the message at
+    # the raise site -- venue codes, ids, the value that failed. Moving it into the
+    # class would produce one exception type per message.
+    "TRY003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# S101: asserting is what a test does. The ban exists for src/, where an assert
+# disappears under -O and takes its check with it.
+"tests/**/*.py" = ["S101"]
+# S603/S607: the boundary-contract test must run lint-imports as a real subprocess.
+# Asserting that a violating import fails CI by calling an in-process API would
+# prove the API works, not that CI fails.
+"tests/adversarial/*.py" = ["S101", "S603", "S607"]
+
+[tool.ruff.lint.flake8-annotations]
+# **kwargs: Any is how an unannotated boundary re-enters a --strict codebase.
+allow-star-arg-any = false
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "tests", "tools"]
+strict = true
+# --strict alone does not stop Any propagating out of an untyped import, which means
+# one such import can silently disable type checking across an entire call path with
+# no error reported. CODING_STANDARDS.md 5.1.
+disallow_any_explicit = true
+warn_return_any = true
+warn_unreachable = true
+warn_unused_ignores = true
+
+# ---------------------------------------------------------------------------
+# import-linter -- the architecture diagram, made executable
+# ---------------------------------------------------------------------------
+
+[tool.importlinter]
+root_package = "fking"
+# Required for the network-client contract to see third-party modules at all.
+# Without it that contract passes silently because the forbidden modules are
+# absent from the analysed graph, and a silently-passing safety contract is worse
+# than no contract.
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Dependencies point inward toward domain"
+type = "layers"
+# The container form rather than fully-qualified layer names: `exhaustive` is only
+# supported for contracts with containers, and exhaustive is the point of this
+# contract.
+containers = ["fking"]
+layers = [
+    "api",
+    "evolution",
+    "agents",
+    "backtest",
+    "execution",
+    "risk",
+    "strategy",
+    "data",
+    "domain",
+]
+# Without exhaustive, a new top-level module is simply absent from the ordering and
+# therefore unconstrained -- it may import anything and be imported by anything, and
+# nobody notices for a year. platform is the sole ignore because it deliberately sits
+# outside the layering: it holds mechanism, not policy.
+exhaustive = true
+exhaustive_ignores = ["platform"]
+
+[[tool.importlinter.contracts]]
+name = "Strategies never reach the order path"
+type = "forbidden"
+source_modules = ["fking.strategy"]
+forbidden_modules = ["fking.execution", "fking.risk"]
+
+[[tool.importlinter.contracts]]
+name = "domain imports nothing but the standard library"
+type = "forbidden"
+source_modules = ["fking.domain"]
+forbidden_modules = [
+    "fking.agents",
+    "fking.api",
+    "fking.backtest",
+    "fking.data",
+    "fking.evolution",
+    "fking.execution",
+    "fking.platform",
+    "fking.risk",
+    "fking.strategy",
+]
+
+[[tool.importlinter.contracts]]
+name = "Only the safety kernel constructs network clients"
+type = "forbidden"
+source_modules = [
+    "fking.agents",
+    "fking.api",
+    "fking.backtest",
+    "fking.data",
+    "fking.domain",
+    "fking.evolution",
+    "fking.execution",
+    "fking.risk",
+    "fking.strategy",
+]
+# Top-level names only: import-linter rejects subpackages of external packages, so
+# this is `urllib` rather than `urllib.request`. The third-party clients
+# (httpx, aiohttp, websockets, requests) join this list in #11, when the safety
+# kernel makes one of them a real dependency -- naming a package that is not
+# installed is not a check, because a module absent from the graph can never be
+# found in a chain.
+forbidden_modules = ["http", "socket", "urllib"]
+# The sanctioned path is fking.execution -> fking.platform.safety -> httpx, which is
+# an indirect import and must stay legal. Leaving this at the default false would
+# fail the contract on the correct architecture.
+allow_indirect_imports = true
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# Explicit rather than relying on `python -m pytest` happening to put the working
+# directory on sys.path: without this, `import tools.checks` works under `make test`
+# and fails under a bare `pytest`, which is a difference nobody enjoys diagnosing.
+pythonpath = ["."]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    # pytest-randomly shuffles order and reseeds random/numpy per test. The seed is
+    # pinned so an order-dependent failure reproduces exactly from the CI log.
+    "--randomly-seed=20260801",
+    "--cov=src/fking",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-report=xml",
+]
+markers = [
+    "unit: in-process, no container, no network, under 100ms",
+    "integration: requires a testcontainer (Postgres/TimescaleDB or Redis)",
+    "property: Hypothesis-driven; profile selected by HYPOTHESIS_PROFILE",
+    "slow: over 5s wall clock; excluded from the local default profile",
+]
+filterwarnings = ["error"]
+xfail_strict = true
+asyncio_mode = "strict"
+
+# ---------------------------------------------------------------------------
+# coverage
+# ---------------------------------------------------------------------------
+
+[tool.coverage.run]
+branch = true
+source = ["src/fking"]
+# parallel stays off until pytest-xdist arrives: with it on, pytest-cov combines the
+# data files itself, and a second `coverage combine` in the Makefile then fails with
+# "No data to combine". Turning it on is part of the CI work in #15.
+parallel = false
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "@overload",
+    "class .*\\(Protocol\\):",
+]

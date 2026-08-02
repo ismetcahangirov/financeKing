@@ -1,0 +1,11 @@
+# Normalise to LF in the working tree, not just in the index.
+#
+# The reason is concrete: development happens on Windows while `make check` runs
+# inside a Linux container against the same working copy. With the default
+# core.autocrlf, a checkout rewrites the Makefile and the shell it invokes to CRLF,
+# and GNU Make inside the container then reads a trailing \r as part of every command.
+* text=auto eol=lf
+
+# Generated, and large. Marking it keeps it out of diff review noise while still
+# being committed -- `uv sync --frozen` is not reproducible without it.
+uv.lock linguist-generated=true
