@@ -11,7 +11,7 @@ ARGS ?=
 COMPOSE ?= docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help check lint format types imports checks test cover secrets up down logs ps config
+.PHONY: help check lint format types imports checks adr-index test cover secrets up down logs ps config
 
 help:  ## Show the available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -44,11 +44,19 @@ imports:  ## import-linter architecture contracts
 ## money-named field is never a float, that strategy and risk never read the wall
 ## clock, that SafetyViolation is never caught, and that ambiguous trading nouns
 ## never become identifiers. .claude/rules/ carries the reasoning for each.
-checks:  ## Project-specific AST checks
+##
+## adr_index is not an AST check -- it reads Markdown front matter -- but it belongs
+## here for the same reason: a stale decision index is a document that answers a
+## question wrongly, and a reader who gets an answer stops looking.
+checks:  ## Project-specific AST and documentation checks
 	$(UV) run python tools/checks/money_types.py $(SRC)
 	$(UV) run python tools/checks/clock_isolation.py $(SRC)
 	$(UV) run python tools/checks/no_catch_safety.py $(SRC) tests
 	$(UV) run python tools/checks/naming.py $(SRC)
+	$(UV) run python tools/checks/adr_index.py docs/adr
+
+adr-index:  ## Regenerate the ADR index in docs/adr/README.md
+	$(UV) run python tools/checks/adr_index.py --write docs/adr
 
 test:  ## pytest; pass extra flags with ARGS="..."
 	$(UV) run python -m pytest $(ARGS)

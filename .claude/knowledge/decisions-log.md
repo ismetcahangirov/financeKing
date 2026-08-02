@@ -22,35 +22,35 @@ Status: **active** · **SUPERSEDED by D-NNN** · **open to revisit** (a decision
 
 | ID | Decision | Rejected alternative | Status | Canonical source |
 |---|---|---|---|---|
-| D-001 | Demo-only, enforced by a compiled-in allowlist | A configuration flag or environment guard | active | `CLAUDE.md` §0 |
-| D-002 | `Decimal` from `str` for all money | `float`, or `Decimal` from numeric literals | active | `CLAUDE.md` §2 |
+| D-001 | Demo-only, enforced by a compiled-in allowlist | A configuration flag or environment guard | active | `CLAUDE.md` §0 · ADR 0006 |
+| D-002 | `Decimal` from `str` for all money | `float`, or `Decimal` from numeric literals | active | `CLAUDE.md` §2 · ADR 0011 |
 | D-003 | Timezone-aware UTC everywhere | Naive datetimes normalised by convention | active | `CLAUDE.md` §2 |
 | D-004 | Immutable domain objects | Mutable objects with careful discipline | active | `CLAUDE.md` §2 |
-| D-005 | Strategies emit `Signal`; risk alone builds `Order` | Strategies size their own positions | active | `ARCHITECTURE.md` §5 |
-| D-006 | Modular monolith | Microservices | active | `ARCHITECTURE.md` §2 |
+| D-005 | Strategies emit `Signal`; risk alone builds `Order` | Strategies size their own positions | active | `ARCHITECTURE.md` §5 · ADR 0012 |
+| D-006 | Modular monolith | Microservices | active | `ARCHITECTURE.md` §2 · ADR 0001 |
 | D-007 | Custom backtest engine | `NautilusTrader` | **open to revisit** | ADR 0005 |
-| D-008 | No vectorized engine in the core | VectorBT, `bt` | active | `ARCHITECTURE.md` §4 |
-| D-009 | PostgreSQL 16 + TimescaleDB as the single operational store | Postgres *and* ClickHouse | active | `ARCHITECTURE.md` §6 |
-| D-010 | Parquet + DuckDB for bulk historical scans | Everything in Timescale | active | `ARCHITECTURE.md` §6 |
-| D-011 | Redis Streams as the event bus | Kafka | active | `ARCHITECTURE.md` §12 |
-| D-012 | `ccxt` >= 4.5.70 as the exchange client | `python-binance`, `binance-connector`, official `binance-sdk-*` | active | `ARCHITECTURE.md` §7 |
-| D-013 | Two user-data code paths behind one interface | One unified user-data abstraction | active | `ARCHITECTURE.md` §7 |
+| D-008 | No vectorized engine in the core | VectorBT, `bt` | active | `ARCHITECTURE.md` §4 · ADR 0005 |
+| D-009 | PostgreSQL 16 + TimescaleDB as the single operational store | Postgres *and* ClickHouse | active | `ARCHITECTURE.md` §6 · ADR 0003 |
+| D-010 | Parquet + DuckDB for bulk historical scans | Everything in Timescale | active | `ARCHITECTURE.md` §6 · ADR 0003 |
+| D-011 | Redis Streams as the event bus | Kafka | active | `ARCHITECTURE.md` §12 · ADR 0004 |
+| D-012 | `ccxt` >= 4.5.70 as the exchange client | `python-binance`, `binance-connector`, official `binance-sdk-*` | active | `ARCHITECTURE.md` §7 · ADR 0008 |
+| D-013 | Two user-data code paths behind one interface | One unified user-data abstraction | active | `ARCHITECTURE.md` §7 · ADR 0007 |
 | D-014 | Reconciliation as a first-class feature | Trusting local state between restarts | active | `ARCHITECTURE.md` §7 |
-| D-015 | Cost models calibrated from production data only | Calibrating on testnet, which is free and convenient | active | `CLAUDE.md` §2 |
+| D-015 | Cost models calibrated from production data only | Calibrating on testnet, which is free and convenient | active | `CLAUDE.md` §2 · ADR 0007 |
 | D-016 | Append-only audit enforced by the database | Application-level append-only discipline | active | `CLAUDE.md` §2 |
 | D-017 | Idempotent consumers by design | Exactly-once delivery semantics | active | `CLAUDE.md` §2 |
 | D-018 | LLM agents on top of the core, never inside it | An LLM in the order path | active | `ARCHITECTURE.md` §9 |
-| D-019 | Gemini free tier primary, Groq fallback, behind a gateway | A single provider, called directly | active | `ARCHITECTURE.md` §9 |
+| D-019 | Gemini free tier primary, Groq fallback, behind a gateway | A single provider, called directly | active | `ARCHITECTURE.md` §9 · ADR 0009 |
 | D-020 | Survival score, not profit, as the objective | Return-based ranking | active | `ARCHITECTURE.md` §10 |
 | D-021 | Global, monotone trial counting charged at `max(declared, executed)` per specification | Per-study counts; execution-only counting; declaration-only counting | active | `.claude/rules/overfitting-defences.md` |
 | D-022 | Property-based tests mandatory for risk and position math | Example-based tests only | active | `CLAUDE.md` §5 |
 | D-023 | Real Postgres in tests; exchange mocked from recorded responses | Mocked database; hand-written fixtures | active | `CLAUDE.md` §5 |
 | D-024 | Timestamp normalization keyed on `(market, date)` | A global or per-market unit constant | active | ADR 0013 |
 | D-025 | Feature store refuses unavailable data | Returning a proxy or a best-effort substitute | active | `ARCHITECTURE.md` §6 |
-| D-026 | Docker Compose, single node | Kubernetes | active | `ARCHITECTURE.md` §12 |
+| D-026 | Docker Compose, single node | Kubernetes | active | `ARCHITECTURE.md` §12 · ADR 0010 |
 | D-027 | APScheduler + GitHub Actions cron | Temporal | active | `ARCHITECTURE.md` §12 |
 | D-028 | Two concrete callers before an abstraction exists | Designing the interface first | active | `CLAUDE.md` §3 |
-| D-029 | `import-linter` contracts as executable architecture | Documented conventions and code review | active | `ARCHITECTURE.md` §2 |
+| D-029 | `import-linter` contracts as executable architecture | Documented conventions and code review | active | `ARCHITECTURE.md` §2 · ADR 0001 |
 | D-030 | Self-hosted OpenTelemetry stack, instrumented from P0 | A hosted APM, or instrumenting later | active | `ARCHITECTURE.md` §11 |
 | D-031 | Kill switch flattens on trip, sized from venue state | Cancel-only with positions left open; flatten-or-cancel per trigger class | active | ADR 0014 |
 
@@ -66,7 +66,7 @@ Most rows above are adequately argued in their canonical document. These five ar
 
 **Why it lost**: the threat model is not malice. It is a config edit, a copied environment variable, an agent generating its own HTTP client, or a library changing a default base URL in a minor version bump. A guardrail living in configuration defends against none of those, **because configuration is precisely the thing that changes**. Compiling the allowlist into source means widening it requires a source edit and a reviewed PR labelled `safety:critical` — friction that is deliberate and is the single most important property of the system.
 
-**Revisit trigger**: none. This one does not have a revisit trigger, and the absence is intentional. If you are constructing an argument for revisiting it, the argument is the symptom. See [`../rules/safety-kernel.md`](../rules/safety-kernel.md).
+**Revisit trigger**: none. This one does not have a revisit trigger, and the absence is intentional. If you are constructing an argument for revisiting it, the argument is the symptom. Full argument in [ADR 0006](../../docs/adr/0006-compiled-in-safety-allowlist.md); mechanism in [`../rules/safety-kernel.md`](../rules/safety-kernel.md).
 
 ### D-005 — Strategies emit `Signal`; the risk engine alone constructs `Order`
 
@@ -74,7 +74,7 @@ Most rows above are adequately argued in their canonical document. These five ar
 
 **Why it lost**: a strategy that sizes its own positions can bankrupt the portfolio regardless of how good its signals are. The decisive argument is forward-looking rather than defensive — **this system will eventually write its own strategies via LLM agents, and an LLM-authored strategy will absolutely attempt to size its own positions if the type system permits it.** The constraint must be structural because the author will not be a human who read the documentation. Enforced by `import-linter`: `strategy` has no import path to `execution` or to order construction.
 
-**Revisit trigger**: none foreseen. A strategy that "needs" to size itself has misunderstood the design; the correct move is to enrich `Signal` (conviction, horizon, invalidation) so the risk engine has what it needs.
+**Revisit trigger**: three or more strategy specifications rejected in six months for the same missing `Signal` field. The remedy is then that field, never moving order construction — a strategy that "needs" to size itself has misunderstood the design. Full argument in [ADR 0012](../../docs/adr/0012-strategies-emit-signals-only.md).
 
 ### D-007 — Custom backtest engine over `NautilusTrader` — **open to revisit**
 
@@ -82,7 +82,7 @@ Most rows above are adequately argued in their canonical document. These five ar
 
 **Why it lost**: adopting it means adopting its domain model. The risk engine and the evolution engine would become plugins to its lifecycle rather than first-class components with authority over it. That inverts D-005 and D-020, which are the two decisions the whole architecture is organised around.
 
-**Why this entry is flagged provisional**: ADR 0005 explicitly records the decision as open to revisit rather than closed. Reopening requires a concrete recurring pain point in the custom engine that Nautilus would remove, plus a demonstration that the risk engine retains order-construction authority inside its lifecycle. Absent that, reopening is speculation. Tracked as [`./open-questions.md`](./open-questions.md) OQ-010.
+**Why this entry is flagged provisional**: [ADR 0005](../../docs/adr/0005-custom-backtest-engine.md) explicitly records the decision as open to revisit rather than closed, and states the two conditions that must hold *together* before reopening. Reopening requires a concrete recurring pain point in the custom engine that Nautilus would remove, plus a demonstration that the risk engine retains order-construction authority inside its lifecycle. Absent that, reopening is speculation. Tracked as [`./open-questions.md`](./open-questions.md) OQ-010.
 
 **Revisit trigger**: a named, recurring engine defect that Nautilus's design would have prevented.
 
@@ -94,7 +94,7 @@ Most rows above are adequately argued in their canonical document. These five ar
 
 Testnet is an **execution-plumbing** environment: it proves your order was formed, signed and acknowledged correctly. It proves nothing about price.
 
-**Revisit trigger**: none. Even if testnet liquidity improved, calibrating on it would be a coincidence rather than a method.
+**Revisit trigger**: none. Even if testnet liquidity improved, calibrating on it would be a coincidence rather than a method. The venue choice that makes production archives available at all is [ADR 0007](../../docs/adr/0007-binance-testnet-primary-bybit-fallback.md).
 
 ### D-021 — Global, monotone trial counting, charged at specification time
 
