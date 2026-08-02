@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import operator
 from decimal import Decimal
 
 import pytest
@@ -46,8 +47,11 @@ def test_money_defines_no_arithmetic_operators() -> None:
     usdt = Money(asset="USDT", quantity=Decimal("1"))
     for special in ("__add__", "__radd__", "__sub__", "__mul__"):
         assert not hasattr(Money, special), f"Money defines {special}"
+    # operator.add rather than `usdt + usdt`: a bare `a + b` expression statement
+    # discards its result, which is a genuine code smell everywhere except inside a
+    # raises block -- and a checker cannot tell the difference.
     with pytest.raises(TypeError):
-        usdt + usdt  # type: ignore[operator]  # the absence is the test
+        operator.add(usdt, usdt)
 
 
 def test_money_rejects_a_float_quantity() -> None:
