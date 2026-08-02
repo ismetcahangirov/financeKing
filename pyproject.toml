@@ -102,6 +102,17 @@ ignore = [
 # Asserting that a violating import fails CI by calling an in-process API would
 # prove the API works, not that CI fails.
 "tests/adversarial/*.py" = ["S101", "S603", "S607"]
+# PLR0913: the domain factories take one keyword per field of the type they build, so
+# the argument count is the type's field count. Collapsing them into a params object
+# would mean constructing a second object to construct the first.
+"tests/support/*.py" = ["PLR0913"]
+
+[tool.ruff.lint.isort]
+# `src` resolves first-party by looking for `<entry>/<package>`, which finds `fking`
+# under src/ and misses `tests` and `tools` -- so without this, a test helper import
+# sorts into the third-party block next to pytest. Naming them makes the three
+# first-party roots explicit rather than inferred.
+known-first-party = ["fking", "tests", "tools"]
 
 [tool.ruff.lint.flake8-annotations]
 # **kwargs: Any is how an unannotated boundary re-enters a --strict codebase.
@@ -118,6 +129,13 @@ docstring-code-format = true
 python_version = "3.12"
 files = ["src", "tests", "tools"]
 strict = true
+# tests/support/ is a package while tests/ deliberately is not, so mypy resolves the
+# same file as both `support.domain_factory` and `tests.support.domain_factory` and
+# refuses to continue. Anchoring package bases at the repository root gives it one
+# name. Adding tests/__init__.py would also work and would change how pytest imports
+# every test module, which is a larger change for the same fix.
+explicit_package_bases = true
+mypy_path = ["src", "."]
 # --strict alone does not stop Any propagating out of an untyped import, which means
 # one such import can silently disable type checking across an entire call path with
 # no error reported. CODING_STANDARDS.md 5.1.
