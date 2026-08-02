@@ -216,7 +216,7 @@ What this buys concretely:
 
 ### 4.3 `.env` hygiene
 
-- `.env` is gitignored. `.env.example` is committed and lists **every** variable with a description and a safe placeholder.
+- `.env` is gitignored. `.env.example` is committed, is generated from the settings tree, and lists **every** variable the application reads — verified in both directions by `tests/platform/config/test_env_example.py`, so it cannot fall behind the model or accumulate keys nothing reads. Values are **blank**, not plausible placeholders: a placeholder shaped like a credential is a credential somebody pastes over with a real one and then commits, which is vector 2 in §2. Descriptions are per section, and the field docstrings in `fking.platform.config.settings` are the single source of truth for the rest — a second copy of 150 descriptions is a second copy that diverges.
 - `.env.example` contains **no real hosts, no real keys, and no production URLs**, not even commented out.
 - `.env` is loaded only by `pydantic-settings` at startup. Nothing reads `os.environ` at call time.
 - File mode `0600` where the OS supports it. Checked at startup and warned on.

@@ -9,6 +9,7 @@ it claims to enforce has been dead for months.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from pathlib import Path
 
 import pytest
 
@@ -125,6 +126,25 @@ class TestNaming:
     def test_the_math_escape_suppresses_the_whole_module(self) -> None:
         source = f"{naming.MATH_ESCAPE}\ndef deflated(sr, n, t) -> None: ...\nsize = 1\n"
         assert naming.check_source(source, label="x.py") == []
+
+    def test_a_banned_word_that_names_a_package_is_accepted(self) -> None:
+        """`data` is banned as an identifier and is also the name of src/fking/data.
+        The settings section that configures that package mirrors its name."""
+        source = "data: DataSettings = Field(default_factory=DataSettings)\n"
+        assert naming.check_source(source, label="x.py", exempt=frozenset({"data"})) == []
+
+    def test_the_package_exemption_does_not_leak_to_other_banned_words(self) -> None:
+        """Exempting one name must not disarm the check for the rest of the list."""
+        source = "size = 1\n"
+        assert naming.check_source(source, label="x.py", exempt=frozenset({"data"}))
+
+    def test_package_names_are_read_from_the_tree(self, tmp_path: Path) -> None:
+        """Derived, not hardcoded: the exemption can only be widened by creating a
+        package, which the layering contract already reviews."""
+        (tmp_path / "data").mkdir()
+        (tmp_path / "data" / "__init__.py").touch()
+        (tmp_path / "notapackage").mkdir()
+        assert naming.package_names(tmp_path) == frozenset({"data"})
 
 
 CHECK_ENTRY_POINTS: Mapping[str, Callable[[Sequence[str]], int]] = {

@@ -52,6 +52,28 @@ BANNED: Final[frozenset[str]] = frozenset(
 MATH_ESCAPE: Final[str] = "# fking: allow-math-symbols"
 
 
+def package_names(root: Path) -> frozenset[str]:
+    """The top-level packages under `root`.
+
+    One word in BANNED is also a module name -- `data`, at src/fking/data. The module
+    map is the one context where these words are unambiguous, because the name is
+    resolved by the architecture rather than by the reader: `data` there means exactly
+    "ingestion, storage and the feature store", and a settings section or attribute
+    that mirrors the package must be allowed to share its name. Renaming it to
+    `market_data` would break the mirror between FKING_DATA__* and the package it
+    configures, and would be less accurate besides.
+
+    Derived from the tree rather than hardcoded, so this exemption cannot be widened by
+    editing a list -- it can only be widened by creating a package, which is a change
+    the layering contract already reviews.
+    """
+    return frozenset(
+        entry.name
+        for entry in root.iterdir()
+        if entry.is_dir() and (entry / "__init__.py").exists()
+    )
+
+
 def bound_names(tree: ast.AST) -> list[tuple[str, int]]:
     """Every identifier the module binds, with its line number."""
     found: list[tuple[str, int]] = []
@@ -69,12 +91,12 @@ def bound_names(tree: ast.AST) -> list[tuple[str, int]]:
     return found
 
 
-def check_source(source: str, *, label: str) -> list[str]:
+def check_source(source: str, *, label: str, exempt: frozenset[str] = frozenset()) -> list[str]:
     if MATH_ESCAPE in source:
         return []
     failures: list[str] = []
     for name, lineno in bound_names(ast.parse(source, filename=label)):
-        if name in BANNED:
+        if name in BANNED and name not in exempt:
             failures.append(
                 f"{label}:{lineno} ambiguous identifier '{name}' -- see .claude/rules/naming.md"
             )
@@ -84,9 +106,12 @@ def check_source(source: str, *, label: str) -> list[str]:
 
 
 def check_tree(root: Path) -> list[str]:
+    exempt = package_names(root)
     failures: list[str] = []
     for path in sorted(root.rglob("*.py")):
-        failures.extend(check_source(path.read_text(encoding="utf-8"), label=str(path)))
+        failures.extend(
+            check_source(path.read_text(encoding="utf-8"), label=str(path), exempt=exempt)
+        )
     return failures
 
 

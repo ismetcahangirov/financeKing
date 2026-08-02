@@ -16,6 +16,8 @@ requires-python = ">=3.12,<3.13"
 # yet defend, which is the failure mode issue #1 names as this phase's main risk.
 dependencies = [
     "httpx>=0.28.1",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.7",
     "structlog>=26.1.0",
     "websockets>=17.0.1",
 ]
@@ -143,6 +145,15 @@ disallow_any_explicit = true
 warn_return_any = true
 warn_unreachable = true
 warn_unused_ignores = true
+
+# pydantic's BaseModel synthesises `__init__(**data: Any)`, so *every* `class X(BaseModel)`
+# statement reports explicit-any -- the Any belongs to the library, not to this codebase,
+# and there is no spelling of a pydantic model that avoids it. Scoped to the one module
+# that declares models rather than relaxed globally, so an explicit `Any` written by hand
+# anywhere else still fails.
+[[tool.mypy.overrides]]
+module = ["fking.platform.config.settings"]
+disallow_any_explicit = false
 
 # ---------------------------------------------------------------------------
 # import-linter -- the architecture diagram, made executable
