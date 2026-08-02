@@ -1,0 +1,338 @@
+# financeKing -- base topology. DEPLOYMENT.md is the specification for this file.
+#
+# This file publishes NO ports. Every port binding lives in an override, so a
+# service is unreachable from the host unless an override deliberately exposed
+# it and the default is closed. DEPLOYMENT.md 2.
+#
+# Every image is pinned by digest with a comment naming the human-readable tag
+# and the date pinned. A floating tag makes the build a function of *when* you
+# ran it, and a database image that silently minor-bumps under a TimescaleDB
+# extension produces intermittent failures that look like flaky tests.
+# A bare digest is unreadable and gets "tidied up"; the comment is what stops
+# that. DEPLOYMENT.md 1.
+#
+# Every memory limit carries the value observed on this stack and the date
+# measured. An undocumented limit is a number someone will guess at later.
+# The budget targets a 16 GB host and is enumerated in DEPLOYMENT.md 4.
+
+name: fking
+
+services:
+  # ---------------------------------------------------------------------------
+  # postgres -- operational state, hypertables, audit tables, pgvector.
+  # ---------------------------------------------------------------------------
+  postgres:
+    # timescale/timescaledb-ha:pg16 -- pinned 2026-08-03.
+    # The -ha image rather than the plain one because it carries pgvector, which
+    # agent memory needs (MEMORY_SYSTEM.md) and which the plain image lacks.
+    image: timescale/timescaledb-ha@sha256:15c65f4176e5f19742d44fde1cb12c3db27b55033dbc8f11f0143635223add85
+    environment:
+      POSTGRES_USER: ${FKING_POSTGRES_USER:-postgres}
+      # Local-only default. This file publishes no ports, and the dev override
+      # binds 5432 to 127.0.0.1 only, so the socket is not reachable off-host.
+      # Least-privilege roles (fking_app, fking_ingest, fking_migrator) are #106;
+      # this is the bootstrap superuser those roles are created by.
+      POSTGRES_PASSWORD: ${FKING_POSTGRES_PASSWORD:-fking_local_only}
+      POSTGRES_DB: ${FKING_POSTGRES_DB:-fking}
+    healthcheck:
+      # pg_isready alone is insufficient: TimescaleDB's extension becomes
+      # available a few seconds AFTER the server starts accepting connections,
+      # and a migration run in that window fails with a misleading
+      # "type does not exist" that points nowhere near the real cause.
+      # A health check must test the thing the app actually needs.
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" &&
+          psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -tAc
+          "SELECT 1 FROM pg_extension WHERE extname='timescaledb'" | grep -q 1
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    volumes:
+      # PGDATA in this image is /home/postgres/pgdata/data, NOT the
+      # /var/lib/postgresql/data of the upstream postgres image. Mounting the
+      # upstream path here succeeds, mounts nothing useful, and loses the
+      # database on every recreate without announcing it. Verified against the
+      # image's own PGDATA on 2026-08-03.
+      - fking_pgdata:/home/postgres/pgdata
+    deploy:
+      resources:
+        limits:
+          # Observed 77 MiB idle on 2026-08-03; the 4 G ceiling is the
+          # DEPLOYMENT.md 4 budget for a loaded system and is deliberately not
+          # trimmed to the idle figure. Source of operational truth, never
+          # squeezed for the app.
+          memory: 4G
+          cpus: "2.0"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # redis -- Redis Streams event bus.
+  # ---------------------------------------------------------------------------
+  redis:
+    # redis:7-alpine -- pinned 2026-08-03.
+    image: redis@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+    # maxmemory is set BELOW the container limit on purpose. If Redis is allowed
+    # to reach the cgroup limit the kernel kills it; if it reaches maxmemory
+    # first it applies its own policy and stays alive. noeviction because the
+    # bus carries fills and risk decisions -- silently evicting one is worse
+    # than a write failing loudly.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 384mb
+      - --maxmemory-policy
+      - noeviction
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    volumes:
+      - fking_redis:/data
+    deploy:
+      resources:
+        limits:
+          # Observed 6 MiB idle on 2026-08-03. 512 M against a 384 MB
+          # maxmemory leaves room for the append-only rewrite buffer.
+          memory: 512M
+          cpus: "1.0"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # otel-collector -- telemetry fan-out. Traces to Tempo, logs to Loki,
+  # metrics scraped by Prometheus.
+  # ---------------------------------------------------------------------------
+  otel-collector:
+    # otel/opentelemetry-collector-contrib:0.115.1 -- pinned 2026-08-03.
+    image: otel/opentelemetry-collector-contrib@sha256:d2da12c4336a79758826700be9e21ecf4a9f7d945b7f8a58ba55ee3fa45427c8
+    command: ["--config=/etc/otel/config.yaml"]
+    # No healthcheck, and this is not an oversight. The image is distroless --
+    # it contains no shell and no wget or curl, verified on 2026-08-03 -- so a
+    # container-level health check cannot be expressed at all. The collector's
+    # own health_check extension is enabled on :13133 and Prometheus scrapes
+    # its self-telemetry, so the process is observable; it simply is not
+    # observable by a `docker` HEALTHCHECK. Nothing depends on this service
+    # being healthy: dependents use `service_started`, because telemetry is
+    # never permitted to gate the trading system. DEPLOYMENT.md 3.
+    volumes:
+      - ./ops/otel-collector/config.yaml:/etc/otel/config.yaml:ro
+    depends_on:
+      tempo: {condition: service_healthy}
+      loki: {condition: service_healthy}
+    deploy:
+      resources:
+        limits:
+          # Observed 34 MiB idle on 2026-08-03.
+          memory: 512M
+          cpus: "1.0"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # prometheus -- metrics, 15d.
+  # ---------------------------------------------------------------------------
+  prometheus:
+    # prom/prometheus:v3.0.1 -- pinned 2026-08-03.
+    image: prom/prometheus@sha256:565ee86501224ebbb98fc10b332fa54440b100469924003359edf49cbce374bd
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Retention is enforced by this flag, not merely documented. A
+      # configured-but-unenforced retention shows up as a full disk three
+      # months later. DEPLOYMENT.md 4.
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - fking_prometheus:/prometheus
+    deploy:
+      resources:
+        limits:
+          # Observed 26 MiB idle on 2026-08-03. Prometheus will take everything
+          # available if permitted, and it will do it during a backtest --
+          # which starves Postgres, which times out the OMS, which presents as
+          # an application bug.
+          memory: 1G
+          cpus: "1.0"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # loki -- logs, 30d.
+  # ---------------------------------------------------------------------------
+  loki:
+    # grafana/loki:3.3.2 -- pinned 2026-08-03.
+    image: grafana/loki@sha256:8af2de1abbdd7aa92b27c9bcc96f0f4140c9096b507c77921ffddf1c6ad6c48f
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3100/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    volumes:
+      - ./ops/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - fking_loki:/loki
+    deploy:
+      resources:
+        limits:
+          # Observed 46 MiB idle on 2026-08-03.
+          memory: 1G
+          cpus: "1.0"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # tempo -- traces, 7d.
+  # ---------------------------------------------------------------------------
+  tempo:
+    # grafana/tempo:2.6.1 -- pinned 2026-08-03.
+    image: grafana/tempo@sha256:ef4384fce6e8ad22b95b243d8fc165628cda655376fd50e7850536ad89d71d50
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3200/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    volumes:
+      - ./ops/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - fking_tempo:/var/tempo
+    deploy:
+      resources:
+        limits:
+          # Observed 36 MiB idle on 2026-08-03.
+          memory: 800M
+          cpus: "1.0"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # grafana -- dashboards, provisioned as code.
+  # ---------------------------------------------------------------------------
+  grafana:
+    # grafana/grafana:11.3.1 -- pinned 2026-08-03.
+    image: grafana/grafana@sha256:fa801ab6e1ae035135309580891e09f7eb94d1abdbd2106bdc288030b028158c
+    environment:
+      GF_SECURITY_ADMIN_USER: ${FKING_GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${FKING_GRAFANA_ADMIN_PASSWORD:-admin}
+      # Anonymous access off and sign-up off: this stack sits next to exchange
+      # credentials, and a Grafana that anyone on the host can read is an
+      # exposure with no upside.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    volumes:
+      # Datasources and dashboards come from files in the repository, never
+      # from the UI. A dashboard that exists only in a container volume is lost
+      # on the first `down -v` and cannot be reviewed in a pull request.
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - fking_grafana:/var/lib/grafana
+    depends_on:
+      prometheus: {condition: service_healthy}
+      loki: {condition: service_healthy}
+      tempo: {condition: service_healthy}
+    deploy:
+      resources:
+        limits:
+          # Observed 71 MiB idle on 2026-08-03.
+          memory: 512M
+          cpus: "1.0"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # app -- the modular monolith.
+  #
+  # At this milestone the app is a ONE-SHOT boot validator, not a long-running
+  # service, and that is a deliberate statement of what exists rather than a
+  # stub. `python -m fking.platform.config` runs the real boot sequence that is
+  # implemented today: it validates configuration, resolves every venue
+  # endpoint against the compiled-in allowlist, logs the allowlist, and exits 0
+  # -- or exits 78 (EX_CONFIG) and takes the stack down with it.
+  #
+  # There is no long-running process to run yet: the migrations are #17, the
+  # runtime and event bus are #18, and the FastAPI surface with its
+  # /health/ready endpoint is #102. The alternative to a one-shot here was a
+  # fake health endpoint or a `sleep infinity` entrypoint, and CLAUDE.md 9
+  # forbids leaving either behind. The `/health/ready` healthcheck and
+  # `condition: service_healthy` arrive in the pull request that lands the
+  # endpoint.
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      # Optional so that a clean clone with no .env comes up unattended. Every
+      # setting has a default (CONFIGURATION.md); .env supplies credentials.
+      - path: .env
+        required: false
+    environment:
+      # Point the app at the compose services rather than at the 127.0.0.1
+      # defaults, which are correct for a developer running outside Docker.
+      FKING_DATABASE__DSN: >-
+        postgresql+asyncpg://${FKING_POSTGRES_USER:-postgres}:${FKING_POSTGRES_PASSWORD:-fking_local_only}@postgres:5432/${FKING_POSTGRES_DB:-fking}
+      FKING_BUS__REDIS_URL: redis://redis:6379/0
+      FKING_TELEMETRY__OTLP_ENDPOINT: http://otel-collector:4317
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      # service_started, never service_healthy. If the collector is unhealthy
+      # the SDK buffers and then drops; the app keeps working. The inverse --
+      # the app refusing to start because a telemetry container is unhappy --
+      # is an availability failure introduced by an observability tool.
+      otel-collector: {condition: service_started}
+    volumes:
+      - fking_parquet:/data/parquet
+      # Read-only, and mounted into `app` alone. Grafana, Prometheus, Loki and
+      # Tempo have no reason to see exchange credentials. DEPLOYMENT.md 5.4.
+      - ./secrets:/run/secrets:ro
+    # `no`, not `unless-stopped`: this is a one-shot that exits 0 on success,
+    # and restarting it would loop forever printing the same effective config.
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          # 5 G is the DEPLOYMENT.md 4 budget for the loaded monolith and
+          # includes the capped DuckDB backtest scan (3 G, CONFIGURATION.md 7).
+          # Deliberately NOT measured: the one-shot boot validator exits in
+          # under a second and has no steady state, so any figure taken from it
+          # would describe a process that is not the one this limit is for.
+          # The observed p95 gets recorded here when there is a service to
+          # observe -- #18 and #102.
+          memory: 5G
+          cpus: "3.0"
+
+# -----------------------------------------------------------------------------
+# Every volume is named. Anonymous volumes lose data silently on recreate --
+# the container comes back, the volume is new and empty, and nothing announces
+# it. A named volume that fails to mount produces a visible error.
+#
+# `docker compose down` never destroys any of these. They are removed only by
+# `down -v` or an explicit `docker volume rm`, and there is no Makefile target
+# that does either. DEPLOYMENT.md 3.
+# -----------------------------------------------------------------------------
+volumes:
+  fking_pgdata: {name: fking_pgdata}
+  fking_parquet: {name: fking_parquet}
+  fking_redis: {name: fking_redis}
+  fking_prometheus: {name: fking_prometheus}
+  fking_loki: {name: fking_loki}
+  fking_tempo: {name: fking_tempo}
+  fking_grafana: {name: fking_grafana}

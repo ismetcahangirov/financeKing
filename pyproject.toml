@@ -40,6 +40,12 @@ dev = [
     "pytest-randomly>=3.16",
     "hypothesis>=6.130",
     "coverage>=7.6",
+    # Test-only. The compose contract test parses the compose files as YAML rather
+    # than grepping them, so a reformat, a line wrap or a comment cannot make a
+    # violation invisible to the check. Not a runtime dependency: nothing in
+    # src/fking reads YAML.
+    "pyyaml>=6.0.2",
+    "types-PyYAML>=6.0.12",
 ]
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,51 @@
+# Datasources come from this file, never from the UI.
+#
+# A datasource clicked into Grafana lives in fking_grafana and nowhere else: it
+# cannot be reviewed in a pull request, it does not survive `down -v`, and the
+# next person to bring the stack up gets a different Grafana from yours.
+# DEPLOYMENT.md 6 lists fking_grafana as explicitly NOT backed up for exactly
+# this reason -- there is nothing in it worth keeping.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: fking-prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+
+  - name: Loki
+    type: loki
+    uid: fking-loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      # Turns a trace_id in a log line into a link to the trace. This is the
+      # join that makes an investigation take four minutes instead of a day,
+      # and it is why logging-rules.md mandates trace_id on every event.
+      derivedFields:
+        - name: TraceID
+          matcherRegex: '"trace_id":"([a-f0-9]{32})"'
+          url: "$${__value.raw}"
+          datasourceUid: fking-tempo
+
+  - name: Tempo
+    type: tempo
+    uid: fking-tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: fking-loki
+        spanStartTimeShift: -1h
+        spanEndTimeShift: 1h
+        filterByTraceID: true
+      lokiSearch:
+        datasourceUid: fking-loki

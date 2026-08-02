@@ -1,0 +1,68 @@
+# Demo runtime -- the production-shaped variant.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d
+#
+# Naming both files is deliberate friction. Compose loads the base plus
+# docker-compose.override.yml automatically, so the developer configuration is
+# what you get by accident; the mode that places orders is not. DEPLOYMENT.md 2.
+#
+# What this file removes relative to local development is the whole point:
+# no source bind mounts, no debug logging, no published ports at all. Nothing
+# here is reachable from the host, because the base file publishes nothing and
+# this file adds nothing.
+#
+# It still trades on testnet only. There is no configuration value, environment
+# variable or flag in this file or any other that enables a production exchange
+# -- the permitted hosts are a compiled-in frozenset in fking.platform.safety
+# and widening them requires editing source and merging a pull request labelled
+# safety:critical. CLAUDE.md 0.
+
+services:
+  postgres:
+    restart: always
+
+  redis:
+    restart: always
+
+  otel-collector:
+    restart: always
+
+  prometheus:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          # Tighter than local: the demo runtime is not running ad-hoc queries
+          # against Prometheus, and every megabyte here is a megabyte the
+          # backtest scan cannot have.
+          memory: 768M
+
+  loki:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  tempo:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  grafana:
+    restart: always
+    environment:
+      # An unset admin password is a hard failure here rather than a default.
+      # `admin/admin` is acceptable on a laptop behind 127.0.0.1; it is not
+      # acceptable in the mode that holds live testnet credentials, and a
+      # default that silently persists into the demo runtime is exactly how it
+      # would. The `?err` form makes compose refuse to start without it.
+      GF_SECURITY_ADMIN_PASSWORD: ${FKING_GRAFANA_ADMIN_PASSWORD:?set FKING_GRAFANA_ADMIN_PASSWORD in .env for the demo runtime}
+
+  app:
+    restart: on-failure:3
+    environment:
+      FKING_TELEMETRY__LOG_LEVEL: info
+      FKING_TELEMETRY__ENVIRONMENT: demo

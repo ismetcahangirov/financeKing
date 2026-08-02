@@ -24,6 +24,10 @@ The failure this document exists to prevent: *"works on my machine"* becoming a 
 
 Nine services. Adding a tenth requires justifying it against §4's memory budget, and **adding a service to reduce load on another service is forbidden** — that is microservices arriving by the back door, and `ARCHITECTURE.md` §2 already priced it.
 
+> **Current state (2026-08-03).** Eight of the nine are defined and come up healthy. `dashboard` is absent because the Next.js application does not exist yet (#103), and shipping a service definition for an application that is not there would be a stub. `app` is present and builds, but is a **one-shot boot validator** rather than a long-running service: it runs the boot sequence that exists today — validate configuration, resolve every venue endpoint against the compiled-in allowlist, log the allowlist — and exits 0, or exits 78 and takes the stack down with it. The long-running process arrives with migrations (#17), the runtime and event bus (#18) and the FastAPI surface (#102); the `/health/ready` health check described in §3 and its `condition: service_healthy` land in the pull request that lands the endpoint.
+>
+> The seven infrastructure services all carry health checks and reach healthy, so `make up` is unattended and all-green today. This table describes the intended end state and is the specification the compose files are written against; this note records how far along it is, so that a reader can tell a design from a claim.
+
 ### Pinning
 
 > **Every image is pinned by digest. No `latest`, no floating minor tags, anywhere.**
@@ -92,7 +96,11 @@ services:
       retries: 20
       start_period: 30s
     volumes:
-      - fking_pgdata:/var/lib/postgresql/data
+      # PGDATA in timescaledb-ha is /home/postgres/pgdata/data, NOT the
+      # /var/lib/postgresql/data of the upstream postgres image. Mounting the
+      # upstream path succeeds, mounts nothing useful, and loses the database on
+      # every recreate without announcing it.
+      - fking_pgdata:/home/postgres/pgdata
     deploy:
       resources:
         limits: {memory: 4G, cpus: "2.0"}
@@ -282,7 +290,23 @@ cp .env.example .env
 
 `.env.example` lists every variable with a description and a safe placeholder. It contains **no real hosts and no production URLs, not even commented out** — a commented-out mainnet URL is one uncomment away from being live.
 
-Fill in: the four Binance testnet values, `FKING_PLATFORM__DATABASE__DSN`, `FKING_PLATFORM__BUS__REDIS_URL`, the Grafana admin password, and (optionally) `FKING_AGENTS__PRIMARY__API_KEY`. Agents default to disabled, so a clone with no LLM key runs.
+Fill in: the four Binance testnet values, `FKING_DATABASE__DSN`, `FKING_BUS__REDIS_URL`, the Grafana admin password, and (optionally) `FKING_AGENTS__PRIMARY__API_KEY`. Agents default to disabled, so a clone with no LLM key runs.
+
+Every application setting has a default, so **`.env` is optional** — the base file declares it `required: false` and a clean clone comes up unattended. `.env` supplies credentials and overrides, not the ability to start.
+
+### 5.5.1 Compose-only variables
+
+A small set of variables is read by Compose itself rather than by the application, so they are **not** in `.env.example` — that file is generated from and tested against the `Settings` model in both directions, and an entry the application does not read would fail its own test. They go in `.env` alongside the rest.
+
+| Variable | Default | Why you would set it |
+|---|---|---|
+| `FKING_POSTGRES_USER` / `_PASSWORD` / `_DB` | `postgres` / `fking_local_only` / `fking` | The bootstrap superuser. Least-privilege roles are a separate concern (`SECURITY.md` §6) |
+| `FKING_GRAFANA_ADMIN_USER` / `_PASSWORD` | `admin` / `admin` | Required, with no default, in the demo runtime — Compose refuses to start without it |
+| `FKING_POSTGRES_PORT`, `FKING_REDIS_PORT`, `FKING_PROMETHEUS_PORT`, `FKING_LOKI_PORT`, `FKING_TEMPO_PORT`, `FKING_GRAFANA_PORT`, `FKING_OTLP_GRPC_PORT`, `FKING_OTLP_HTTP_PORT`, `FKING_OTEL_HEALTH_PORT` | 5432, 6379, 9090, 3100, 3200, 3001, 4317, 4318, 13133 | A host port already in use. Developer override only — the base file publishes nothing |
+
+These carry the `FKING_` prefix and land in the app container through `env_file`, which looks like it should collide with `env_prefix="FKING_"` and `extra="forbid"` on the settings model. It does not: pydantic-settings only reads variables matching a declared field, and ignores the rest. Verified 2026-08-03 rather than assumed, because the failure mode — the app exiting 78 because someone moved a port — would be an unpleasant thing to discover during a first-time setup.
+
+**Only the host port is a variable; the host interface never is.** Parameterising `127.0.0.1` would let an environment variable widen every binding to all interfaces, which is precisely what §2 forbids.
 
 ### 5.6 Bring it up
 

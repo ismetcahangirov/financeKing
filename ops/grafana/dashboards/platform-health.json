@@ -1,0 +1,155 @@
+{
+  "uid": "fking-platform-health",
+  "title": "Platform Health",
+  "description": "Whether the stack is up and whether telemetry is arriving. Deliberately not a trading dashboard -- if this board is red, nothing on a trading board can be trusted, because the numbers there come through the pipeline this one measures. Trading surfaces are #104.",
+  "tags": ["fking", "platform"],
+  "timezone": "utc",
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Scrape targets up",
+      "description": "Any target at 0 means Prometheus cannot reach a service. Read this before believing any other panel in Grafana.",
+      "datasource": { "type": "prometheus", "uid": "fking-prometheus" },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up",
+          "legendFormat": "{{job}}",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "DOWN", "color": "red", "index": 0 },
+                "1": { "text": "UP", "color": "green", "index": 1 }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Collector: spans and logs accepted vs refused",
+      "description": "Refused is the series that matters. A flat 'accepted' line reads as a quiet system, but paired with a rising 'refused' it means telemetry is being dropped at the collector -- which is a different problem from an application that emitted nothing, and has a different fix.",
+      "datasource": { "type": "prometheus", "uid": "fking-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(otelcol_receiver_accepted_spans_total[5m]))",
+          "legendFormat": "spans accepted/s"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(otelcol_receiver_refused_spans_total[5m]))",
+          "legendFormat": "spans refused/s"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(otelcol_receiver_accepted_log_records_total[5m]))",
+          "legendFormat": "logs accepted/s"
+        },
+        {
+          "refId": "D",
+          "expr": "sum(rate(otelcol_receiver_refused_log_records_total[5m]))",
+          "legendFormat": "logs refused/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "fillOpacity": 8, "lineWidth": 2 } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Collector: export failures by exporter",
+      "description": "Non-zero means telemetry reached the collector and did not reach its backend. The trace or log exists nowhere, so an investigation later will find a gap exactly where the interesting thing happened.",
+      "datasource": { "type": "prometheus", "uid": "fking-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_spans_total[5m]))",
+          "legendFormat": "{{exporter}} spans"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_log_records_total[5m]))",
+          "legendFormat": "{{exporter}} logs"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "fillOpacity": 8, "lineWidth": 2 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.001 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Prometheus active series",
+      "description": "The cardinality budget is 20000 (FKING_TELEMETRY__MAX_METRIC_SERIES). One unbounded label -- a symbol, an order id, a correlation id -- takes this vertical, and the first symptom is Prometheus OOM rather than anything that names the label.",
+      "datasource": { "type": "prometheus", "uid": "fking-prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "prometheus_tsdb_head_series",
+          "legendFormat": "active series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "fillOpacity": 8, "lineWidth": 2 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 16000 },
+              { "color": "red", "value": 20000 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    }
+  ]
+}
