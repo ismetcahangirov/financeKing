@@ -1,2 +1,2 @@
-def settle(notional_usd: float) -> None:  # deliberate float-on-money violation
-    return None
+def settle(notional_usd: float) -> float:  # deliberate float-on-money violation
+    return notional_usd
