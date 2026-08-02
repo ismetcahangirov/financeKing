@@ -35,12 +35,21 @@ class Money:
         require_asset_code(self.asset, "asset")
         require_decimal(self.quantity, "quantity")
 
-    def __add__(self, other: Money) -> Money:
+    def plus(self, other: Money) -> Money:
         """Add two amounts of the same asset.
 
         Mixing assets raises rather than converting. There is no exchange rate in
         `domain` and there should not be: a rate has an as-of time, a source and a
         staleness, none of which fit in an arithmetic operator.
+
+        A named method rather than `__add__`, for exactly that reason. Python's data
+        model expects `+` to return `NotImplemented` for an operand it cannot handle,
+        so that the interpreter can try the reflected operation and raise `TypeError`
+        itself. Two `Money` values are always a handled operand *type*; what is refused
+        here is a mismatched asset, which is a domain rule and not a typing question.
+        Expressing it through `+` would either violate that contract or -- by returning
+        `NotImplemented` -- discard the message below in favour of a bare `TypeError`
+        that says nothing about as-of times.
         """
         if other.asset != self.asset:
             raise DomainError(

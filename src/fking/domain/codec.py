@@ -217,7 +217,8 @@ def _decode_generic(annotation: object, origin: object, payload: JsonValue) -> o
 class _KeywordConstructor(Protocol):
     """A dataclass type, viewed only as something callable with keyword arguments."""
 
-    def __call__(self, **arguments: object) -> object: ...
+    def __call__(self, **arguments: object) -> object:
+        """Construct the dataclass. Never called through this Protocol at runtime."""
 
 
 def _decode_dataclass(annotation: type[object], payload: JsonValue) -> object:
