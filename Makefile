@@ -37,8 +37,15 @@ types:  ## mypy --strict over src, tests and tools
 
 ## import-linter must use its shim: `python -m importlinter.cli` imports the module,
 ## runs no contracts, and exits 0 -- a silent pass that looks exactly like success.
+##
+## PYTHONIOENCODING is not cosmetic. import-linter's progress spinner is a `rich`
+## widget containing a non-ASCII glyph, and on Windows a redirected stdout defaults to
+## cp1252, where writing it raises inside rich's teardown. The contracts all pass and
+## the process still exits 1 -- so `make check > log` fails while `make check` on a
+## terminal succeeds, which is the worst available failure mode for a gate: it is the
+## captured run, the one in CI logs and in a PR body, that reports a phantom breach.
 imports:  ## import-linter architecture contracts
-	$(UV) run lint-imports
+	PYTHONIOENCODING=utf-8 $(UV) run lint-imports
 
 ## The AST checks enforce rules that no off-the-shelf linter knows about: that a
 ## money-named field is never a float, that strategy and risk never read the wall
