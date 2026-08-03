@@ -151,7 +151,7 @@ Confidence values used below: **measured** (we made the observation ourselves), 
 
 - **Verified**: 2026-08-01 · **Confidence**: measured
 - **Consequence**: this is the project's historical data foundation and it costs nothing. 2017-08-17 is the earliest BTCUSDT 1m date; **other symbols start later and each symbol's earliest clean date must be recorded individually** in the availability contract. A hypothesis inherits the shortest history among its inputs, which is usually much shorter than the BTC history that made the idea seem testable.
-- Because it is unauthenticated bulk HTTP, it is also the one data path that does not need a credential — and it is still fetched through `guarded_client()`, because the allowlist is not a permission system, it is a proof about which hosts this process can reach at all.
+- Because it is unauthenticated bulk HTTP, it is the one data path that needs no credential — and that asymmetry was made structural in #22 rather than wasted. It is fetched through `guarded_archive_client()`, a **second** compiled-in allowlist (`ARCHIVE_HOSTS`) with its own credential-free client, and **not** through `guarded_client()`. `PERMITTED_HOSTS` is not a permission system; it is a proof about which hosts a process holding order-placement code can reach at all, and `data.binance.vision` never enters it. ADR 0017.
 - **Re-verify**: annually, and whenever a new symbol is onboarded (its own earliest date is a separate fact).
 
 ## VF-014 — Every `data.binance.vision` archive has a `.zip.CHECKSUM` sibling.

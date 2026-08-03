@@ -79,15 +79,17 @@ class ThreatModelEntry(BaseModel):
 ### 3.1 The compiled-in allowlist
 
 ```python
-# The set of hosts this system may ever contact.
+# src/fking/platform/safety/_allowlist.py
+# The set of TRADING hosts this system may ever contact.
 # Compiled in deliberately: not config, not env, not database, not file.
 # Widening this requires a source edit and a PR labelled safety:critical.
 # See CLAUDE.md §0 and ARCHITECTURE.md §8.
-ALLOWED_HOSTS: Final[frozenset[str]] = frozenset({
-    "testnet.binance.vision",           # spot testnet REST + WS
+PERMITTED_HOSTS: Final[frozenset[str]] = frozenset({
+    "testnet.binance.vision",           # spot testnet REST
+    "stream.testnet.binance.vision",    # spot testnet market-data WS
+    "ws-api.testnet.binance.vision",    # spot testnet WS API: session.logon
     "testnet.binancefuture.com",        # USDⓈ-M futures testnet REST
     "stream.binancefuture.com",         # USDⓈ-M futures testnet WS
-    "data.binance.vision",              # public historical archives, read-only
     "api-testnet.bybit.com",            # fallback venue
     "stream-testnet.bybit.com",
 })
@@ -100,7 +102,18 @@ Properties, each deliberate:
 - **A module-level constant, not a function return.** A function can read a file. A constant cannot.
 - **No production hosts appear anywhere in the repository** — not in comments, not in `.env.example`, not commented out. A commented-out mainnet URL is one uncomment away from being live, and it will be uncommented by someone in a hurry.
 
-Note that `data.binance.vision` is on the list and is a *production* host. It serves static historical archives over anonymous HTTPS with no authenticated endpoints and no order surface. It is on the list because bulk history is the system's primary research input and there is no testnet equivalent. This is the one place where the allowlist admits a production host, and it is admitted because the host is incapable of accepting an order.
+**`data.binance.vision` is deliberately absent, and earlier drafts of this document had it here.** The public archive is the system's primary research input and there is no testnet equivalent, so it must be reachable — but not from the client that can place orders. `PERMITTED_HOSTS` is not a permission list; it is a proof about which hosts a process holding order-placement code can reach at all, and that proof is worth having only while the set is short and entirely venue endpoints. Once it also holds a data host, reviewing an addition means deciding which category the new entry falls into, and that judgement belongs to whoever wants the entry added.
+
+So the archive host has its own literal and its own client:
+
+```python
+# src/fking/platform/safety/_archive_allowlist.py
+ARCHIVE_HOSTS: Final[frozenset[str]] = frozenset({
+    "data.binance.vision",              # public bulk archive, no auth (VF-013, VF-014)
+})
+```
+
+`guarded_archive_client()` in `fking.platform.safety.archive` validates against this set, attaches no credential and cannot import one — `import-linter` forbids the archive modules from importing `fking.platform.config`, where every `SecretStr` lives, and forbids `fking.execution` from importing the archive modules at all. The two sets are disjoint, and each client refuses every host in the other's. Both files are covered by the `safety-kernel-diff` CI job, so widening either still requires `safety:critical`. ADR 0017 carries the argument, including what the rejected single-list design got right — which is why the *host checking* is shared (`_hostcheck.py`) even though the *allowlists* are not.
 
 ### 3.2 Per-request validation
 
@@ -112,14 +125,14 @@ def guarded_client(*, purpose: str) -> GuardedClient: ...
 
 Construction-time validation checks the wrong moment. Base URLs can be overridden per call, and `ccxt` exposes exactly that: `client.urls['api'] = ...` before a call redirects a correctly-constructed client to an arbitrary host. A guard that ran at construction would see nothing.
 
-The guard therefore hooks the request path itself — the transport layer, below any URL the caller supplies — and raises `HostNotAllowed` on a non-allowlisted host. This applies identically to HTTP and WebSocket connections, including redirects: **a redirect to a non-allowlisted host is a rejection, not a follow.**
+The guard therefore hooks the request path itself — the transport layer, below any URL the caller supplies — and raises `SafetyViolation` on a non-allowlisted host. This applies identically to HTTP and WebSocket connections, including redirects: **a redirect to a non-allowlisted host is a rejection, not a follow.**
 
-`HostNotAllowed` is **unrecoverable by construction.** It must propagate. Catching it and continuing is the worst possible handling of the loudest signal the system has, and `CLAUDE.md` §4 forbids it independently:
+`SafetyViolation` is **unrecoverable by construction.** It must propagate. Catching it and continuing is the worst possible handling of the loudest signal the system has, and `CLAUDE.md` §4 forbids it independently:
 
 ```python
 # Forbidden. This converts the system's single loudest safety signal into
 # a silent None, and a later refactor will then trade on absent data.
-except HostNotAllowed:
+except SafetyViolation:
     logger.warning("host not allowed, skipping")
     return None
 ```
@@ -131,7 +144,7 @@ Every rejection increments `fking_platform_allowlist_rejections_total` and pages
 At boot, before any consumer starts:
 
 1. Resolve every configured endpoint — exchange REST, exchange WS, archive host, LLM provider hosts.
-2. Validate each against `ALLOWED_HOSTS`.
+2. Validate each against `PERMITTED_HOSTS`.
 3. **Abort the process on any failure.** Not degrade, not warn — exit non-zero.
 4. Log the full allowlist and every resolved endpoint at `info`.
 
@@ -154,7 +167,7 @@ The process refusing to start on invalid safety configuration is the same princi
 
 **There is no override. No flag, no environment variable, no `--force`, no `if TESTING:` branch, no fixture that patches the guard.**
 
-The friction is the feature. Enabling real trading requires editing `ALLOWED_HOSTS` in source and merging a PR labelled `safety:critical` with a reviewer who is not the author.
+The friction is the feature. Enabling real trading requires editing `PERMITTED_HOSTS` in source and merging a PR labelled `safety:critical` with a reviewer who is not the author.
 
 This includes tests. **Tests exercise the real guard against a fake host**, never a fake guard against a real host. A monkeypatched `guarded_client` in a test fixture is a template someone will copy into non-test code, and it removes the only coverage the guard has.
 
@@ -174,7 +187,7 @@ It also includes the read-only case, which is the one that comes up:
 - A subdomain of an allowed host (`evil.testnet.binance.vision`) raises — matching is exact, never suffix-based.
 - A host that differs only by unicode homoglyph or trailing dot raises.
 - Startup aborts when a configured endpoint is not allowlisted.
-- `ALLOWED_HOSTS` is a `frozenset` and cannot be mutated at runtime.
+- `PERMITTED_HOSTS` is a `frozenset` and cannot be mutated at runtime.
 
 ---
 

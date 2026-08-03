@@ -3,7 +3,7 @@
 ## The rule
 
 1. **`ccxt` >= 4.5.70 is the only exchange client.** No `python-binance`, no `binance-connector`, no `binance-sdk-*`, no hand-rolled REST. The reasoning is in `../../ARCHITECTURE.md` §7 and is not re-litigated per module.
-2. **Every request — REST and WebSocket, read and write — goes through `fking.platform.safety.guarded_client()`**, which validates the host on each call rather than at construction, because `ccxt` accepts a per-call base URL override.
+2. **Every request — REST and WebSocket, read and write — goes through `fking.platform.safety.guarded_client()`**, which validates the host on each call rather than at construction, because `ccxt` accepts a per-call base URL override. Non-venue hosts are not this client's business: the public archive is reached through `guarded_archive_client()` and `ARCHIVE_HOSTS`, which `fking.execution` cannot import at all (ADR 0017).
 3. **The two user-data mechanisms are modelled as two implementations of one interface, not as one implementation with a branch.** Spot: Ed25519 `session.logon` over the WebSocket API followed by `userDataStream.subscribe`. Futures: `listenKey` plus a keepalive. `POST /api/v3/userDataStream` returns **410 Gone** on testnet and production alike; code that calls it is dead.
 4. **Exchange responses are hostile input.** Parse into a Pydantic v2 model with `extra="ignore"` and explicit types; take every `Decimal` from the raw *string* field; never index optimistically. `response["orderId"]` is a bug.
 5. **Symbol parsing is Unicode-safe and round-trip exact.** Testnet `exchangeInfo` contains a deliberate non-ASCII symbol. Whatever code points the venue sent, you send back unchanged.

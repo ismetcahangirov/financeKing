@@ -314,6 +314,38 @@ forbidden_modules = ["http", "httpx", "redis", "socket", "urllib", "websockets"]
 # fail the contract on the correct architecture.
 allow_indirect_imports = true
 
+[[tool.importlinter.contracts]]
+name = "The order path cannot reach the archive egress client"
+type = "forbidden"
+# Two egress paths that cannot see each other is the property #22 buys instead of one
+# allowlist with an extra host on it. PERMITTED_HOSTS is not a permission list -- it is
+# a proof about which hosts a process holding order-placement code can reach at all --
+# so `data.binance.vision` never enters it, and the client that can reach it never
+# enters the order path. Read paths become write paths during refactors (CLAUDE.md 11),
+# and this contract is what makes that refactor fail CI instead of shipping.
+#
+# fking.platform.safety.archive is deliberately not re-exported from
+# fking.platform.safety.__init__, so this contract has something to forbid: a
+# re-export would put the archive client one attribute access away from every module
+# that already imports the trading kernel, and no import edge would record it.
+source_modules = ["fking.execution"]
+forbidden_modules = ["fking.data.archive", "fking.platform.safety.archive"]
+
+[[tool.importlinter.contracts]]
+name = "The archive egress path holds no credentials"
+type = "forbidden"
+# A client that cannot authenticate cannot place an order even if a future refactor
+# points it at the wrong host, so the absence of a credential is a second barrier
+# behind the allowlist -- and a barrier that exists only because nobody has yet written
+# `from fking.platform.config import settings` is not a barrier.
+#
+# fking.platform.config is where every SecretStr in this system lives, which is why it
+# is the concrete spelling of "credential source" here. The consequence is that the
+# cache root is a constructor argument rather than something the fetcher reads, which
+# is also the more testable shape.
+source_modules = ["fking.data.archive", "fking.platform.safety.archive"]
+forbidden_modules = ["fking.execution", "fking.platform.config"]
+
 # ---------------------------------------------------------------------------
 # pytest
 # ---------------------------------------------------------------------------

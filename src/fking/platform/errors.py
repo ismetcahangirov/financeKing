@@ -22,8 +22,14 @@ Two names deliberately live elsewhere:
 from __future__ import annotations
 
 from fking.platform.safety import SafetyViolation
+from fking.platform.safety.archive import ArchiveUnavailableError
 
-__all__ = ["DataIntegrityError", "FkingError", "SafetyViolation"]
+__all__ = [
+    "ArchiveUnavailableError",
+    "DataIntegrityError",
+    "FkingError",
+    "SafetyViolation",
+]
 
 
 class FkingError(Exception):
@@ -48,3 +54,11 @@ class DataIntegrityError(FkingError):
     worse than none, because a short series parses cleanly and changes every statistic
     computed from it without changing anything that looks like an error.
     """
+
+
+# `ArchiveUnavailableError` is the third name defined elsewhere, and for the same reason as
+# `SafetyViolation`: it is raised by `fking.platform.safety.archive`, which must stay
+# importable without pulling this module in -- this module imports the trading kernel,
+# and the archive egress path exists precisely so that it does not have to. It is
+# re-exported rather than redefined, because two classes with one name is how an
+# `except` clause stops catching what its author believed it caught.

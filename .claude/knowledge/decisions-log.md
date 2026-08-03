@@ -56,6 +56,7 @@ Status: **active** · **SUPERSEDED by D-NNN** · **open to revisit** (a decision
 | D-032 | Provider SDKs called directly behind this project's own gateway | `litellm`; `pydantic-ai` | active | `docs/research/free-tier-landscape.md` §3 · ADR 0009 |
 | D-033 | Promotion-gating statistics implemented in-project against worked examples | `mlfinlab` — which no longer has an installable release | active | `docs/research/free-tier-landscape.md` §4 · VF-025 |
 | D-034 | Archive format resolved per `(market, dataset, date)`; an undeclared combination raises | Sniffing the format from the file; a per-market constant with a date branch in the loader | active | ADR 0013 · `DATA_PIPELINE.md` §3 |
+| D-035 | `data.binance.vision` reached through a second allowlist and a credential-free client, never through `PERMITTED_HOSTS` | Adding the host to `PERMITTED_HOSTS` and reusing `guarded_client()`; fetching out of band with `curl` | active | ADR 0017 · `.claude/rules/safety-kernel.md` |
 
 ---
 
@@ -134,6 +135,18 @@ The behavioural corollary is the point: **a hypothesis with a large parameter gr
 **What survived the rejection**: sniffing is right that the file is ground truth and the table is a decaying claim. So the declaration decides and the file gets a veto. Half of that veto is live in `epoch_to_utc` today — every normalised instant must fall in `[2010-01-01, now + 1 day)`, so a table that has silently gone wrong is caught on the first row rather than at the end of the quarter. The other half lands with the parsers in #23: `has_header_row` is verified against the file's first token before any row is parsed, and a mismatch rejects the whole file. What the file never gets is the casting vote.
 
 **Revisit trigger**: the declaration table exceeds roughly 40 segments, or one upstream format change requires editing more than three of them. Observed on `DECLARED_FORMATS` in `src/fking/data/format_resolver.py`. Then consider deriving segments from rules over `(market, dataset)` — keeping the refusal on an underived combination, and not returning to sniffing. Full argument in ADR 0013.
+
+### D-035 — The archive host gets a second egress path, not a wider trading allowlist
+
+`PERMITTED_HOSTS` is not a permission list. It is a proof about which hosts a process holding order-placement code can reach *at all*, and its value comes from being short, entirely venue endpoints, and reviewable in one glance. So `data.binance.vision` lives in `ARCHIVE_HOSTS`, reached only by a credential-free `guarded_archive_client()` that the order path cannot import.
+
+**Rejected**: adding the host to `PERMITTED_HOSTS` and reusing `guarded_client()` — one list, one client, one gate, and objectively the safest host in the system: static files, no order endpoint, no authenticated endpoint at all.
+
+**Why it lost**: the moment the list also contains a data host, reviewing an addition requires knowing which category the entry falls into, and that judgement is made by whoever wants it added. The rule stays and the criterion moves. Concretely: nothing about a listed host records that it was listed for reading, so the refactor that merges a fetcher's retry helper with a venue adapter's, then adds a signer, produces a signed request to a host added for zip files — with no step that is wrong and no step that touches the allowlist.
+
+**What survived the rejection**: that duplication inside a safety kernel is itself a hazard, because two URL parsers drift and the neglected one gets it wrong. So the *allowlists* are duplicated and the *checking* is not — `fking.platform.safety._hostcheck` is one implementation taking the permitted set as an argument, and a hardening fix lands once for both paths.
+
+**Revisit trigger**: a third egress category appears that is neither a venue nor a public data host — an LLM provider is the live candidate (#71, #72) — and is proposed for `ARCHIVE_HOSTS` rather than its own literal. Observed on any pull request touching `src/fking/platform/safety/_archive_allowlist.py`, which the `safety-kernel-diff` CI job flags. Then generalise to N named egress classes, each with its own literal and contract — not one merged list with a category column. Full argument in ADR 0017.
 
 ---
 
