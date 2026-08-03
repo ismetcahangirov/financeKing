@@ -8,20 +8,39 @@ cannot.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import secrets
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from fking.platform.config import EX_CONFIG
 from fking.platform.config.settings import DatabaseSettings
 from fking.platform.persistence.__main__ import main as seed_main
 from fking.platform.persistence.engine import build_engine
+from fking.platform.persistence.roles import UnknownLoginRoleError, passwords_from_settings
 from fking.platform.persistence.seed import INSTRUMENTS, VENUES
+
+
+async def _current_user(dsn: str) -> str:
+    """Who the database thinks is connected, asked of the database.
+
+    The assertion that matters is not that the command printed a role name -- it is
+    that the credential it applied opens a connection, which only the server can say.
+    """
+    engine = create_async_engine(dsn)
+    try:
+        async with engine.connect() as connection:
+            return str(await connection.scalar(sa.text("SELECT current_user")))
+    finally:
+        await engine.dispose()
 
 
 def _run_module(
@@ -135,3 +154,86 @@ async def test_the_engine_pins_utc_and_applies_the_statement_timeout(migrated_ds
 
     assert timeout == "7s"
     assert timezone_name == "UTC"
+
+
+# ---------------------------------------------------------------------------
+# provision-roles (#106)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_provision_roles_refuses_to_run_without_an_administrative_connection(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """No default, and no silent fallback to the application DSN.
+
+    Falling back would be the worst available behaviour: `ALTER ROLE ... PASSWORD` from
+    the application connection fails with a permission error that reads like a broken
+    database rather than like a missing argument.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("FKING_ADMIN_DSN", raising=False)
+    assert seed_main(["provision-roles"]) == EX_CONFIG
+    assert "FKING_ADMIN_DSN" in capsys.readouterr().err
+
+
+@pytest.mark.unit
+def test_passwords_are_read_from_the_dsns_that_already_carry_them() -> None:
+    """One source for the credential, not two.
+
+    A separate password setting beside the DSN is one edit away from a database that
+    disagrees with the connection string, and that disagreement surfaces as an
+    authentication failure in whichever process happens to restart first.
+    """
+    database = DatabaseSettings.model_validate(
+        {
+            "dsn": "postgresql+asyncpg://fking_app_login:app-secret@127.0.0.1:5432/fking",
+            "ingest_dsn": "postgresql+asyncpg://fking_ingest_login@127.0.0.1:5432/fking",
+            "migrator_dsn": "postgresql+asyncpg://fking_migrator_login:mig@127.0.0.1:5432/fking",
+        }
+    )
+    found = passwords_from_settings(database)
+
+    assert set(found) == {"fking_app_login", "fking_migrator_login"}
+    assert found["fking_app_login"].get_secret_value() == "app-secret"
+    # The passwordless DSN is absent rather than present with an empty string: a role
+    # that authenticates against nothing is strictly worse than one that cannot
+    # authenticate at all.
+    assert "fking_ingest_login" not in found
+
+
+@pytest.mark.unit
+def test_a_dsn_naming_a_role_outside_the_matrix_is_refused() -> None:
+    database = DatabaseSettings.model_validate(
+        {"dsn": "postgresql+asyncpg://postgres:secret@127.0.0.1:5432/fking"}
+    )
+    with pytest.raises(UnknownLoginRoleError, match="postgres"):
+        passwords_from_settings(database)
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_provision_roles_sets_a_password_the_role_can_then_connect_with(
+    migrated_dsn: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """End to end: the command runs, and the credential it applied actually works.
+
+    Asserting on the printed role list alone would prove the command reported success,
+    which is the claim least worth making about a provisioning step.
+    """
+    monkeypatch.chdir(tmp_path)
+    password = secrets.token_urlsafe(24)
+    database = make_url(migrated_dsn).render_as_string(hide_password=False)
+    app_dsn = make_url(migrated_dsn).set(username="fking_app_login", password=password)
+    monkeypatch.setenv("FKING_DATABASE__DSN", app_dsn.render_as_string(hide_password=False))
+
+    assert seed_main(["provision-roles", "--admin-dsn", database]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["provisioned_roles"] == ["fking_app_login"]
+
+    assert asyncio.run(_current_user(app_dsn.render_as_string(hide_password=False))) == (
+        "fking_app_login"
+    )

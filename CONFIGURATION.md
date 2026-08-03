@@ -466,12 +466,20 @@ It is also the **log field registry**, not a filter applied on top of one: a fie
 
 ```python
 class DatabaseSettings(BaseSettings):
-    dsn: PostgresDsn
+    # Three DSNs, one per privilege class, each connecting as its own LOGIN role.
+    # Cross-field validation refuses two that share a role: a single shared
+    # connection string collapses least privilege on the first deploy and
+    # nothing fails, because the over-privileged connection serves every query.
+    dsn: PostgresDsn                         # fking_app_login
+    ingest_dsn: PostgresDsn                  # fking_ingest_login
+    migrator_dsn: PostgresDsn                # fking_migrator_login; alembic only
     pool_min_size: int = 2
     pool_max_size: int = 10
     statement_timeout_seconds: int = 30
-    migration_role: str = "fking_migrator"
+    # The NOLOGIN group roles that hold the grants. Not what anything connects as.
+    migration_role: str = "fking_migrator"   # owns every object; holds no grants
     application_role: str = "fking_app"      # no UPDATE/DELETE on audit tables
+    ingest_role: str = "fking_ingest"        # writes market data; app has SELECT only
 
 
 class BusSettings(BaseSettings):

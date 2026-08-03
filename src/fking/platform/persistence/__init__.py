@@ -24,6 +24,23 @@ Everything not listed in `__all__` is private and may change without notice.
 
 from fking.platform.persistence._types import MONEY_PRECISION, MONEY_SCALE
 from fking.platform.persistence.engine import build_engine, build_session_factory
+from fking.platform.persistence.privileges import (
+    CLASSIFICATION,
+    GROUP_ROLES,
+    LOGIN_ROLE_FOR,
+    LOGIN_ROLES,
+    PRIVILEGES,
+    TABLE_PRIVILEGES,
+    VIEW_PRIVILEGES,
+    PrivilegeClass,
+    granted_privileges,
+    tables_in_class,
+)
+from fking.platform.persistence.roles import (
+    UnknownLoginRoleError,
+    passwords_from_settings,
+    provision_login_passwords,
+)
 from fking.platform.persistence.schema import (
     APPEND_ONLY_TABLES,
     HASH_CHAINED_TABLES,
@@ -35,15 +52,28 @@ from fking.platform.persistence.seed import SeedReport, count_reference_rows, se
 
 __all__ = [
     "APPEND_ONLY_TABLES",
+    "CLASSIFICATION",
+    "GROUP_ROLES",
     "HASH_CHAINED_TABLES",
+    "LOGIN_ROLES",
+    "LOGIN_ROLE_FOR",
     "METADATA",
     "MONEY_COLUMN_SUFFIXES",
     "MONEY_PRECISION",
     "MONEY_SCALE",
     "NAMING_CONVENTION",
+    "PRIVILEGES",
+    "TABLE_PRIVILEGES",
+    "VIEW_PRIVILEGES",
+    "PrivilegeClass",
     "SeedReport",
+    "UnknownLoginRoleError",
     "build_engine",
     "build_session_factory",
     "count_reference_rows",
+    "granted_privileges",
+    "passwords_from_settings",
+    "provision_login_passwords",
     "seed_reference_data",
+    "tables_in_class",
 ]

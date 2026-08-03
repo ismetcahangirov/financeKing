@@ -324,10 +324,32 @@ The `binance-*` official SDKs shipped 11 and 16 major versions in roughly twelve
 ## 8. Access control
 
 - **Every port binds to `127.0.0.1` explicitly.** A Grafana or dashboard on `0.0.0.0` is exposed to the local network, and this stack holds exchange credentials. `DEPLOYMENT.md` §3.
-- The application connects to Postgres as a **non-superuser role** with no `UPDATE`/`DELETE` on audit or memory tables. Migrations run as a separate role.
+- **Three database roles, three connection strings, and configuration refuses a shared one.** See §8.1.
 - Grafana is not anonymous; the admin password comes from `.env`.
 - No service in the Compose stack is published to the host except through localhost bindings.
 - Container filesystems are read-only where possible; `secrets/` is mounted read-only into the app container only.
+
+### 8.1 Database roles
+
+Privileges are held by three `NOLOGIN` **group** roles; processes connect as `LOGIN` roles that are members of them. The split exists because a credential and a privilege matrix change at different rates: a password is rotated, revoked or duplicated per service, while the matrix changes only when the schema does.
+
+| Group role | Login role | Holds |
+|---|---|---|
+| `fking_migrator` | `fking_migrator_login` | **Owns every object.** No grants — an owner's rights are not expressible as one. |
+| `fking_app` | `fking_app_login` | `SELECT, INSERT` on the twelve append-only tables; full DML on mutable operational state; `SELECT` only on market data; nothing at all on the feature store. |
+| `fking_ingest` | `fking_ingest_login` | Writes market data. Cannot read the audit log. |
+
+Four properties are worth stating because none of them is visible from the grants alone:
+
+**Ownership is separate from privilege, and that is the point.** A table's owner may `ALTER TABLE ... DISABLE TRIGGER` regardless of what has been revoked from it. If `fking_app` owned `audit_log` it could switch off the append-only guard in one statement while every grant in the catalogue still read as correct. Ownership is the privilege people forget to check, so it is asserted over the whole catalogue rather than over the two tables that obviously matter.
+
+**`TRUNCATE` is why the grant is the primary control and the trigger is the backstop**, not the other way round: `TRUNCATE` fires no row trigger and can only be stopped by a revoked grant (`.claude/rules/append-only-audit.md`).
+
+**The login roles are created without a password**, so a database that has been migrated but not provisioned refuses connections rather than accepting them on an empty credential. `python -m fking.platform.persistence provision-roles --admin-dsn ...` applies the credentials the configured DSNs already carry. A password in a migration would be a secret in version control, identical on every deployment and unrotatable without a new migration.
+
+**Every table carries a declared privilege class**, and a table with none fails the test suite. That is the mechanism, rather than per-table grants written one migration at a time: a missing grant fails loudly at the first query, but an *extra* one never fails at all, and neither shows up in review because review sees the grants that exist and not the ones that do not. `src/fking/platform/persistence/privileges.py` is the specification; migration `0008` applies it; `tests/platform/persistence/test_privileges.py` asserts the live catalogue still equals it.
+
+The one thing this cannot defend against is a single connection string copied into all three environment variables during a deploy — nothing fails, because the over-privileged connection serves every query correctly. Configuration validation refuses it at boot, which is the only moment it is observable.
 
 ---
 

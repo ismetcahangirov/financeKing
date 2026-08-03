@@ -161,11 +161,32 @@ Anonymous volumes are forbidden because they lose data silently on recreate — 
 
 ### Entrypoint
 
-The app entrypoint does exactly two things before starting: run Alembic migrations, then start. Migrations run as the `fking_migrator` role; the application connects as `fking_app`, which has no `UPDATE`/`DELETE` on audit or memory tables (`SECURITY.md` §6).
+The app entrypoint does exactly two things before starting: run Alembic migrations, then start. Migrations run as `fking_migrator_login`; the application connects as `fking_app_login`, which has no `UPDATE`/`DELETE` on audit or memory tables (`SECURITY.md` §8.1).
 
 Migrations run in the entrypoint rather than as a separate service because a separate migration service that must complete before the app starts is a health-check dependency with extra steps, and it can be skipped.
 
-> **Current state (2026-08-03).** The migrations exist (#17) and `make migrate` applies them, but the entrypoint does not run them yet, because there is no long-running process for them to precede — the container is still a one-shot boot validator that exits 0. Wiring `alembic upgrade head` into a start that then exits would apply a schema change from a service whose logs nobody watches. The two-step entrypoint above lands with the server in #18/#102. The `fking_migrator`/`fking_app` split is created by #17's first migration as NOLOGIN group roles with grants on the audit tables only; the full privilege matrix and login roles are #106.
+### Bootstrapping a new database
+
+Two steps need more privilege than steady-state operation, and both are one-shot per database. Keeping them out of the entrypoint is the point: a service that can create roles is a service whose compromise can create roles.
+
+```bash
+# 1. Migrate, as an administrative role. CREATE EXTENSION in migration 0001 requires
+#    superuser, so the *first* run cannot be fking_migrator_login. Every run after
+#    this one can be, because 0008 grants fking_migrator CREATE on schema public.
+FKING_DATABASE__MIGRATOR_DSN="postgresql+asyncpg://postgres:...@127.0.0.1:5432/fking" make migrate
+
+# 2. Give the login roles their passwords. Migration 0008 creates them with LOGIN and
+#    no password, so until this runs they cannot authenticate at all -- which is the
+#    intended state, because the alternative is a credential written in this repository.
+uv run python -m fking.platform.persistence provision-roles \
+    --admin-dsn "postgresql+asyncpg://postgres:...@127.0.0.1:5432/fking"
+```
+
+The passwords applied are the ones the three configured DSNs already carry — the connection string is the single source of the credential, because a separate password setting beside it is one edit away from a database that disagrees with the DSN, and that disagreement surfaces as an authentication failure in whichever process happens to restart first.
+
+The admin DSN is a command-line argument (or `FKING_ADMIN_DSN`) rather than a settings field, deliberately. It is needed once per database, by an operator; putting it in the settings tree would make it a permanent part of the configuration surface that every running process loads.
+
+> **Current state (2026-08-03).** The migrations exist (#17), the full privilege matrix and login roles exist (#106), and `make migrate` applies them — but the entrypoint does not run migrations yet, because there is no long-running process for them to precede: the container is still a one-shot boot validator that exits 0. Wiring `alembic upgrade head` into a start that then exits would apply a schema change from a service whose logs nobody watches. The two-step entrypoint above lands with the server in #102.
 
 ---
 

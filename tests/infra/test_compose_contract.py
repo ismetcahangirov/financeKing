@@ -475,3 +475,62 @@ def test_redis_maxmemory_sits_below_its_container_limit() -> None:
     limit = _declared_memory_mib(definition)
     assert limit is not None
     assert maxmemory < limit, f"maxmemory {maxmemory} MiB is not below the {limit} MiB limit"
+
+
+# ---------------------------------------------------------------------------
+# Database role separation (#106)
+# ---------------------------------------------------------------------------
+
+# One environment variable per privilege class, and the role each must connect
+# as. A shared connection string is how least privilege dies in practice: the
+# over-privileged connection serves every query correctly, so nothing fails and
+# nobody notices until an audit asks which role wrote a row.
+DATABASE_DSN_ROLES: Final[Mapping[str, str]] = {
+    "FKING_DATABASE__DSN": "fking_app_login",
+    "FKING_DATABASE__INGEST_DSN": "fking_ingest_login",
+    "FKING_DATABASE__MIGRATOR_DSN": "fking_migrator_login",
+}
+
+
+def _environment(path: Path, service: str) -> Mapping[str, str]:
+    definition = _services(path)[service]
+    block: object = definition.get("environment", {})
+    assert isinstance(block, dict), f"{path.name}: {service} environment is not a mapping"
+    return {str(key): str(value) for key, value in block.items()}
+
+
+@pytest.mark.parametrize(("variable", "login_role"), sorted(DATABASE_DSN_ROLES.items()))
+def test_each_database_dsn_connects_as_its_own_login_role(variable: str, login_role: str) -> None:
+    environment = _environment(BASE_FILE, "app")
+    assert variable in environment, f"{variable} is not set for the app service"
+    assert f"//{login_role}:" in environment[variable], f"{variable} must connect as {login_role}"
+
+
+def test_no_compose_service_connects_to_postgres_as_the_superuser() -> None:
+    """The superuser owns nothing in this schema after 0008 and has no business in
+    an application connection string. It is named here by the variable that supplies
+    it to the container, so a DSN interpolating it is visible rather than inferred."""
+    for path in COMPOSE_FILES:
+        for service, definition in _services(path).items():
+            block: object = definition.get("environment", {})
+            if not isinstance(block, dict):
+                continue
+            for key, value in block.items():
+                if not str(key).startswith("FKING_DATABASE__"):
+                    continue
+                assert "FKING_POSTGRES_USER" not in str(value), (
+                    f"{path.name}: {service}.{key} connects as the superuser"
+                )
+
+
+def test_the_demo_runtime_refuses_to_start_on_a_repository_default_password() -> None:
+    """The base file gives each login role a local-only default so a clean clone comes
+    up unattended. The demo runtime holds real testnet credentials, and a default that
+    silently persists into it is exactly how a password written in this repository ends
+    up guarding a live account. `?err` makes Compose refuse instead."""
+    environment = _environment(DEMO_FILE, "app")
+    for variable in DATABASE_DSN_ROLES:
+        assert variable in environment, f"{variable} is not overridden for the demo runtime"
+        assert ":?" in environment[variable], (
+            f"{variable} in the demo runtime must use the ${{VAR:?err}} form"
+        )

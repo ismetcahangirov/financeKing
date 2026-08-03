@@ -142,3 +142,30 @@ def test_the_shipped_cost_model_default_is_itself_validated() -> None:
     supplied values leaves the default unchecked, and the default is the value most
     likely to be edited without a test."""
     assert "testnet" not in Settings().backtest.cost_model.calibration_source
+
+
+def test_two_database_dsns_sharing_a_role_are_refused() -> None:
+    """The one configuration mistake that least privilege cannot survive.
+
+    Copying one `DATABASE_URL` into all three variables during a deploy produces a
+    system where every connection is over-privileged, and *nothing fails*: the
+    ingestion worker connected as the application role writes bars perfectly well, the
+    application connected as the migrator can disable the append-only trigger, and no
+    query anywhere returns an error. Boot is the only moment this is observable.
+    """
+    shared = "postgresql+asyncpg://fking_app_login:secret@127.0.0.1:5432/fking"
+    with pytest.raises(ValidationError, match="different role"):
+        Settings.model_validate({"database": {"dsn": shared, "ingest_dsn": shared}})
+
+
+def test_three_distinct_database_roles_are_accepted() -> None:
+    settings = Settings.model_validate(
+        {
+            "database": {
+                "dsn": "postgresql+asyncpg://fking_app_login:a@127.0.0.1:5432/fking",
+                "ingest_dsn": "postgresql+asyncpg://fking_ingest_login:b@127.0.0.1:5432/fking",
+                "migrator_dsn": "postgresql+asyncpg://fking_migrator_login:c@127.0.0.1:5432/fking",
+            }
+        }
+    )
+    assert settings.database.application_role == "fking_app"
