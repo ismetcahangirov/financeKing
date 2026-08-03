@@ -18,8 +18,20 @@ dependencies = [
     "alembic>=1.14",
     "asyncpg>=0.30",
     "httpx>=0.28.1",
+    # Telemetry (#18). The SDK plus the OTLP/gRPC exporter is the whole pipeline into
+    # the Collector; the three instrumentation packages are exactly the libraries this
+    # repository already depends on. FastAPI's joins when fking.api exists -- an
+    # instrumentation for a library nobody imports is a dependency with no effect.
+    "opentelemetry-exporter-otlp-proto-grpc>=1.30",
+    "opentelemetry-instrumentation-httpx>=0.55b0",
+    "opentelemetry-instrumentation-redis>=0.55b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.55b0",
+    "opentelemetry-sdk>=1.30",
     "pydantic>=2.11",
     "pydantic-settings>=2.7",
+    # Event bus (#18, ADR-0004). Streams, consumer groups and XAUTOCLAIM; the async
+    # client ships with the package, so there is no second aioredis dependency.
+    "redis>=6.0",
     "sqlalchemy>=2.0.36",
     "structlog>=26.1.0",
     "websockets>=17.0.1",
@@ -57,7 +69,7 @@ dev = [
     # that the default rather than something a developer has to remember to start.
     # It also binds a random host port, which matters on Windows where 5432 is
     # frequently already taken or reserved.
-    "testcontainers[postgres]>=4.9",
+    "testcontainers[postgres,redis]>=4.9",
 ]
 
 # ---------------------------------------------------------------------------
@@ -115,6 +127,13 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+# A005: `fking.platform.logging` shadows the standard library's `logging`. The name is
+# deliberate -- `.claude/rules/logging-rules.md` and OBSERVABILITY.md both name this
+# module, and a reader looking for the logging pipeline looks for `logging`. Python 3
+# resolves `import logging` inside it to the stdlib module by absolute import, so the
+# shadowing is nominal rather than real; nothing in this package imports stdlib logging
+# anyway, because structlog is the only logger in this codebase.
+"src/fking/platform/logging/*.py" = ["A005"]
 # S101: asserting is what a test does. The ban exists for src/, where an assert
 # disappears under -O and takes its check with it.
 "tests/**/*.py" = ["S101"]
@@ -180,7 +199,12 @@ warn_unused_ignores = true
 # that declares models rather than relaxed globally, so an explicit `Any` written by hand
 # anywhere else still fails.
 [[tool.mypy.overrides]]
-module = ["fking.platform.config.settings"]
+module = [
+    "fking.platform.bus._envelope",
+    "fking.platform.config.settings",
+    "tests.platform.bus.test_registry",
+    "tests.platform.bus.test_stream",
+]
 disallow_any_explicit = false
 
 # ---------------------------------------------------------------------------
@@ -251,7 +275,7 @@ type = "forbidden"
 # against a value read mid-decision is a limit whose behaviour depends on scheduling.
 # Rows reach them as arguments, from a caller that did the reading.
 source_modules = ["fking.risk", "fking.strategy"]
-forbidden_modules = ["alembic", "asyncpg", "sqlalchemy"]
+forbidden_modules = ["alembic", "asyncpg", "redis", "sqlalchemy"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
@@ -271,15 +295,20 @@ source_modules = [
 # Top-level names only: import-linter rejects subpackages of external packages, so
 # this is `urllib` rather than `urllib.request`.
 #
-# httpx and websockets are named here because #11 made them real dependencies.
-# Before that they were absent from the analysed graph, and a module that is not in
-# the graph can never be found in a chain -- so listing it was decoration, not a
-# check. aiohttp and requests are still absent and still omitted for the same
-# reason; aiohttp joins the list with ccxt in #5.
+# httpx and websockets are named here because #11 made them real dependencies, and
+# redis because #18 did. Before that they were absent from the analysed graph, and a
+# module that is not in the graph can never be found in a chain -- so listing it was
+# decoration, not a check. aiohttp and requests are still absent and still omitted for
+# the same reason; aiohttp joins the list with ccxt in #5.
+#
+# redis is here for a different reason from the others. It is not an egress risk -- it
+# addresses local infrastructure, not a venue -- but a consumer that opens its own
+# connection gets different decoding and no health check, and the divergence surfaces
+# as a bytes/str branch nobody expected. fking.platform.bus is the one constructor.
 #
 # fking.platform is deliberately not a source module: the sanctioned path runs
 # through fking.platform.safety, which must be able to import these.
-forbidden_modules = ["http", "httpx", "socket", "urllib", "websockets"]
+forbidden_modules = ["http", "httpx", "redis", "socket", "urllib", "websockets"]
 # The sanctioned path is fking.execution -> fking.platform.safety -> httpx, which is
 # an indirect import and must stay legal. Leaving this at the default false would
 # fail the contract on the correct architecture.

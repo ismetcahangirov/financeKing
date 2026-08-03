@@ -35,14 +35,14 @@ import stat
 from pathlib import Path
 from typing import Final, cast
 
-import structlog
 from pydantic import ValidationError
 
 from fking.platform.config._errors import ConfigError
 from fking.platform.config.settings import Settings
+from fking.platform.logging import get_logger
 from fking.platform.safety import PERMITTED_HOSTS, verify_endpoints_or_abort
 
-_LOG: Final = structlog.get_logger(__name__)
+_LOG: Final = get_logger(__name__)
 
 DEFAULT_ENV_FILE: Final[Path] = Path(".env")
 

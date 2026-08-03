@@ -458,6 +458,8 @@ class TelemetrySettings(BaseSettings):
 
 `log_field_allowlist` is an ordered `tuple`, not the `frozenset` its semantics suggest, because it is serialised into `config_hash` and a set's iteration order varies with `PYTHONHASHSEED` — which would make two processes holding identical configuration report different hashes, and the hash's whole job is to say when configuration is the same.
 
+It is also the **log field registry**, not a filter applied on top of one: a field absent from this tuple is dropped by the pipeline and counted on `fking_platform_log_fields_dropped_total` rather than emitted (`OBSERVABILITY.md` §7). That has a consequence worth stating, because it is the thing that surprises people: **adding a field to a log call is not enough to make it appear in Loki.** The field has to be added here too, in a reviewed diff — and because the tuple is part of `config_hash`, which fields a historical record *could* have carried is itself reconstructable. The dropped-field counter is what makes this maintainable rather than a silent hole: a field being dropped and counted shows up on a dashboard, whereas a field being silently dropped is a bug nobody finds until an investigation needs it.
+
 ---
 
 ## 11. `platform` — database, bus, API, scheduler

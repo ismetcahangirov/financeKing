@@ -321,6 +321,11 @@ logger.info(
 
 The static `message` acts as an event type. `{message="position_sized"} | json | binding_limit="max_notional"` is a query. A formatted sentence is not.
 
+Two mechanical consequences of that query, both easy to get wrong and both silent when wrong:
+
+- **The rendered JSON uses compact separators** — `{"trace_id":"..."}`, no space after the colon. Grafana's Loki-to-Tempo derived field matches `"trace_id":"([a-f0-9]{32})"`, and `json.dumps`' default `": "` breaks it. Nothing errors; the "open the trace from this line" link simply never appears (`.claude/knowledge/verified-facts.md` VF-019).
+- **`logger` is bound by `fking.platform.logging.get_logger(__name__)`, not derived by a processor.** structlog hands the positional argument of `structlog.get_logger(__name__)` to the logger factory, and the non-stdlib factories discard it — so the module path silently never reaches the record. Every module in this repository uses `get_logger`.
+
 ---
 
 ## 7. Redaction

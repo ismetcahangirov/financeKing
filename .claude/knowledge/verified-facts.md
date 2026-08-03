@@ -39,6 +39,7 @@ Confidence values used below: **measured** (we made the observation ourselves), 
 | VF-016 | Futures kline CSVs have a header row; spot ones do not | 2026-08-01 | measured | on archive format change |
 | VF-017 | Free full-depth L2 order book history does not exist | 2026-08-01 | measured | annually |
 | VF-018 | The pinned `timescaledb-ha` digest carries PostgreSQL 16.14 and TimescaleDB 2.29.0 | 2026-08-03 | measured | on any image re-pin |
+| VF-019 | Grafana's Loki-to-Tempo derived field only matches compactly separated JSON | 2026-08-03 | measured | on any change to the derived-field regex or the log renderer |
 
 ---
 
@@ -193,3 +194,12 @@ If you could not verify it, it belongs in [`./open-questions.md`](./open-questio
 - **Method**: started the pinned digest (`sha256:15c65f41...add85`) and queried `SELECT version()` and `SELECT extversion FROM pg_extension WHERE extname='timescaledb'`, which returned `PostgreSQL 16.14 ... 64-bit` and `2.29.0`. Then applied `migrations/versions/0003_market_data.py` against it and read back `timescaledb_information.hypertables` and `.jobs`, which reported both `bar` and `funding_rate` as compression-enabled with a `compress_after` of `30 days`.
 - **Consequence**: `create_hypertable(relation, by_range(column, interval))` is the correct call, not the deprecated two-argument `create_hypertable(relation, 'column')` form that most published examples still use. `by_range` has existed since TimescaleDB 2.13, so the modern form is safe against this digest and every plausible newer one, while the legacy form is on a removal path. `ALTER TABLE ... SET (timescaledb.compress, ...)` and `add_compression_policy` both still work on 2.29 despite the columnstore renaming in the 2.18 line, so the migration does not need version-conditional DDL.
 - **Re-verify**: whenever the `timescaledb-ha` digest in `docker-compose.yml` is re-pinned. `tests/platform/persistence/test_market_data.py::test_market_data_tables_are_compressed_hypertables` fails loudly if a newer image stops accepting either statement, so this is a re-read of the version numbers rather than a re-derivation of the consequence.
+
+
+## VF-019 — Grafana's provisioned Loki-to-Tempo derived field only matches log lines whose JSON has no space after the colon.
+
+- **Verified**: 2026-08-03 · **Confidence**: measured
+- **Method**: brought up the pinned Grafana, Loki, Tempo and OpenTelemetry Collector digests, emitted a two-span trace through the Collector on `127.0.0.1:4317`, and read the trace back both directly (`GET :3200/api/traces/<id>`) and through Grafana's datasource proxy (`GET :3001/api/datasources/proxy/uid/fking-tempo/api/traces/<id>`, HTTP 200). Then compared the rendered log line against the `matcherRegex` in `ops/grafana/provisioning/datasources/datasources.yaml`.
+- **Detail**: the provisioned regex is `"trace_id":"([a-f0-9]{32})"`. `json.dumps` defaults to `separators=(", ", ": ")`, so a structlog `JSONRenderer` left at its defaults emits `"trace_id": "38b0..."` — with a space — and the regex does not match.
+- **Consequence**: `structlog.processors.JSONRenderer` is configured with `separators=(",", ":")` in `fking.platform.logging.build_processor_chain`, and this is a correctness requirement rather than a size optimisation. The failure mode is the reason it is worth an entry: nothing raises, no panel errors, and no alert fires — the "open the trace from this log line" affordance simply does not appear, and an investigator concludes the trace was never recorded. `tests/platform/logging/test_pipeline.py` asserts a rendered line against the regex *and* asserts that the regex is still the one the provisioning file carries, because the two artifacts fail independently.
+- **Re-verify**: whenever either the derived-field regex or the log renderer's separators change.

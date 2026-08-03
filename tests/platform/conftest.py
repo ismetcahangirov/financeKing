@@ -1,4 +1,8 @@
-"""Fixtures for the persistence tests. Real PostgreSQL, never a mock.
+"""Fixtures for every test that needs a real PostgreSQL. Never a mock.
+
+Package-scoped rather than living under `persistence/`, because the event bus needs the
+same database: a consumer's deduplication claim and its effect commit in one transaction,
+so `tests/platform/bus/` is a second caller for exactly these fixtures.
 
 The interesting failures in this package live in `CHECK` constraints, `BEFORE UPDATE OR
 DELETE` triggers, revoked grants, hypertable policies and `ON CONFLICT` semantics. A
@@ -34,7 +38,7 @@ from alembic.config import Config
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from testcontainers.community.postgres import PostgresContainer
 
-REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
+REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
 # The same digest docker-compose.yml pins, so a migration cannot pass here and fail on
 # the developer stack over an extension version nobody thought to compare. The -ha image
@@ -163,7 +167,7 @@ def postgres_server() -> Iterator[str]:
     if override:
         failure = asyncio.run(_server_is_reachable(override))
         if failure is not None:
-            _refuse(f"FKING_TEST_ADMIN_DSN is set but unreachable: {failure}")
+            refuse_or_skip(f"FKING_TEST_ADMIN_DSN is set but unreachable: {failure}")
         yield override
         return
 
@@ -171,7 +175,7 @@ def postgres_server() -> Iterator[str]:
         container = PostgresContainer(image=TIMESCALE_IMAGE, driver="asyncpg", dbname="postgres")
         container.start()
     except Exception as unavailable:  # noqa: BLE001 - reported, never swallowed
-        _refuse(
+        refuse_or_skip(
             f"could not start a TimescaleDB container ({type(unavailable).__name__}: "
             f"{unavailable}). Start Docker, or set FKING_TEST_ADMIN_DSN to an "
             f"existing server."
@@ -182,7 +186,7 @@ def postgres_server() -> Iterator[str]:
         container.stop()
 
 
-def _refuse(message: str) -> None:
+def refuse_or_skip(message: str) -> None:
     """Skip locally, fail under `FKING_REQUIRE_DB`.
 
     A database test that silently skips in CI is the failure mode this repository

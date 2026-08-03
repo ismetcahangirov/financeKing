@@ -548,19 +548,65 @@ class TelemetrySettings(BaseModel):
     # json in every environment, including local: no environment should run a
     # serialisation path whose parsing is untested.
     log_format: Literal["json"] = "json"
+    # The log field registry. OBSERVABILITY.md section 7: redaction is allowlist-based,
+    # so a field absent from this tuple is dropped by the pipeline and counted on
+    # `fking_platform_log_fields_dropped_total` rather than emitted. A denylist would
+    # expose every new field until somebody remembered to add it, and nobody remembers
+    # during an incident -- which is exactly when new fields get added.
+    #
+    # Adding a field is therefore a deliberate, reviewed act, and because this value is
+    # serialised into the config hash, which fields a historical record could have
+    # carried is itself reconstructable.
+    #
     # An ordered tuple rather than the frozenset CONFIGURATION.md section 10 shows,
-    # because this value is serialised into the config hash and a set's iteration order
-    # varies with PYTHONHASHSEED -- which would make the hash differ between two
-    # processes holding identical configuration.
+    # because a set's iteration order varies with PYTHONHASHSEED -- which would make the
+    # config hash differ between two processes holding identical configuration.
     log_field_allowlist: tuple[str, ...] = (
+        # Mandatory on every record.
         "correlation_id",
-        "causation_id",
-        "trace_id",
-        "span_id",
-        "event",
+        "environment",
         "level",
+        "logger",
+        "message",
+        "service",
+        "span_id",
         "timestamp",
+        "trace_id",
+        "version",
+        # Mandatory when applicable.
         "audit_ref",
+        "base_quantity",
+        "binding_limit",
+        "causation_id",
+        "client_order_id",
+        "exception",
+        "notional_usd",
+        "order_id",
+        "outcome",
+        "reason",
+        "strategy_id",
+        "strategy_version",
+        "symbol",
+        "venue",
+        # Boot record. CONFIGURATION.md section 4 requires the full effective config, and
+        # it is safe to emit only because every credential in it is already redacted by
+        # type before the record is built.
+        "allowed_hosts",
+        "config",
+        "config_hash",
+        "git_sha",
+        "key_path",
+        "venue_endpoints",
+        # Event bus.
+        "consumer_group",
+        "dlq_stream",
+        "event_id",
+        "event_type",
+        "idempotency_key",
+        "message_id",
+        "reclaimed_count",
+        "schema_version",
+        "stream",
     )
 
     trace_sample_ratio: Decimal = Field(default=Decimal("0.10"), ge=0, le=1)
