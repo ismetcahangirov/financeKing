@@ -14,8 +14,36 @@
 # Every memory limit carries the value observed on this stack and the date
 # measured. An undocumented limit is a number someone will guess at later.
 # The budget targets a 16 GB host and is enumerated in DEPLOYMENT.md 4.
+#
+# Every service is hardened the same way and the uniformity is the point: a
+# service without `user:`, `read_only:`, `cap_drop:` and `security_opt:` is a
+# service someone forgot, and tests/infra/test_container_hardening.py fails on
+# the omission rather than leaving it to be noticed. docs/adr/0016 records why
+# the network is closed rather than filtered. #107.
 
 name: fking
+
+# -----------------------------------------------------------------------------
+# One network, and it is `internal: true` -- Docker installs no default route and
+# no external DNS forwarder on it, so nothing in this stack can reach anything
+# off this host. The safety kernel validates hosts inside the Python process and
+# is thorough, but it protects only code that goes through it: a subprocess
+# calling curl, a dependency's post-install hook, or a native extension opening
+# its own socket are all outside its reach (ARCHITECTURE.md 8). This is the
+# control that does not depend on Python, and two controls that fail differently
+# are the point -- a bypass of one is not a bypass of both.
+#
+# No service joins any other network. When the venue adapters need egress they
+# get a second, non-internal network joined by that one service, added in that
+# pull request where the hosts it needs are known. Adding it now would be an
+# egress path with no caller, and the proxy variant would mean giving
+# fking.platform.safety a compiled-in proxy URL -- a safety:critical change made
+# speculatively. docs/adr/0016.
+# -----------------------------------------------------------------------------
+networks:
+  fking_internal:
+    name: fking_internal
+    internal: true
 
 services:
   # ---------------------------------------------------------------------------
@@ -26,6 +54,36 @@ services:
     # The -ha image rather than the plain one because it carries pgvector, which
     # agent memory needs (MEMORY_SYSTEM.md) and which the plain image lacks.
     image: timescale/timescaledb-ha@sha256:15c65f4176e5f19742d44fde1cb12c3db27b55033dbc8f11f0143635223add85
+    networks: [fking_internal]
+    # By name, not "1000:1000". A numeric pair sets uid and gid and drops every
+    # supplementary group; naming the user makes Docker read /etc/group, which
+    # keeps this image's `ssl-cert` (gid 101) membership. Verified against the
+    # image on 2026-08-03: `--user postgres` yields groups 1000,101 and
+    # `--user 1000:1000` yields 1000 alone.
+    #
+    # The image already declares USER postgres. Restating it here is not
+    # redundancy -- an image rebuild that changed the default would otherwise be
+    # invisible, and the append-only audit guarantee is enforced by grants and
+    # triggers that anything reaching the data directory as root defeats.
+    user: "postgres"
+    read_only: true
+    tmpfs:
+      # PGDATA is the named volume; these two are the paths the server writes
+      # outside it. The socket directory is the one that is easy to miss: with a
+      # read-only root and no tmpfs here, Postgres exits with
+      # `could not create lock file "/var/run/postgresql/.s.PGSQL.5432.lock":
+      # Permission denied` -- an error that names a file and reads like a
+      # permissions bug in the image.
+      #
+      # /run is deliberately NOT in this list even though /var/run is a symlink
+      # to it. Mounting both makes Docker mount /run first and then nest the
+      # socket directory inside it, and the nested mount inherits /run's 0755
+      # rather than the 3777 a top-level tmpfs gets -- which reproduces the
+      # exact failure above. Observed on this stack 2026-08-03.
+      - /tmp
+      - /var/run/postgresql
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     environment:
       POSTGRES_USER: ${FKING_POSTGRES_USER:-postgres}
       # Local-only default. This file publishes no ports, and the dev override
@@ -74,6 +132,22 @@ services:
   redis:
     # redis:7-alpine -- pinned 2026-08-03.
     image: redis@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+    networks: [fking_internal]
+    # The only image here with no USER of its own -- verified 2026-08-03,
+    # `docker run --entrypoint id redis@sha256:...` returns uid=0. Its
+    # entrypoint gosu-drops to `redis` before exec'ing redis-server, so the
+    # server itself was never root; what was root is PID 1's first moments and,
+    # more importantly, every later `docker exec` into the container. Declaring
+    # the user removes the root context entirely rather than relying on a drop
+    # performed by a shell script inside the image.
+    #
+    # By name so the supplementary group survives (see postgres above): redis is
+    # uid 999, gid 1000.
+    user: "redis"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     # maxmemory is set BELOW the container limit on purpose. If Redis is allowed
     # to reach the cgroup limit the kernel kills it; if it reaches maxmemory
     # first it applies its own policy and stays alive. noeviction because the
@@ -111,6 +185,16 @@ services:
   otel-collector:
     # otel/opentelemetry-collector-contrib:0.115.1 -- pinned 2026-08-03.
     image: otel/opentelemetry-collector-contrib@sha256:d2da12c4336a79758826700be9e21ecf4a9f7d945b7f8a58ba55ee3fa45427c8
+    networks: [fking_internal]
+    # Numeric, not by name: the image is distroless and carries no /etc/passwd
+    # entry to resolve a name against, so `user: otel` would fail to start.
+    user: "10001:10001"
+    # It writes nothing: the config is a read-only mount and every exporter
+    # target is a socket. No tmpfs either -- an empty tmpfs list would be a
+    # claim that something needs one.
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     command: ["--config=/etc/otel/config.yaml"]
     # No healthcheck, and this is not an oversight. The image is distroless --
     # it contains no shell and no wget or curl, verified on 2026-08-03 -- so a
@@ -139,6 +223,16 @@ services:
   prometheus:
     # prom/prometheus:v3.0.1 -- pinned 2026-08-03.
     image: prom/prometheus@sha256:565ee86501224ebbb98fc10b332fa54440b100469924003359edf49cbce374bd
+    networks: [fking_internal]
+    # 65534:65534 is `nobody`, which is what the image already declares. Spelled
+    # numerically because the busybox base resolves the name but a future
+    # distroless rebase would not, and the failure would be a container that
+    # will not start rather than one that runs privileged.
+    user: "65534:65534"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -173,6 +267,15 @@ services:
   loki:
     # grafana/loki:3.3.2 -- pinned 2026-08-03.
     image: grafana/loki@sha256:8af2de1abbdd7aa92b27c9bcc96f0f4140c9096b507c77921ffddf1c6ad6c48f
+    networks: [fking_internal]
+    user: "10001:10001"
+    read_only: true
+    # Loki keeps chunks, the index, the WAL and the compactor's working
+    # directory under /loki, which is the named volume. /tmp is the tsdb
+    # builder's scratch space and is the one path outside it.
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     command: ["-config.file=/etc/loki/loki.yaml"]
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3100/ready"]
@@ -197,6 +300,12 @@ services:
   tempo:
     # grafana/tempo:2.6.1 -- pinned 2026-08-03.
     image: grafana/tempo@sha256:ef4384fce6e8ad22b95b243d8fc165628cda655376fd50e7850536ad89d71d50
+    networks: [fking_internal]
+    user: "10001:10001"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3200/ready"]
@@ -221,6 +330,17 @@ services:
   grafana:
     # grafana/grafana:11.3.1 -- pinned 2026-08-03.
     image: grafana/grafana@sha256:fa801ab6e1ae035135309580891e09f7eb94d1abdbd2106bdc288030b028158c
+    networks: [fking_internal]
+    # 472:0 -- uid 472 is grafana; gid 0 is the image's own choice, because the
+    # directories it writes are group-owned by root and group-writable. Group 0
+    # is not root the user: with cap_drop ALL and no-new-privileges there is no
+    # privilege attached to the gid, and overriding it to 472:472 makes Grafana
+    # fail to write its own database. Verified against the image 2026-08-03.
+    user: "472:0"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     environment:
       GF_SECURITY_ADMIN_USER: ${FKING_GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${FKING_GRAFANA_ADMIN_PASSWORD:-admin}
@@ -283,6 +403,20 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    networks: [fking_internal]
+    # Matches the fking user created in the Dockerfile. Declared here as well
+    # because the image and the runtime policy are reviewed by different people
+    # at different times, and a base-image change that reverted USER would
+    # otherwise be silent.
+    user: "1001:1001"
+    read_only: true
+    # CPython writes nowhere on a read-only root once PYTHONDONTWRITEBYTECODE is
+    # set -- it is, in the Dockerfile -- so /tmp is the whole list: it is where
+    # `tempfile` and DuckDB's spill files land. The parquet archive is the named
+    # volume, not this, and nothing written here survives a restart.
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     env_file:
       # Optional so that a clean clone with no .env comes up unattended. Every
       # setting has a default (CONFIGURATION.md); .env supplies credentials.

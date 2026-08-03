@@ -40,9 +40,13 @@ FROM python:3.12-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3
 
 # Non-root. The container holds a read-only mount of the Ed25519 private key,
 # and a process that does not need to be root should not be able to change the
-# mode of anything it can see. Full container hardening -- read-only rootfs,
-# dropped capabilities, no default egress -- is #107; this is the part that
-# belongs with the image rather than with the runtime policy.
+# mode of anything it can see.
+#
+# This is the image's half. The runtime policy -- read-only rootfs, dropped
+# capabilities, no-new-privileges and a closed network -- lives in
+# docker-compose.yml, and restates `user:` rather than inheriting this line, so
+# that a base-image rebuild which dropped its USER is visible rather than
+# silent. docs/adr/0016.
 RUN groupadd --system --gid 1001 fking \
     && useradd --system --uid 1001 --gid fking --create-home --shell /usr/sbin/nologin fking
 
