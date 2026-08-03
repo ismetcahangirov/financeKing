@@ -284,6 +284,49 @@ jobs:
             --changed-files changed-files.txt
 
   # --------------------------------------------------------------------------
+  # Container and network posture.
+  #
+  # Separate from `test` because it is the only job that needs a Docker daemon and
+  # the only one measured in minutes rather than seconds -- it builds the app image
+  # and starts Postgres. Folding it into `test` would make every unit-test run wait
+  # for a build.
+  #
+  # FKING_REQUIRE_DOCKER=1 turns an unreachable daemon from a skip into a failure.
+  # Skipping is right on a developer machine with Docker Desktop closed; here it
+  # would be a green gate that proved the app container cannot reach a production
+  # exchange without ever having opened a socket. #107.
+  # --------------------------------------------------------------------------
+  containers:
+    name: Container gate (egress closed, non-root, read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: fast
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen
+
+      - name: Compose topology parses and publishes nothing wide
+        # `config` is the merged view Compose will actually run, so this catches an
+        # interpolation that only resolves at merge time -- which the YAML-level
+        # assertions below, reading each file in isolation, cannot see.
+        run: |
+          docker compose config > merged-compose.yml
+          if grep -n '0\.0\.0\.0' merged-compose.yml; then
+            echo "::error title=Wide binding::the merged topology exposes a port on every interface"
+            exit 1
+          fi
+
+      - name: Container and egress tests
+        env:
+          FKING_REQUIRE_DOCKER: "1"
+        run: uv run python -m pytest tests/infra --no-cov
+
+  # --------------------------------------------------------------------------
   # Dependency CVEs
   # --------------------------------------------------------------------------
   security:
