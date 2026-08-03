@@ -846,6 +846,35 @@ trial_ledger = sa.Table(
 )
 
 # ---------------------------------------------------------------------------
+# Event bus
+# ---------------------------------------------------------------------------
+
+processed_events = sa.Table(
+    "processed_events",
+    METADATA,
+    # The composite primary key is the mechanism, not an index choice: it is the
+    # arbiter `INSERT ... ON CONFLICT DO NOTHING` needs, and without it the claim
+    # statement errors at runtime rather than deduplicating. Keyed by consumer group as
+    # well as by event, because two groups consuming the same stream must each apply the
+    # event once.
+    sa.Column("consumer_group", identifier(), nullable=False),
+    # A hash of the event's *semantic content*, never the stream message id. A message
+    # id is a delivery coordinate and fails in both directions: XAUTOCLAIM redelivers a
+    # message under the same id, and a producer retrying after a timeout republishes the
+    # same event under a new one. Deduplicating on the id lets the second case through,
+    # and the second append is a fill the position counts twice.
+    sa.Column("idempotency_key", identifier(), nullable=False),
+    sa.Column("stream", identifier(), nullable=False),
+    sa.Column("message_id", identifier(), nullable=False),
+    _recorded_at_utc(),
+    sa.PrimaryKeyConstraint("consumer_group", "idempotency_key", name="pk_processed_events"),
+    # Retention: a consumer cannot deduplicate against rows it has pruned, so the
+    # retention window must exceed the longest possible redelivery. The index is what
+    # makes pruning by age a range scan rather than a sequential one.
+    sa.Index("ix_processed_events_recorded_at_utc", "recorded_at_utc"),
+)
+
+# ---------------------------------------------------------------------------
 # Append-only classification
 # ---------------------------------------------------------------------------
 

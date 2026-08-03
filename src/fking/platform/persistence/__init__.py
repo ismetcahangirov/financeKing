@@ -23,7 +23,7 @@ Everything not listed in `__all__` is private and may change without notice.
 """
 
 from fking.platform.persistence._types import MONEY_PRECISION, MONEY_SCALE
-from fking.platform.persistence.engine import build_engine
+from fking.platform.persistence.engine import build_engine, build_session_factory
 from fking.platform.persistence.schema import (
     APPEND_ONLY_TABLES,
     HASH_CHAINED_TABLES,
@@ -43,6 +43,7 @@ __all__ = [
     "NAMING_CONVENTION",
     "SeedReport",
     "build_engine",
+    "build_session_factory",
     "count_reference_rows",
     "seed_reference_data",
 ]

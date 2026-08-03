@@ -18,7 +18,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from fking.platform.persistence.schema import METADATA
-from tests.platform.persistence.conftest import REPO_ROOT, alembic_config
+from tests.platform.conftest import REPO_ROOT, alembic_config
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
@@ -63,7 +63,11 @@ def test_upgrade_then_downgrade_one_step_then_upgrade_again(scratch_dsn: str) ->
     command.downgrade(config, "-1")
     command.upgrade(config, "head")
 
-    assert asyncio.run(_applied_revision(scratch_dsn)) == "0006_agents"
+    # Read off disk rather than hardcoded. A literal here makes every migration edit this
+    # test, and a test that must be edited by every change is a test people edit without
+    # reading -- which is how the assertion ends up describing whatever the code now does.
+    expected_head = ScriptDirectory(str(REPO_ROOT / "migrations")).get_current_head()
+    assert asyncio.run(_applied_revision(scratch_dsn)) == expected_head
 
 
 def test_downgrading_past_the_audit_substrate_refuses(scratch_dsn: str) -> None:
