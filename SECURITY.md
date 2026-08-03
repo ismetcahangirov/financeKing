@@ -311,11 +311,14 @@ Belt, braces, and a third thing, because a future migration will forget one of t
 | Full lock | `uv.lock` is committed and is the single source of dependency truth |
 | Image pinning | Every container image pinned **by digest**, with a comment naming the tag and the date pinned. No `latest`, ever |
 | Action pinning | GitHub Actions pinned by commit SHA on anything that touches secrets |
-| Advisory scanning | `uv pip audit` (or equivalent) in CI; a `high` advisory in the execution path blocks the merge |
+| Advisory scanning | `pip-audit --strict` against the set exported from `uv.lock`, in the pull-request gate **and** nightly (`make audit` runs the same command locally) |
+| Scheduled scanning | `.github/workflows/nightly-security.yml` at 03:17 UTC. A finding opens or comments on a single `status:needs-human` issue rather than filing one per night |
 | `ccxt` floor | `>= 4.5.70`. Currently the only client correct on both the endpoint split and the post-`listenKey` user-data model |
 | Major-version policy | A `ccxt` major bump **escalates**. Its correctness on current Binance reality is why it was chosen and cannot be assumed across majors |
 
 The supply-chain concern here is not a targeted attack. It is vector 4 again: a transitive dependency changing a default that quietly alters where a request goes. That is also why the per-request host guard is the real control and dependency pinning is only a way to reduce how often it has to fire.
+
+**The nightly run is the half that matters.** A pull-request gate catches what a diff introduces; it cannot catch an advisory published tomorrow against a dependency that is already locked, which is the more common shape — a `ccxt` advisory lands against a floor of `>= 4.5.70` without anybody touching a file in this repository. The nightly result is an issue rather than a red check because nobody is watching a scheduled workflow at 03:17, and because the decision it needs — upgrade, pin, or accept with a written reason — is a human one.
 
 The `binance-*` official SDKs shipped 11 and 16 major versions in roughly twelve months (`ARCHITECTURE.md` §7). That release cadence is itself a supply-chain risk for unattended operation, and it is a stated reason they were rejected.
 
@@ -327,7 +330,7 @@ The `binance-*` official SDKs shipped 11 and 16 major versions in roughly twelve
 - **Three database roles, three connection strings, and configuration refuses a shared one.** See §8.1.
 - Grafana is not anonymous; the admin password comes from `.env`.
 - No service in the Compose stack is published to the host except through localhost bindings.
-- Container filesystems are read-only where possible; `secrets/` is mounted read-only into the app container only.
+- **Every container's root filesystem is read-only, runs as a declared non-root user, drops every capability, and sets `no-new-privileges`.** Every writable path is a named volume or an enumerated `tmpfs`. `secrets/` is mounted read-only into the app container alone.
 
 ### 8.1 Database roles
 
@@ -351,6 +354,14 @@ Four properties are worth stating because none of them is visible from the grant
 
 The one thing this cannot defend against is a single connection string copied into all three environment variables during a deploy — nothing fails, because the over-privileged connection serves every query correctly. Configuration validation refuses it at boot, which is the only moment it is observable.
 
+### 8.2 The container network is the second control
+
+Every service joins one `internal: true` network and no other, so no container can reach anything off this host — by name or by address. The safety kernel (§3) is an in-process control and protects only code that goes through it; its own threat model names a `subprocess` calling `curl`, a post-install hook and a native extension opening a socket as outside its reach. This is the control that does not depend on Python, and the value is that the two fail differently: a bypass of one is not a bypass of both.
+
+There is no egress path today and adding one is a per-service change reviewed on its own merits. `docs/adr/0016` records the decision and argues the rejected alternative — an allowlisted forward proxy — at full strength, including why it becomes the right answer the moment a caller exists.
+
+`tests/infra/test_egress_policy.py` proves the property by opening a raw socket from inside the app container: no `httpx`, no `guarded_client`, no monkeypatch, because a raw socket is exactly what the bypasses in the threat model would use. It asserts an internal service *is* reachable in the same run, so a green result cannot come from a broken container.
+
 ---
 
 ## 9. Review triggers
@@ -365,6 +376,7 @@ A change gets a security review when it:
 - adds an LLM prompt, or changes what text reaches one
 - adds a dependency, or changes a pin
 - weakens or removes an `import-linter` contract
+- attaches a service to a second network, or relaxes `read_only`, `user`, `cap_drop` or `security_opt` on any container
 
 Findings state the **exploit path**, not the category. "Secrets in logs" is not actionable. "`OrderRequest.model_dump()` at `execution/oms.py:212` includes `api_key`, is passed to `logger.info` at line 219, and Loki retains it for 30 days" is.
 
@@ -373,6 +385,7 @@ Findings state the **exploit path**, not the category. "Secrets in logs" is not 
 - Any change that would widen the allowlist, add an override, or make host validation conditional.
 - A secret found in git history, a log, a span, a prompt, or an audit row.
 - `import-linter` contracts weakened in the same PR that adds a network call.
+- A service moved off `fking_internal`, or `fking_internal` itself losing `internal: true`, without a superseding ADR.
 - An `UPDATE`/`DELETE` grant on an audit or memory table in a migration.
 - An injection probe succeeding.
 - A dependency in the execution path with a known-exploited advisory and no patched version.

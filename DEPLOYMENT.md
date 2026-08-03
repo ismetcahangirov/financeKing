@@ -72,6 +72,50 @@ ports:
 
 ## 3. Topology and service definitions
 
+### The network is closed, and that is the second control
+
+Every service joins exactly one network, `fking_internal`, declared `internal: true`. Docker installs no default route and no external DNS forwarder on such a network, so **nothing in this stack can reach anything off this host** — by name or by address.
+
+```yaml
+networks:
+  fking_internal:
+    name: fking_internal
+    internal: true
+```
+
+This is not redundant with the safety kernel; it is the control that does not depend on Python. `fking.platform.safety` validates hosts inside the process and is thorough, but it protects only code that goes through it, and its own threat model (`ARCHITECTURE.md` §8) names three things that do not: a `subprocess` calling `curl`, a dependency's post-install hook, and a native extension opening its own socket. Two controls that fail differently is the point — a bypass of one is not a bypass of both.
+
+From inside the app container, verified 2026-08-03 and asserted by `tests/infra/test_egress_policy.py`:
+
+```
+api.binance.com:443        gaierror: [Errno -3] Temporary failure in name resolution
+1.1.1.1:443                OSError:  [Errno 101] Network is unreachable
+postgres:5432              connected
+```
+
+The last line is not decoration. Without it the first two would pass just as well against a container with a broken image.
+
+**There is no egress path, and adding one is a per-service change.** When a service needs to reach outside — the venue adapter (#112), the LLM gateway, the archive loader — that service alone gains a second, non-internal network in the pull request that gives it a reason to, with the in-process allowlist still applying. `docs/adr/0016` records why an allowlisted forward proxy was rejected *for now*: it would require a compiled-in proxy URL inside the safety kernel, which is a `safety:critical` change, and making it speculatively for a caller that does not exist inverts the friction that kernel exists to create.
+
+### Every container is unprivileged and its root filesystem is read-only
+
+| Setting | Applies to | Why |
+|---|---|---|
+| `user:` | every service | Declared even where the image sets `USER`, so a base-image rebuild that dropped it is visible. `redis` is the one image here with no `USER` of its own. |
+| `read_only: true` | every service | Every writable path is a named volume or a declared `tmpfs`, so the set of paths this stack can persist to is readable from one file. |
+| `tmpfs:` | where the process writes outside its volume | Enumerated per service, never blanket. |
+| `cap_drop: ["ALL"]` | every service | Nothing here binds a privileged port. Dropping the lot means a capability added to Docker's defaults later is not silently inherited. |
+| `security_opt: ["no-new-privileges:true"]` | every service | Without it a setuid binary in the image can still escalate, and `user: 1001` describes only the first instruction. |
+
+Two findings from doing this that are not obvious from the outside, both verified against the pinned images on 2026-08-03:
+
+- **Name the user, do not spell the uid.** `user: "postgres"` makes Docker read `/etc/group` and keeps the image's `ssl-cert` (gid 101) membership; `user: "1000:1000"` is the same uid and drops every supplementary group.
+- **Do not add `/run` to Postgres' `tmpfs` list.** `/var/run` is a symlink to `/run`, so mounting both makes Docker mount `/run` first and nest the socket directory inside it, where it inherits `0755` instead of the `3777` a top-level `tmpfs` gets. Postgres then exits with `could not create lock file "/var/run/postgresql/.s.PGSQL.5432.lock": Permission denied` — an error that names a file and reads like a bug in the image.
+
+Grafana runs as `472:0`. Group 0 is the image's own choice — it group-owns `/var/lib/grafana` to root and makes it group-writable — and with `cap_drop: ALL` and `no-new-privileges` the gid carries no privilege. `472:472` makes Grafana fail to write its own database.
+
+`tests/infra/test_container_hardening.py` asserts all of the above from the YAML rather than from a comment.
+
 ### Dependency ordering by health check, not start order
 
 > **`depends_on` uses `condition: service_healthy`, always. Never bare `depends_on`, never a sleep, never a retry loop in the entrypoint.**
@@ -430,6 +474,9 @@ Run before the first strategy is enabled on `DemoVenue`, and again after any cha
 - [ ] `grep -rn "0.0.0.0" docker-compose*.yml` returns nothing.
 - [ ] No mainnet URL anywhere in the repo, including comments and `.env.example`.
 - [ ] `gitleaks` clean on full history.
+- [ ] `docker network inspect fking_internal --format '{{.Internal}}'` prints `true`.
+- [ ] `FKING_REQUIRE_DOCKER=1 make test ARGS="tests/infra"` green — the app container cannot resolve or route to a production exchange, and an internal service is still reachable in the same run.
+- [ ] `docker compose config` shows every service on `fking_internal` and on nothing else. A second network is an egress path and needs an ADR superseding 0016.
 
 ### Configuration
 

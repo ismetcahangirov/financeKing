@@ -60,6 +60,7 @@ Do not edit it by hand. The generator owns everything between the sentinel comme
 | [0012](0012-strategies-emit-signals-only.md) | Strategies emit Signal and have no import path to order construction | 2026-08-03 | accepted |
 | [0014](0014-kill-switch-flattens-on-trip.md) | Flatten the book on kill-switch trip, sourced from exchange state | 2026-08-02 | accepted |
 | [0015](0015-database-enforced-append-only-audit.md) | Enforce append-only audit in PostgreSQL with revoked grants, immutability triggers and a hash chain | 2026-08-03 | accepted |
+| [0016](0016-closed-container-network.md) | Close the container network entirely rather than filter egress, and open it per service when a caller exists | 2026-08-03 | accepted |
 <!-- adr-index:end -->
 
 0013 is reserved for [#21](https://github.com/ismetcahangirov/financeKing/issues/21) — timestamp normalization keyed on `(market, dataset, date)`. 0014 was written ahead of the 0001–0012 sequence because it resolves a contradiction between two documents already in the tree ([#111](https://github.com/ismetcahangirov/financeKing/issues/111)), and leaving a safety-critical default ambiguous until the ADR backlog cleared was not an option.
