@@ -53,6 +53,8 @@ Status: **active** · **SUPERSEDED by D-NNN** · **open to revisit** (a decision
 | D-029 | `import-linter` contracts as executable architecture | Documented conventions and code review | active | `ARCHITECTURE.md` §2 · ADR 0001 |
 | D-030 | Self-hosted OpenTelemetry stack, instrumented from P0 | A hosted APM, or instrumenting later | active | `ARCHITECTURE.md` §11 |
 | D-031 | Kill switch flattens on trip, sized from venue state | Cancel-only with positions left open; flatten-or-cancel per trigger class | active | ADR 0014 |
+| D-032 | Provider SDKs called directly behind this project's own gateway | `litellm`; `pydantic-ai` | active | `docs/research/free-tier-landscape.md` §3 · ADR 0009 |
+| D-033 | Promotion-gating statistics implemented in-project against worked examples | `mlfinlab` — which no longer has an installable release | active | `docs/research/free-tier-landscape.md` §4 · VF-025 |
 
 ---
 
