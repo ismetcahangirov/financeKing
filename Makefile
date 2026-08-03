@@ -11,7 +11,7 @@ ARGS ?=
 COMPOSE ?= docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help check lint format types imports checks adr-index test cover secrets up down logs ps config
+.PHONY: help check lint format types imports checks adr-index test cover secrets up down logs ps config migrate migrate-down migrate-sql seed
 
 help:  ## Show the available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -99,3 +99,28 @@ ps:  ## Show service state and health
 
 config:  ## Render the merged compose configuration without starting anything
 	$(COMPOSE) config
+
+# ---------------------------------------------------------------------------
+# Schema. .claude/rules/append-only-audit.md is the specification for the audit
+# substrate; docs/adr/0015 records why it is enforced by the database.
+# ---------------------------------------------------------------------------
+
+## The DSN comes from the settings tree, not from alembic.ini, so `make migrate` and
+## the running application read the same value from the same place.
+migrate:  ## Apply every migration up to head
+	$(UV) run alembic upgrade head
+
+## One step, never `base`. Reverting to base would attempt 0002, which refuses -- and
+## that refusal is the point: rolling back a schema holding the audit trail is a
+## data-destruction operation dressed as a schema operation.
+migrate-down:  ## Revert the most recent migration
+	$(UV) run alembic downgrade -1
+
+## Review the DDL as SQL before it touches anything. Most of this schema's correctness
+## lives in triggers, grants and hypertable policies, and none of that is visible in a
+## Python diff the way it is in the statement that will actually run.
+migrate-sql:  ## Print the SQL for an upgrade without executing it
+	$(UV) run alembic upgrade head --sql
+
+seed:  ## Insert venues and instruments for local development; idempotent
+	$(UV) run python -m fking.platform.persistence

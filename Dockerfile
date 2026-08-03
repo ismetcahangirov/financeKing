@@ -67,8 +67,11 @@ USER fking
 # or exit 78 (EX_CONFIG) so a supervisor can tell a configuration error from a
 # crash and decline to retry it.
 #
-# This is a one-shot. The long-running process does not exist yet: migrations
-# are #17, the runtime and event bus are #18, the FastAPI surface and its
-# /health/ready endpoint are #102. When it does, this CMD becomes the server
-# and the compose file gains the health check that goes with it.
+# This is a one-shot. The long-running process does not exist yet: the runtime
+# and event bus are #18, the FastAPI surface and its /health/ready endpoint are
+# #102. When it does, this CMD becomes `alembic upgrade head` followed by the
+# server -- the order DEPLOYMENT.md 5 specifies -- and the compose file gains
+# the health check that goes with it. Migrations exist as of #17 but are run by
+# `make migrate` rather than from here, because a schema change applied by a
+# container start is a schema change nobody watched.
 CMD ["python", "-m", "fking.platform.config"]

@@ -266,9 +266,14 @@ services:
   # endpoint against the compiled-in allowlist, logs the allowlist, and exits 0
   # -- or exits 78 (EX_CONFIG) and takes the stack down with it.
   #
-  # There is no long-running process to run yet: the migrations are #17, the
-  # runtime and event bus are #18, and the FastAPI surface with its
-  # /health/ready endpoint is #102. The alternative to a one-shot here was a
+  # There is no long-running process to run yet: the runtime and event bus are
+  # #18, and the FastAPI surface with its /health/ready endpoint is #102. The
+  # migrations landed with #17 and are deliberately NOT run from this
+  # entrypoint yet -- `make migrate` is the operator-facing command, and wiring
+  # `alembic upgrade head` into a container start that then exits would mean a
+  # schema change applied by a service whose logs nobody is watching.
+  # DEPLOYMENT.md 5 covers where it moves once there is a server to run.
+  # The alternative to a one-shot here was a
   # fake health endpoint or a `sleep infinity` entrypoint, and CLAUDE.md 9
   # forbids leaving either behind. The `/health/ready` healthcheck and
   # `condition: service_healthy` arrive in the pull request that lands the

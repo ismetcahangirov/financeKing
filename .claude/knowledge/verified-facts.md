@@ -38,6 +38,7 @@ Confidence values used below: **measured** (we made the observation ourselves), 
 | VF-015 | Spot timestamps became microseconds from 2025-01-01; futures stayed ms | 2026-08-01 | measured | never — it is a historical boundary |
 | VF-016 | Futures kline CSVs have a header row; spot ones do not | 2026-08-01 | measured | on archive format change |
 | VF-017 | Free full-depth L2 order book history does not exist | 2026-08-01 | measured | annually |
+| VF-018 | The pinned `timescaledb-ha` digest carries PostgreSQL 16.14 and TimescaleDB 2.29.0 | 2026-08-03 | measured | on any image re-pin |
 
 ---
 
@@ -185,3 +186,10 @@ Append at the end with the next `VF-NNN`, add a row to the index, and state: the
 If the fact contradicts an existing entry, do not edit the old one. Add the new entry and mark the old one `SUPERSEDED by VF-NNN`.
 
 If you could not verify it, it belongs in [`./open-questions.md`](./open-questions.md) instead — and putting it there is a useful contribution, not a failure.
+
+## VF-018 — The `timescaledb-ha` digest pinned in `docker-compose.yml` is PostgreSQL 16.14 with TimescaleDB 2.29.0, and it accepts the modern hypertable syntax.
+
+- **Verified**: 2026-08-03 · **Confidence**: measured
+- **Method**: started the pinned digest (`sha256:15c65f41...add85`) and queried `SELECT version()` and `SELECT extversion FROM pg_extension WHERE extname='timescaledb'`, which returned `PostgreSQL 16.14 ... 64-bit` and `2.29.0`. Then applied `migrations/versions/0003_market_data.py` against it and read back `timescaledb_information.hypertables` and `.jobs`, which reported both `bar` and `funding_rate` as compression-enabled with a `compress_after` of `30 days`.
+- **Consequence**: `create_hypertable(relation, by_range(column, interval))` is the correct call, not the deprecated two-argument `create_hypertable(relation, 'column')` form that most published examples still use. `by_range` has existed since TimescaleDB 2.13, so the modern form is safe against this digest and every plausible newer one, while the legacy form is on a removal path. `ALTER TABLE ... SET (timescaledb.compress, ...)` and `add_compression_policy` both still work on 2.29 despite the columnstore renaming in the 2.18 line, so the migration does not need version-conditional DDL.
+- **Re-verify**: whenever the `timescaledb-ha` digest in `docker-compose.yml` is re-pinned. `tests/platform/persistence/test_market_data.py::test_market_data_tables_are_compressed_hypertables` fails loudly if a newer image stops accepting either statement, so this is a re-read of the version numbers rather than a re-derivation of the consequence.

@@ -37,7 +37,7 @@ Status: **active** · **SUPERSEDED by D-NNN** · **open to revisit** (a decision
 | D-013 | Two user-data code paths behind one interface | One unified user-data abstraction | active | `ARCHITECTURE.md` §7 · ADR 0007 |
 | D-014 | Reconciliation as a first-class feature | Trusting local state between restarts | active | `ARCHITECTURE.md` §7 |
 | D-015 | Cost models calibrated from production data only | Calibrating on testnet, which is free and convenient | active | `CLAUDE.md` §2 · ADR 0007 |
-| D-016 | Append-only audit enforced by the database | Application-level append-only discipline | active | `CLAUDE.md` §2 |
+| D-016 | Append-only audit enforced by the database | Application-level append-only discipline | active | `CLAUDE.md` §2 · ADR 0015 |
 | D-017 | Idempotent consumers by design | Exactly-once delivery semantics | active | `CLAUDE.md` §2 |
 | D-018 | LLM agents on top of the core, never inside it | An LLM in the order path | active | `ARCHITECTURE.md` §9 |
 | D-019 | Gemini free tier primary, Groq fallback, behind a gateway | A single provider, called directly | active | `ARCHITECTURE.md` §9 · ADR 0009 |

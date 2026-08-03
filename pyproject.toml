@@ -15,9 +15,12 @@ requires-python = ">=3.12,<3.13"
 # technology set here would pin ~40 packages whose version constraints nobody can
 # yet defend, which is the failure mode issue #1 names as this phase's main risk.
 dependencies = [
+    "alembic>=1.14",
+    "asyncpg>=0.30",
     "httpx>=0.28.1",
     "pydantic>=2.11",
     "pydantic-settings>=2.7",
+    "sqlalchemy>=2.0.36",
     "structlog>=26.1.0",
     "websockets>=17.0.1",
 ]
@@ -46,6 +49,15 @@ dev = [
     # src/fking reads YAML.
     "pyyaml>=6.0.2",
     "types-PyYAML>=6.0.12",
+    # asyncpg ships no inline types, and mypy --strict treats an untyped import as a
+    # source of Any that propagates across every call path touching it.
+    "asyncpg-stubs>=0.30",
+    # Test-only. TESTING.md and .claude/rules/testing-rules.md require a real
+    # PostgreSQL + TimescaleDB rather than a mock, and testcontainers is what makes
+    # that the default rather than something a developer has to remember to start.
+    # It also binds a random host port, which matters on Windows where 5432 is
+    # frequently already taken or reserved.
+    "testcontainers[postgres]>=4.9",
 ]
 
 # ---------------------------------------------------------------------------
@@ -114,6 +126,13 @@ ignore = [
 # the argument count is the type's field count. Collapsing them into a params object
 # would mean constructing a second object to construct the first.
 "tests/support/*.py" = ["PLR0913"]
+# S608: a migration is hand-written DDL over identifiers that are compiled into the
+# file. DDL takes no bind parameters -- there is no parameterised spelling of
+# `CREATE ROLE x` or `CREATE TRIGGER y ON z` -- and a migration never sees runtime
+# input, because it is a static file reviewed in a pull request before it runs. The
+# ignore is scoped to migrations/ alone; S608 stays on everywhere a string reaches SQL
+# from anything a caller supplied.
+"migrations/versions/*.py" = ["S608"]
 
 [tool.ruff.lint.isort]
 # `src` resolves first-party by looking for `<entry>/<package>`, which finds `fking`
@@ -135,7 +154,10 @@ docstring-code-format = true
 
 [tool.mypy]
 python_version = "3.12"
-files = ["src", "tests", "tools"]
+# migrations/ is included: a migration is code that runs against the production
+# database with no test around most of it, so it is the last place to accept an
+# unchecked signature.
+files = ["src", "tests", "tools", "migrations"]
 strict = true
 # tests/support/ is a package while tests/ deliberately is not, so mypy resolves the
 # same file as both `support.domain_factory` and `tests.support.domain_factory` and
@@ -219,6 +241,18 @@ forbidden_modules = [
     "fking.risk",
     "fking.strategy",
 ]
+
+[[tool.importlinter.contracts]]
+name = "strategy and risk are pure and never reach a database"
+type = "forbidden"
+# Purity in these two modules is what makes a strategy deterministically replayable and
+# a risk decision reproducible from the audit log (CLAUDE.md 4). A database handle is
+# I/O, a clock and a source of nondeterminism in one object -- and a risk limit checked
+# against a value read mid-decision is a limit whose behaviour depends on scheduling.
+# Rows reach them as arguments, from a caller that did the reading.
+source_modules = ["fking.risk", "fking.strategy"]
+forbidden_modules = ["alembic", "asyncpg", "sqlalchemy"]
+allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "Only the safety kernel constructs network clients"
