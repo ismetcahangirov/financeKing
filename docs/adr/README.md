@@ -58,6 +58,7 @@ Do not edit it by hand. The generator owns everything between the sentinel comme
 | [0010](0010-docker-compose-not-kubernetes.md) | Docker Compose on a single node, not Kubernetes | 2026-08-03 | accepted |
 | [0011](0011-decimal-for-every-monetary-value.md) | Decimal constructed from str for every monetary value, with float trapped | 2026-08-03 | accepted |
 | [0012](0012-strategies-emit-signals-only.md) | Strategies emit Signal and have no import path to order construction | 2026-08-03 | accepted |
+| [0013](0013-archive-epoch-units.md) | Archive format is resolved per (market, dataset, date), and an undeclared combination raises | 2026-08-03 | accepted |
 | [0014](0014-kill-switch-flattens-on-trip.md) | Flatten the book on kill-switch trip, sourced from exchange state | 2026-08-02 | accepted |
 | [0015](0015-database-enforced-append-only-audit.md) | Enforce append-only audit in PostgreSQL with revoked grants, immutability triggers and a hash chain | 2026-08-03 | accepted |
 | [0016](0016-closed-container-network.md) | Close the container network entirely rather than filter egress, and open it per service when a caller exists | 2026-08-03 | accepted |

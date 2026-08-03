@@ -45,7 +45,7 @@ Status: **active** · **SUPERSEDED by D-NNN** · **open to revisit** (a decision
 | D-021 | Global, monotone trial counting charged at `max(declared, executed)` per specification | Per-study counts; execution-only counting; declaration-only counting | active | `.claude/rules/overfitting-defences.md` |
 | D-022 | Property-based tests mandatory for risk and position math | Example-based tests only | active | `CLAUDE.md` §5 |
 | D-023 | Real Postgres in tests; exchange mocked from recorded responses | Mocked database; hand-written fixtures | active | `CLAUDE.md` §5 |
-| D-024 | Timestamp normalization keyed on `(market, date)` | A global or per-market unit constant | active | ADR 0013 |
+| D-024 | Timestamp normalization keyed on `(market, date)` | A global or per-market unit constant | **SUPERSEDED by D-034** | ADR 0013 |
 | D-025 | Feature store refuses unavailable data | Returning a proxy or a best-effort substitute | active | `ARCHITECTURE.md` §6 |
 | D-026 | Docker Compose, single node | Kubernetes | active | `ARCHITECTURE.md` §12 · ADR 0010 |
 | D-027 | APScheduler + GitHub Actions cron | Temporal | active | `ARCHITECTURE.md` §12 |
@@ -55,6 +55,7 @@ Status: **active** · **SUPERSEDED by D-NNN** · **open to revisit** (a decision
 | D-031 | Kill switch flattens on trip, sized from venue state | Cancel-only with positions left open; flatten-or-cancel per trigger class | active | ADR 0014 |
 | D-032 | Provider SDKs called directly behind this project's own gateway | `litellm`; `pydantic-ai` | active | `docs/research/free-tier-landscape.md` §3 · ADR 0009 |
 | D-033 | Promotion-gating statistics implemented in-project against worked examples | `mlfinlab` — which no longer has an installable release | active | `docs/research/free-tier-landscape.md` §4 · VF-025 |
+| D-034 | Archive format resolved per `(market, dataset, date)`; an undeclared combination raises | Sniffing the format from the file; a per-market constant with a date branch in the loader | active | ADR 0013 · `DATA_PIPELINE.md` §3 |
 
 ---
 
@@ -121,6 +122,18 @@ The behavioural corollary is the point: **a hypothesis with a large parameter gr
 **What survived the rejection**: cancel-only's sharpest objection was not about execution quality. It was that several triggers indicate our *position record itself* is untrustworthy, so closing orders sized from it can open a position rather than close one. That is correct, and it is why the flatten reads quantities from the venue and refuses to proceed at all when the venue cannot be read — halting with positions open and paging, rather than guessing.
 
 **Revisit trigger**: median flatten slippage above 50bp across ten consecutive trips, or the flatten's realised loss exceeding the drawdown that triggered it in three of them. Observed on `killswitch.flatten_slippage_bps`. Then reconsider the per-trigger-class variant with incident data rather than prediction. Full argument in ADR 0014.
+
+### D-034 — Archive format is `(market, dataset, date)`, and an undeclared combination raises
+
+**Supersedes D-024**, and the difference is worth stating precisely, because it is a widening rather than a reversal. D-024 said the *epoch unit* is keyed on `(market, date)`. That was true and insufficient: the header row (VF-016) and the boolean encoding (F-005) are keyed the same way, `dataset` is part of the key for all three, and treating them as three separate problems means the fourth instance — whatever it turns out to be — is found the way the first three were.
+
+**Rejected**: sniffing the format from the file itself, which is the strongest alternative and is genuinely right about single files. A 13-digit epoch is milliseconds and a 16-digit one is microseconds, and no price movement can confuse the two.
+
+**Why it lost**: a sniffer succeeds on every file it reads and still produces the failure that costs money — a range crossing 2025-01-01, where each half sniffs correctly, each half is individually plausible, and the resampled series has correct endpoints with corrupted spacing in the middle. Worse, when the archive changes in a way the heuristic did not anticipate, a sniffer picks the closest match and continues. Inference is not an unfortunate side effect of the three traps; inference *is* all three of them.
+
+**What survived the rejection**: sniffing is right that the file is ground truth and the table is a decaying claim. So the declaration decides and the file gets a veto. Half of that veto is live in `epoch_to_utc` today — every normalised instant must fall in `[2010-01-01, now + 1 day)`, so a table that has silently gone wrong is caught on the first row rather than at the end of the quarter. The other half lands with the parsers in #23: `has_header_row` is verified against the file's first token before any row is parsed, and a mismatch rejects the whole file. What the file never gets is the casting vote.
+
+**Revisit trigger**: the declaration table exceeds roughly 40 segments, or one upstream format change requires editing more than three of them. Observed on `DECLARED_FORMATS` in `src/fking/data/format_resolver.py`. Then consider deriving segments from rules over `(market, dataset)` — keeping the refusal on an underived combination, and not returning to sniffing. Full argument in ADR 0013.
 
 ---
 
