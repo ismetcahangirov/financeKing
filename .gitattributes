@@ -9,3 +9,15 @@
 # Generated, and large. Marking it keeps it out of diff review noise while still
 # being committed -- `uv sync --frozen` is not reproducible without it.
 uv.lock linguist-generated=true
+
+# Recorded archive fixtures are byte-exact evidence, not merely test input: their SHA-256
+# digests are asserted against the digests `data.binance.vision` served, in
+# tests/data/test_archive_fixture_integrity.py. Any line-ending translation in either
+# direction changes the bytes and breaks that assertion on the platform that did the
+# translating, which reads as tampering rather than as a checkout artefact.
+#
+# The rule above already resolves to LF, so these two lines are redundant today. They are
+# here because the digests depend on it: a future edit to the global rule must not be able
+# to invalidate the corpus silently.
+tests/fixtures/archives/**/*.csv text eol=lf
+tests/fixtures/archives/**/*.zip binary

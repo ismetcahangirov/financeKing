@@ -117,21 +117,25 @@ Anything that looks like a module-level parsing constant is trap 1 waiting to re
 
 ## 4. Normalization contract
 
-Every loader is a pure function of `(bytes, IngestionSpec) -> NormalizationResult`, which makes it testable against recorded archive fragments checked into the repository.
+Every loader is a pure function of `(bytes, IngestionSpec) -> (records, NormalizationResult)`, which makes it testable against recorded archive fragments checked into the repository. Implemented in `fking.data.loaders`; the recorded corpus is `tests/fixtures/archives/`, written by `tools/record_archive_fragment.py` (`TESTING.md` §5.4).
 
 ```python
-class IngestionSpec(BaseModel):
-    market: Literal["spot", "futures_um"]
-    dataset: Literal["klines", "trades", "aggTrades", "bookDepth", "bookTicker"]
-    symbol: str
-    interval: str | None                              # klines only
-    date_range: tuple[date, date]                     # half-open [start, end)
-    epoch_unit: Literal["ms", "us"]                   # per (market, date). Never global.
-    has_header_row: bool                              # futures klines True, spot klines False
-    boolean_encoding: Literal["python", "json", "numeric"]
-    checksum_verified: bool                           # must be True before any read
-    destination: Literal["parquet", "hypertable", "both"]
+@dataclass(frozen=True, slots=True)
+class IngestionSpec:
+    coordinate: ArchiveCoordinate  # market, dataset, symbol, archive_date, interval
+    archive_format: ArchiveFormat  # from resolve_archive_format(); epoch unit, header, booleans
+    source_checksum_hex: str  # the verified SHA-256; there is no unverified path in
+    now_utc: datetime  # aware UTC, one reference instant for the whole run
+    max_rejection_fraction: Decimal = Decimal("0.001")  # 0.1%, trap 3 above
 ```
+
+Three differences from the sketch this section previously carried, each load-bearing:
+
+- **The format fields are one `ArchiveFormat`, not five loose ones.** A resolved format is refused at construction if it does not cover the coordinate's own date, or if its market and dataset disagree with the coordinate's. Loose fields make trap 1 constructible — you can hand last year's epoch unit to this year's file and nothing notices until a timestamp lands in 1970.
+- **`checksum_verified: bool` became `source_checksum_hex: str`.** A boolean is satisfied by writing `True`. The only way to hold the digest of a verified archive is to have verified one, so the digest is evidence where the flag was a claim.
+- **`date_range` and `destination` are absent.** They belong to the backfill (#26), not to a parse of one file: a pure function has no use for the range it was drawn from, and a destination a parser cannot write to is a field something that *can* write will eventually read.
+
+Records are `KlineRecord` and `TradeRecord` in `fking.data.loaders.records` — deliberately **not** `fking.domain.Bar` and `Tick`. A `Bar` holds an `Instrument` carrying `tick_size`, `lot_step` and `min_notional_quote`, and no archive file contains those, so a loader that built one would have to invent them; a backtest filling an invented lattice measures trades the venue would have refused. The canonical bar schema in §6 also carries `quote_volume` and the taker-buy columns, which a `Bar` correctly does not.
 
 ### Normalization steps, in order
 
@@ -139,25 +143,29 @@ class IngestionSpec(BaseModel):
 2. **Verify header expectation** against `has_header_row`. Mismatch → reject the file.
 3. **Parse prices and quantities as `Decimal` from the raw string.** Never via `float`, and never from `ccxt`'s unified structure, which returns Python floats — take the value out of `info` where the raw string survives.
 4. **Apply the declared epoch unit**, producing tz-aware UTC datetimes.
-5. **Assert timestamp plausibility.** First timestamp must fall in `[2010-01-01, now + 1 day)`. This single assertion catches trap 1 on the first run, every time, because both failure directions (1970 and year 56,000) land far outside the window.
-6. **Parse booleans by declared encoding.** Unknown token → reject row, count it.
+5. **Assert timestamp plausibility.** Every timestamp must fall in `[2010-01-01, now + 1 day)`, against one reference instant fixed for the whole run. Both failure directions land far outside the window — 1970 in one, roughly the year 56,000 in the other — so a wrong unit is caught on the first run, every time. Checked per row rather than only on the first: a wrong declaration then rejects *every* row and step 6's fraction gate turns that into a refusal naming `epoch_out_of_range=1440/1440`, which is one rule doing the work of two.
+6. **Parse booleans by declared encoding.** Unknown token → reject row, count it. Rejections above `max_rejection_fraction` refuse the file and return nothing partial, because the failures this catches — a drifted boolean encoding, a wrong epoch unit — are uniform across a file rather than sporadic.
 7. **Detect gaps.** Do not fill them.
 8. **Write**, then record a `NormalizationResult` as an episodic row.
 
 ```python
-class NormalizationResult(BaseModel):
+@dataclass(frozen=True, slots=True)
+class NormalizationResult:
     rows_in: int
     rows_out: int
     rows_rejected: int
-    rejection_reasons: dict[str, int]                 # never just a total
-    gaps_detected: list[tuple[datetime, datetime]]    # marked, never filled
-    epoch_unit_applied: Literal["ms", "us"]
-    first_timestamp: datetime
-    last_timestamp: datetime
-    source_checksum: str
+    rejection_reasons: Mapping[RejectionReason, int]  # per reason, never just a total
+    epoch_unit_applied: EpochUnit
+    first_event_time_utc: datetime | None  # None only for a genuinely empty archive
+    last_event_time_utc: datetime | None
+    source_checksum_hex: str
 ```
 
-A run that reports only `rows_out` has hidden its rejections. Rejections are the interesting half of the output.
+A run that reports only `rows_out` has hidden its rejections. Rejections are the interesting half of the output, and `rows_in == rows_out + rows_rejected == rows_out + sum(rejection_reasons.values())` is asserted as a Hypothesis property rather than trusted.
+
+`rejection_reasons` is keyed by a `RejectionReason` enum, not by free strings. A rejection counter becomes a Prometheus label the moment ingestion is instrumented, and a free string mints a new time series every time someone rephrases a message — which on a dashboard is indistinguishable from a new failure appearing while the old one stopped.
+
+`gaps_detected` is **not** on this record. Gap detection spans files — a gap can sit between the last bar of one archive and the first of the next — so it belongs to the coverage registry (#26) rather than to a pure function that has seen one file. Putting it here would make every single-file result claim there were no gaps.
 
 ### Gaps are data, not defects to be patched
 

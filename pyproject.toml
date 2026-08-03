@@ -145,6 +145,10 @@ ignore = [
 # the argument count is the type's field count. Collapsing them into a params object
 # would mean constructing a second object to construct the first.
 "tests/support/*.py" = ["PLR0913"]
+# PLR0913: the recorder's parameters are its command-line flags, one for one. A params
+# object here would be a second thing to keep in step with argparse, and the mismatch
+# between the two would be silent.
+"tools/record_archive_fragment.py" = ["PLR0913"]
 # S608: a migration is hand-written DDL over identifiers that are compiled into the
 # file. DDL takes no bind parameters -- there is no parameterised spelling of
 # `CREATE ROLE x` or `CREATE TRIGGER y ON z` -- and a migration never sees runtime
