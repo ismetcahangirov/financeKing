@@ -1,0 +1,17 @@
+{
+  "archive_date": "2025-01-02",
+  "archive_filename": "BTCUSDT-1m-2025-01-02.zip",
+  "archive_sha256": "e4d9e1b9807830c749b47e2534eba94ba3cb378fd4520265cc202079cdd8621b",
+  "dataset": "klines",
+  "fragment_line_count": null,
+  "fragment_sha256": null,
+  "interval": "1m",
+  "market": "futures_um",
+  "member_filename": "BTCUSDT-1m-2025-01-02.csv",
+  "member_line_count": 1441,
+  "member_sha256": "b0876224fe1b3e1c6629edc962b42e6229f7c7d639d8b8ad0e13936cd9f78fe8",
+  "recorded_at_utc": "2026-08-03T20:27:32.276582+00:00",
+  "source_url": "https://data.binance.vision/data/futures/um/daily/klines/BTCUSDT/1m/BTCUSDT-1m-2025-01-02.zip",
+  "symbol": "BTCUSDT",
+  "whole_archive_committed": true
+}

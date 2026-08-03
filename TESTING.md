@@ -298,6 +298,31 @@ The recorder strips `X-MBX-APIKEY`, the `signature` query parameter, `listenKey`
 
 A `pre-commit` hook greps `tests/fixtures/recorded/` for key-shaped strings and blocks the commit.
 
+### 5.4 Archive fixtures are a second corpus, with a digest gate
+
+Historical archive fixtures live in `tests/fixtures/archives/`, separately from the exchange-API corpus above, because they are a different kind of evidence: no credential is involved, the files are public, and the parse under test is a CSV parse rather than a JSON one.
+
+```
+tests/fixtures/archives/
+  spot/klines/BTCUSDT/1m/
+    BTCUSDT-1m-2025-01-02.zip                       # a whole verified archive, 72 KB
+    BTCUSDT-1m-2025-01-02.zip.provenance.json
+    BTCUSDT-1m-2025-01-02.head32.csv                # a byte-exact prefix of the member
+    BTCUSDT-1m-2025-01-02.head32.csv.provenance.json
+    BTCUSDT-1m-2024-12-31.head32.csv                # pre-cutover: milliseconds
+  futures_um/klines/BTCUSDT/1m/                     # same date, still milliseconds, has a header
+  spot/trades/BTCUSDT/                              # True/False booleans
+```
+
+Four properties make this corpus trustworthy, and each one closes a specific way a fixture corpus rots:
+
+- **Recorded through the production fetcher.** `tools/record_archive_fragment.py` downloads via `GuardedArchiveEgress` and `ArchiveFetcher`, so every byte kept was checksum-verified against the archive's `.CHECKSUM` sibling before it was written. A fixture recorded from a truncated transfer would teach a parser that a short day is normal, which is indistinguishable from a real short day.
+- **A provenance sidecar per file**, carrying the source URL, the archive digest, the member digest, and the member's line count. A fixture whose upstream cannot be named is a fixture nobody can re-record.
+- **A digest gate.** `tests/data/test_archive_fixture_integrity.py` recomputes every digest, and additionally asserts the corpus still spans both epoch units, both header conventions, and still contains a Python-style boolean. If a fixture is ever "cleaned up", the traps in `DATA_PIPELINE.md` §3 lose their test data and every parser assertion becomes decoration — so the corpus's *coverage* is asserted, not just its integrity.
+- **Mutations happen in the test, never on disk.** Trap-triggering inputs — a lowercase `true`, a dropped column, a header that reordered — are produced by transforming recorded bytes inside the test that asserts on them. A committed mutated file looks recorded, and six months later nobody remembers which of the two it is. This is a deliberate departure from the `# SYNTHETIC:` convention used for provoked exchange errors, where the mutation cannot be expressed as a transformation of a real response.
+
+Whole archives are committed only where they are small (a daily 1m kline zip is ~70 KB) and only where a fragment cannot prove the assertion: 1,440 bars in a day, and a first bar at exactly 00:00 UTC, are the two facts a 32-row prefix cannot establish. Trades archives are 30 MB and stay fragments.
+
 ### 5.4 Also assert on malformed input
 
 For every recorded endpoint, one test mutates the payload — drops a field, changes a type, inserts a `NaN` — and asserts the parser raises `ExchangeProtocolError`. Exchange responses are hostile input and must never be indexed into optimistically.
