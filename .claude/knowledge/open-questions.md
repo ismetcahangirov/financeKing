@@ -20,8 +20,8 @@ Status values: **open** · **blocked** · **in-progress** · **ANSWERED -> VF-NN
 
 | ID | Question | Status | Blocker | Issue |
 |---|---|---|---|---|
-| OQ-001 | Actual free-tier quota limits for Gemini and Groq | **open** | session limit 2026-08-01 | [#19](https://github.com/ismatjahangirov/financeKing/issues/19) |
-| OQ-002 | Which quant libraries to adopt, and which to refuse | **open** | session limit 2026-08-01 | [#19](https://github.com/ismatjahangirov/financeKing/issues/19) |
+| OQ-001 | Actual free-tier quota limits for Gemini and Groq | **open** | needs an API key per provider | [#19](https://github.com/ismatjahangirov/financeKing/issues/19) |
+| OQ-002 | Which quant libraries to adopt, and which to refuse | **open** | none — the remainder is a code task | [#19](https://github.com/ismatjahangirov/financeKing/issues/19) |
 | OQ-003 | Lifetime and renewal semantics of the spot Ed25519 `session.logon` session | open | none | — |
 | OQ-004 | Exact cadence and trigger of the spot testnet wipe | open | requires ~90 days of observation | — |
 | OQ-005 | Earliest clean date per symbol on `data.binance.vision`, beyond BTCUSDT | open | none — mechanical work | — |
@@ -32,13 +32,15 @@ Status values: **open** · **blocked** · **in-progress** · **ANSWERED -> VF-NN
 | OQ-010 | Whether `NautilusTrader` should be revisited for the backtest core | open | needs a concrete pain point first | ADR 0005 |
 | OQ-011 | Realistic capacity ceiling for the strategies this system produces | open | needs production depth data | — |
 | OQ-012 | Whether Timescale compression can be enabled without breaking point-in-time reads | open | none | — |
+| OQ-013 | Whether Cerebras or Mistral train on free-tier input | open | none — read their terms | [#19](https://github.com/ismatjahangirov/financeKing/issues/19) |
 
 ---
 
 ## OQ-001 — What are the actual free-tier quota limits for Gemini and Groq?
 
-- **Status**: open · **Opened**: 2026-08-01 · **Tracked as**: GitHub issue **#19**
-- **Blocker**: **the research session hit its limit on 2026-08-01 and was cut short before anything was confirmed.** Nothing about free-tier quotas in this project has been verified. Treat every number you find in code, config or comments as a placeholder until this closes.
+- **Status**: open · **Opened**: 2026-08-01 · **Last worked**: 2026-08-03 · **Tracked as**: GitHub issue **#19**
+- **Blocker**: **an API key per provider.** The 2026-08-03 pass ([`../../docs/research/free-tier-landscape.md`](../../docs/research/free-tier-landscape.md)) closed the documentary half and could not close the measured half, because measuring a quota requires a live key and that is an account signup.
+- **What changed on 2026-08-03**: Groq's limits are now known and cited (VF-022) — and are *lower than this project's own declared agent budget*, which is a finding rather than a footnote. Google and Mistral **stopped publishing free-tier limits entirely** (VF-021), so for those two there is no document to read and measurement is the only route that will ever exist. The commonly quoted `gemini-2.5-flash` figures (10 RPM / 250,000 TPM / 250 RPD) come from forum posts and are **unverified**; do not let them into config as though they were sourced. Separately, the question grew a dimension nobody costed: Gemini's free tier trains on the input and Groq's contractually does not (VF-020), so "which provider" is no longer only a quota question.
 - **Why it matters**: free-tier quota is not an operational detail here, it is an architectural constraint ([`../../ARCHITECTURE.md`](../../ARCHITECTURE.md) §9). Agent scheduling is quota-aware, and quota exhaustion is supposed to degrade the system to deterministic-only operation rather than stall it. Sizing that behaviour against numbers nobody checked means the degradation path is untested against reality — and the one moment it matters is the one moment you cannot afford it to be wrong.
 - **What would answer it**: for each provider and model actually used —
   - requests per minute, requests per day, tokens per minute, tokens per day, and whether the day boundary is UTC or account-local;
@@ -52,8 +54,9 @@ Status values: **open** · **blocked** · **in-progress** · **ANSWERED -> VF-NN
 
 ## OQ-002 — Which quantitative libraries should this project adopt, and which should it refuse?
 
-- **Status**: open · **Opened**: 2026-08-01 · **Tracked as**: GitHub issue **#19**
-- **Blocker**: **the same session limit on 2026-08-01 cut this research short.** No library evaluation was completed. Any library named in a proposal is currently an untested suggestion.
+- **Status**: open · **Opened**: 2026-08-01 · **Last worked**: 2026-08-03 · **Tracked as**: GitHub issue **#19**
+- **Blocker**: none. What remains is a code task in #40, not a research task.
+- **What changed on 2026-08-03**: the library survey is done ([`../../docs/research/free-tier-landscape.md`](../../docs/research/free-tier-landscape.md) §4) and it resolved in the least convenient direction. **`mlfinlab` has no installable release and its repository has been untouched since 2023 (VF-025)** — the López de Prado toolchain named here as the primary candidate is simply not available. `pandas-ta` is refused for the same class of reason and TA-Lib's Docker objection turned out to be obsolete (VF-026). `statsmodels`, `arch`, `scikit-learn`, `lightgbm` and `polars` are adopted; `quantstats` is admitted for human-facing tearsheets only and barred from computing anything that reaches the survival score. What is left open is exactly the risk this entry identified first: with no reference implementation to check against, every promotion-gating statistic must agree numerically with a hand-computed worked example from its source paper.
 - **Why it matters**: the backtest engine is deliberately custom ([`../../ARCHITECTURE.md`](../../ARCHITECTURE.md) §4), but the *statistics* around it — deflated Sharpe, combinatorial purged CV, block bootstrap, stationarity tests, effective sample size — are exactly the kind of thing that is wrong when hand-rolled and hard to notice. A subtly wrong deflated Sharpe implementation would corrupt every promotion decision the system ever makes, and it would do so in the flattering direction, because a bug in a penalty term almost always understates the penalty.
 - **Candidates that need evaluation, not adoption**: the López de Prado toolchain (CPCV, purging, embargo, deflated Sharpe), `statsmodels` for time-series tests, `arch` for volatility models and bootstrap, `scipy.stats`, and whatever currently exists for probabilistic Sharpe. Each needs: maintenance status, dependency weight, whether it forces a `float`/`ndarray` boundary that conflicts with [`../rules/decimal-and-money.md`](../rules/decimal-and-money.md), and whether its implementation of a formula matches the paper it cites — the last one requires reading source, not README.
 - **What would answer it**: an evaluation note per library against those four criteria, plus a numerical agreement test against a hand-computed worked example for every statistic we intend to rely on. Agreement with a known-good example is the acceptance criterion; popularity is not.
@@ -141,6 +144,14 @@ Status values: **open** · **blocked** · **in-progress** · **ANSWERED -> VF-NN
 - **What would answer it**: enable compression on a copy of a hypertable, then run the existing look-ahead probe and the audit-immutability tests against it. If both pass unchanged, the answer is yes.
 - **What the code assumes meanwhile**: compression is off. Storage is not currently a constraint, so this is cheap to defer.
 - **Assumption is conservative?** Yes.
+
+## OQ-013 — Do Cerebras and Mistral train on free-tier input?
+
+- **Status**: open · **Opened**: 2026-08-03 · **Tracked as**: GitHub issue **#19**
+- **Why it matters**: VF-020 and VF-022 together produce a genuine bind. The provider that will not train on our prompts (Groq) has a per-minute token ceiling too low for a full-size agent call; the provider with the headroom (Gemini) trains on the input and puts human reviewers on it. Every way out of that bind runs through a *third* provider that is both non-training and large enough — and Cerebras and Mistral are the two candidates whose data terms this project has not read. If either is non-training with a workable ceiling, the data-classification design in the research report §7.1 becomes much cheaper, because fewer prompts have to be squeezed to fit.
+- **What would answer it**: read Cerebras's and Mistral's terms of service and data-processing pages the way Groq's Services Agreement §4.2 was read — looking for an explicit prohibition on training, not for the absence of a permission. Silence is not a prohibition, and a page that does not mention training is an unanswered question rather than a negative answer. An hour of reading.
+- **What the code assumes meanwhile**: both may train. No prompt containing strategy logic goes to either.
+- **Assumption is conservative?** Yes — it forbids rather than permits, and the cost of being wrong is unused headroom.
 
 ---
 

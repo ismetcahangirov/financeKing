@@ -40,6 +40,14 @@ Confidence values used below: **measured** (we made the observation ourselves), 
 | VF-017 | Free full-depth L2 order book history does not exist | 2026-08-01 | measured | annually |
 | VF-018 | The pinned `timescaledb-ha` digest carries PostgreSQL 16.14 and TimescaleDB 2.29.0 | 2026-08-03 | measured | on any image re-pin |
 | VF-019 | Grafana's Loki-to-Tempo derived field only matches compactly separated JSON | 2026-08-03 | measured | on any change to the derived-field regex or the log renderer |
+| VF-020 | Gemini's free tier trains on submitted content; Groq is contractually barred from training | 2026-08-03 | documented | on either provider's terms revision |
+| VF-021 | Google and Mistral no longer publish free-tier rate limits at all | 2026-08-03 | measured | quarterly |
+| VF-022 | Groq free-tier TPM ceilings are 6k–12k, below a single full-size agent prompt | 2026-08-03 | documented | quarterly |
+| VF-023 | Groq schema-strict output exists on two models only, and never with tool use | 2026-08-03 | documented | on any Groq model release |
+| VF-024 | GitHub Models was fully retired on 2026-07-30 | 2026-08-03 | documented | never — it is gone |
+| VF-025 | `mlfinlab` has no installable release; `pandas-ta`'s upstream has vanished | 2026-08-03 | measured | annually |
+| VF-026 | TA-Lib 0.7.1 ships prebuilt wheels everywhere this project runs — no C build | 2026-08-03 | measured | on any `ta-lib` release |
+| VF-027 | Reddit's unauthenticated JSON endpoints return 403; GDELT takes ~15s per query | 2026-08-03 | measured | quarterly |
 
 ---
 
@@ -203,3 +211,60 @@ If you could not verify it, it belongs in [`./open-questions.md`](./open-questio
 - **Detail**: the provisioned regex is `"trace_id":"([a-f0-9]{32})"`. `json.dumps` defaults to `separators=(", ", ": ")`, so a structlog `JSONRenderer` left at its defaults emits `"trace_id": "38b0..."` — with a space — and the regex does not match.
 - **Consequence**: `structlog.processors.JSONRenderer` is configured with `separators=(",", ":")` in `fking.platform.logging.build_processor_chain`, and this is a correctness requirement rather than a size optimisation. The failure mode is the reason it is worth an entry: nothing raises, no panel errors, and no alert fires — the "open the trace from this log line" affordance simply does not appear, and an investigator concludes the trace was never recorded. `tests/platform/logging/test_pipeline.py` asserts a rendered line against the regex *and* asserts that the regex is still the one the provisioning file carries, because the two artifacts fail independently.
 - **Re-verify**: whenever either the derived-field regex or the log renderer's separators change.
+
+
+## VF-020 — The Gemini free tier trains on what you send it. Groq is contractually barred from training on what you send it.
+
+- **Verified**: 2026-08-03 · **Confidence**: documented
+- **Method**: fetched `ai.google.dev/gemini-api/docs/pricing`, which marks every free-tier model *"data used to improve products: Yes"*, and `ai.google.dev/gemini-api/terms`, which states *"Google uses the content you submit to the Services and any generated responses to provide, improve, and develop Google products and services and machine learning technologies"*, that *"human reviewers may read, annotate, and process your API input and output"*, and *"Do not submit sensitive, confidential, or personal information to the Unpaid Services."* Then fetched `console.groq.com/docs/legal/services-agreement` §4.2: *"Groq is not permitted to use Inputs or Outputs for training or fine-tuning any AI Model Services or other models, unless explicitly granted permission or instructed by Customer."* `console.groq.com/docs/your-data` adds *"By default, Groq does not retain customer data for inference requests"*, Zero Data Retention for all customers, and abuse/troubleshooting logs kept *"up to 30 days"*.
+- **Consequence**: ADR-0009 made Gemini primary and Groq fallback on quota and availability grounds; the data question was never raised in it. This project's agent prompts carry hypothesis statements, strategy specifications and critique of both — which is the entire research output of the system. On the free Gemini tier that is training data with human review attached. The recommendation in [`../../docs/research/free-tier-landscape.md`](../../docs/research/free-tier-landscape.md) §7.1 is a **data-classification field on the agent declaration** rather than a straight provider swap, because VF-022 shows Groq cannot carry the workload alone.
+- **Re-verify**: on any revision to either document. Both are versioned pages; a diff is the trigger.
+
+## VF-021 — Google and Mistral no longer publish free-tier rate limits. The numbers are behind an account login.
+
+- **Verified**: 2026-08-03 · **Confidence**: measured (the absence was observed, not inferred)
+- **Method**: fetched `ai.google.dev/gemini-api/docs/rate-limits` and its `.md.txt` source. Neither contains a free-tier table; the page says *"Rate limits depend on a variety of factors (such as your usage tier) and can be viewed in Google AI Studio"* and links to a per-account page. Mistral's help centre likewise states only that *"Free mode (the default) has the lowest limits"* and directs to the Admin Console limits page.
+- **Consequence**: the widely circulated `gemini-2.5-flash` free-tier figures (10 RPM / 250,000 TPM / 250 RPD) appear only in community forum posts and must be treated as **unverified** wherever they surface in configuration or comments. More usefully, this confirms the shape [`../rules/quota-management.md`](../rules/quota-management.md) already had: the ledger measures reality and the configured limit is a conservative floor the ledger corrects. That is now the *only* correct design for these two providers rather than merely a defensive one. Two facts that *are* published and do change code: Gemini limits are scoped **per project, not per API key**, and RPD resets at **midnight Pacific** — neither UTC nor local, so the day boundary needs a test rather than a comment.
+- **Re-verify**: quarterly, or whenever a limit needs to be raised in configuration.
+
+## VF-022 — No Groq free-tier model can accept a single 45k-token prompt. The binding limit is tokens per minute, not requests.
+
+- **Verified**: 2026-08-03 · **Confidence**: documented
+- **Method**: `console.groq.com/docs/rate-limits`, per model: `llama-3.3-70b-versatile` 30 RPM / 1,000 RPD / 12,000 TPM / 100,000 TPD; `openai/gpt-oss-120b` and `-20b` 30 / 1,000 / 8,000 / 200,000; `llama-3.1-8b-instant` 30 / 14,400 / 6,000 / 500,000. Limits are organization-level, not per key.
+- **Consequence**: `.claude/agents/quant.md` declares a budget of ≤ 45k tokens per invocation. A request larger than the per-minute allowance cannot succeed by waiting, so **that agent has no Groq fallback at all** — the failover is a fiction on exactly the path where it matters, and it would be discovered at 03:00 with Gemini degraded. Either the agent's context budget comes down under 8k or the fallback claim is withdrawn. Separately, `x-ratelimit-*` headers are returned on **successful** responses, so the true limits are readable without ever provoking a 429, and `retry-after` is present only when a limit is actually exceeded — which makes the honour-`Retry-After`-never-retry-in-window rule implementable against Groq exactly as written.
+- **Re-verify**: quarterly, and on any Groq tier announcement.
+
+## VF-023 — Groq enforces a JSON schema on two models only, and never at the same time as tool use.
+
+- **Verified**: 2026-08-03 · **Confidence**: documented
+- **Method**: `console.groq.com/docs/structured-outputs`. `strict: true` schema enforcement is documented for `openai/gpt-oss-20b` and `openai/gpt-oss-120b`. Every other model, including `llama-3.3-70b-versatile`, gets `{"type": "json_object"}` — valid JSON syntax with no guarantee about shape. The page states *"streaming and tool use are not currently supported with Structured Outputs"*. Gemini by contrast documents an enforced response schema and documents combining it with function calling, the combined example being Gemini 3 series only.
+- **Consequence**: [`../rules/llm-output-handling.md`](../rules/llm-output-handling.md) requires schema-validated output with **zero re-asks**, so the parse-failure rate is the instrument that tells you a prompt is wrong. Unenforced generation raises that rate for a reason that is not the prompt, which blinds the instrument. Any Groq-served agent must therefore run on `openai/gpt-oss-120b` or `-20b`, and inherits their 8,000 TPM ceiling from VF-022. The `llama-3.3-70b-versatile` id that appears in the example configuration in [`../rules/quota-management.md`](../rules/quota-management.md) should become `openai/gpt-oss-120b` when the gateway is built, because illustrations get copied.
+- **Re-verify**: on any Groq model release.
+
+## VF-024 — GitHub Models was fully retired on 2026-07-30.
+
+- **Verified**: 2026-08-03 · **Confidence**: documented
+- **Method**: `docs.github.com/en/github-models/prototyping-with-ai-models`: *"As of July 30, 2026, GitHub Models has been fully retired. The playground, model catalog, inference API, and bring your own key (BYOK) are no longer available to any customer."*
+- **Consequence**: it was named in #19 as a provider to evaluate. It is not a candidate, and any design note or backlog item that lists it should be corrected rather than left to be rediscovered. Four days elapsed between the retirement and this check, which is the argument for the quarterly re-verification cadence in [`../../SOURCES.md`](../../SOURCES.md) — a provider can disappear inside one sprint.
+- **Re-verify**: never.
+
+## VF-025 — `mlfinlab` has no installable release, and `pandas-ta`'s upstream has vanished while it remains installable.
+
+- **Verified**: 2026-08-03 · **Confidence**: measured
+- **Method**: `GET pypi.org/pypi/mlfinlab/json` returns **404** — no releases. Its GitHub repository's last push is **2023-10-02** and GitHub resolves its license to `NOASSERTION`. For `pandas-ta`: latest release `0.4.71b0` dated **2025-09-14**, still classified Beta, and both declared project URLs are dead — the repository `twopirllc/pandas-ta` returns **404** and the homepage `pandas-ta.dev` does not resolve in DNS (`www.` fails to resolve, the apex times out).
+- **Consequence**: `mlfinlab` was OQ-002's primary candidate for CPCV, purging, embargo and the deflated Sharpe ratio. There is no library to adopt, so **every statistic that gates a promotion decision must be implemented in-project** and validated against a hand-computed worked example from its source paper — which OQ-002 already identified as the real risk, since a bug in a penalty term almost always understates the penalty and therefore fails in the flattering direction. The `pandas-ta` case is the more instructive failure: a package whose upstream has disappeared but whose wheel still installs is *worse* than one that was removed, because `uv sync` keeps succeeding and nothing signals the abandonment. Indicators come from TA-Lib (VF-026) or are written here.
+- **Re-verify**: annually. A resurrection would be surprising and would still not restore three years of missing review.
+
+## VF-026 — TA-Lib 0.7.1 ships prebuilt wheels for every platform this project runs on. The C-build objection is dead.
+
+- **Verified**: 2026-08-03 · **Confidence**: measured
+- **Method**: `GET pypi.org/pypi/ta-lib/json` — version 0.7.1 (2026-07-16) publishes 54 wheels and one sdist, covering `manylinux_2_17`/`_2_28` on x86_64 and aarch64, `musllinux_1_2`, macOS 13/14, and `win_amd64`.
+- **Consequence**: the standing reason to prefer a pure-Python indicator library over TA-Lib was that TA-Lib wraps a C library needing a source build inside Docker. There is no compile step on any target platform, which removes the only real argument for `pandas-ta` at exactly the moment VF-025 removed `pandas-ta`. It matters twice on the development machine: #117 records that Windows Smart App Control blocks some compiled artefacts, and a signed prebuilt `win_amd64` wheel avoids the source-build path that triggers it.
+- **Re-verify**: on any `ta-lib` release — wheel coverage is a policy of that project and can narrow.
+
+## VF-027 — Reddit's unauthenticated JSON endpoints return 403, and a GDELT query takes about fifteen seconds.
+
+- **Verified**: 2026-08-03 · **Confidence**: measured
+- **Method**: unauthenticated requests, status and wall-clock recorded. `reddit.com/r/CryptoCurrency/new.json` → **403** with `Retry-After: 0` and an HTML body. `api.gdeltproject.org/api/v2/doc/doc` with `maxrecords=3` → **200 in 14.9 s**. `api.stlouisfed.org/fred/...` → **400**, *"Variable api_key is not set."* `cryptopanic.com/api/developer/v2/posts/` → **404**, and `/api/v1/posts/` with a placeholder token → **403** from Cloudflare. Open and fast, for contrast: `api.alternative.me/fng/` → 200 in 0.6 s, `mempool.space/api/v1/fees/recommended` → 200 in 0.25 s, `api.blockchain.info/stats` → 200 in 0.12 s.
+- **Consequence**: the two sources most wanted for a sentiment feature — CryptoPanic and Reddit — both require credentials this project does not hold, and the two that are open are respectively *one number per day* and *a fifteen-second query*. **There is no zero-credential, low-latency news or social feed**, and #32 should be planned on that basis rather than discovering it mid-implementation. The GDELT latency is the service rather than an outlier, which rules it out of any request path and into a scheduled job with a generous timeout. Reddit's 403 has the same shape as VF-002: every tutorial and code sample that appends `.json` to a Reddit URL is now wrong, and the failure is a clean status code rather than a confusing one. The Fear & Greed response carries `time_until_update` in seconds, so that source reports its own availability lag per call and the value should be read rather than assumed.
+- **Re-verify**: quarterly. These probes need no credentials, which makes them the cheapest row in [`../../SOURCES.md`](../../SOURCES.md) §5 and the most likely to catch a real change.

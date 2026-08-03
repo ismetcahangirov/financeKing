@@ -314,6 +314,7 @@ Cross-link between documents rather than duplicating. Duplicated documentation d
 | `FAILSAFE.md` | Kill switch, degraded modes, recovery |
 | `ERROR_RECOVERY.md` | Failure taxonomy and response |
 | `SECURITY.md` | Threat model, secrets, audit |
+| `SOURCES.md` | Every external service: limits, terms, and each data source's availability lag |
 | `OBSERVABILITY.md` | Logging, metrics, tracing, alerting |
 | `MEMORY_SYSTEM.md` | Agent memory tiers |
 | `PROMPT_LIBRARY.md` | Prompt engineering standards |
