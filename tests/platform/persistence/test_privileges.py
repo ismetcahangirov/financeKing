@@ -467,5 +467,5 @@ async def test_provisioning_a_password_onto_an_unknown_role_is_refused() -> None
     create a credential for a role the grant matrix says nothing about."""
     with pytest.raises(UnknownLoginRoleError, match="fking_app_logn"):
         await provision_login_passwords(
-            cast("AsyncConnection", None), {"fking_app_logn": SecretStr("x")}
+            cast(AsyncConnection, None), {"fking_app_logn": SecretStr("x")}
         )
