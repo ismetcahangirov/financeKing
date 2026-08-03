@@ -130,15 +130,18 @@ jobs:
   # --------------------------------------------------------------------------
   # Test gate, including the per-module coverage floors.
   #
-  # The persistence tests run against a real PostgreSQL + TimescaleDB started by
-  # testcontainers, not a mock and not a service container. The interesting
-  # failures in this schema live in CHECK constraints, append-only triggers,
-  # revoked grants and hypertable policies, and a mocked database proves only that
-  # the mock has none of them (TESTING.md, CLAUDE.md 5). testcontainers rather than
-  # a `services:` block because the same fixture then works unchanged on a
-  # developer machine, so what CI runs is what a developer ran.
+  # The persistence and event-bus tests run against a real PostgreSQL + TimescaleDB
+  # and a real Redis started by testcontainers, not mocks and not service
+  # containers. The interesting failures in the schema live in CHECK constraints,
+  # append-only triggers, revoked grants and hypertable policies; the interesting
+  # failures on the bus live in the pending-entries list, XAUTOCLAIM's idle
+  # threshold and ON CONFLICT semantics. A mock has none of them (TESTING.md,
+  # CLAUDE.md 5). testcontainers rather than a `services:` block because the same
+  # fixture then works unchanged on a developer machine, so what CI runs is what a
+  # developer ran.
   #
-  # FKING_REQUIRE_DB=1 turns an unreachable database from a skip into a failure.
+  # FKING_REQUIRE_DB=1 turns an unreachable database *or Redis* from a skip into a
+  # failure.
   # Skipping is right locally when Docker is not running; here it would be a green
   # gate that verified nothing, which is the exact failure this repository already
   # hit once.
