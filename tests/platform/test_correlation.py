@@ -48,8 +48,20 @@ def test_a_nested_scope_restores_the_outer_one_rather_than_clearing() -> None:
 
 
 def test_the_scope_is_restored_even_when_the_body_raises() -> None:
-    with pytest.raises(RuntimeError), correlation_scope(OUTER):
-        raise RuntimeError("boom")
+    """The restore lives in a `finally`, so an exception must not leave the id bound.
+
+    The raise sits in a nested function rather than inline under `pytest.raises`, which
+    makes it exercise a real call frame unwinding through the context manager -- and
+    keeps the assertion after the block visibly reachable to a reader and to a static
+    analyser, both of which otherwise read the `raise` as ending the function.
+    """
+
+    def raises_inside_the_scope() -> None:
+        with correlation_scope(OUTER):
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        raises_inside_the_scope()
     assert current_correlation_id() is None
 
 

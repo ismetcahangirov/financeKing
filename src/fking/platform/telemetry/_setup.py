@@ -47,8 +47,6 @@ if TYPE_CHECKING:  # pragma: no cover - imported for annotations only
 # nobody wrote down is a value nobody can reason about when a panel looks jagged.
 _METRIC_EXPORT_INTERVAL_MS: Final[int] = 60_000
 
-_instrumented = False
-
 
 class _CountingSpanExporter(SpanExporter):
     """Wraps an exporter and counts the spans it failed to deliver.
@@ -111,19 +109,22 @@ def build_resource(settings: TelemetrySettings) -> Resource:
 def _instrument_libraries() -> None:
     """Auto-instrument the libraries that are dependencies today.
 
-    Guarded by a module flag because the instrumentors patch library internals
-    process-wide and are not cleanly reversible: instrumenting twice double-wraps every
-    call, so every span in the process acquires a duplicate parent.
+    Guarded, because the instrumentors patch library internals process-wide and are not
+    cleanly reversible: instrumenting twice double-wraps every call, so every span in the
+    process acquires a duplicate parent. The guard is the SDK's own flag rather than a
+    module-level boolean of ours -- `BaseInstrumentor` is a singleton, so the flag is the
+    same object on every construction, and it stays correct if something else in the
+    process instruments one of these first.
 
     FastAPI is absent because `fking.api` does not exist yet; it joins with #102.
     """
-    global _instrumented  # noqa: PLW0603 - the SDK's instrumentors are process-global
-    if _instrumented:
-        return
-    HTTPXClientInstrumentor().instrument()
-    RedisInstrumentor().instrument()
-    SQLAlchemyInstrumentor().instrument()
-    _instrumented = True
+    for instrumentor in (
+        HTTPXClientInstrumentor(),
+        RedisInstrumentor(),
+        SQLAlchemyInstrumentor(),
+    ):
+        if not instrumentor.is_instrumented_by_opentelemetry:
+            instrumentor.instrument()
 
 
 def configure_telemetry(
