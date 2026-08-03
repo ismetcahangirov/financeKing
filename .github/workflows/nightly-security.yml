@@ -1,0 +1,139 @@
+name: Nightly security audit
+
+# The pull-request gate catches what a diff introduces. It cannot catch an advisory
+# published tomorrow against a dependency that is already locked, and that is the more
+# common shape -- a `ccxt` advisory lands against a floor of `>= 4.5.70` without
+# anybody in this repository touching a file. A scheduled run is the only mechanism
+# that notices. SECURITY.md 7.
+#
+# The result is an issue rather than a red check, deliberately. Nobody is watching a
+# scheduled workflow at 03:17, a red X on a branch nobody pushed to is noise, and an
+# advisory needs a human to decide between upgrade, pin and accept. Issue #107.
+
+on:
+  schedule:
+    # 03:17 UTC. Off the hour on purpose: GitHub queues the top of every hour heavily
+    # enough that a 03:00 job is routinely delayed by tens of minutes, and a run whose
+    # start time drifts is one whose failure nobody can correlate with anything.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+# `issues: write` is the point of this workflow. `contents: read` is everything else
+# it is allowed to do.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: nightly-security
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12"
+  # One issue, reopened and commented on, rather than one per night. A nightly job
+  # that files a new issue every run buries the finding it is reporting under
+  # thirty copies of itself within a month.
+  ISSUE_TITLE: "Nightly security audit: findings need a human decision"
+
+jobs:
+  audit:
+    name: pip-audit and gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # gitleaks scans history, not the tip. A secret committed and then "removed"
+          # in a later commit is still in the pack file and still valid.
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+
+      # continue-on-error on both audits, so a pip-audit finding cannot hide a
+      # gitleaks finding. One run, one issue, both findings in it.
+      - name: pip-audit
+        id: pip_audit
+        continue-on-error: true
+        run: |
+          uv export --frozen --all-groups --no-emit-project --format requirements.txt \
+            > audited-requirements.txt
+          uvx pip-audit --strict --requirement audited-requirements.txt \
+            | tee pip-audit.txt
+
+      - name: gitleaks
+        id: gitleaks
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+      - name: Open or update the needs-human issue
+        if: ${{ steps.pip_audit.outcome == 'failure' || steps.gitleaks.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PIP_AUDIT_OUTCOME: ${{ steps.pip_audit.outcome }}
+          GITLEAKS_OUTCOME: ${{ steps.gitleaks.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "A scheduled audit found something the pull-request gate could not have:"
+            echo "these dependencies and this history were already merged."
+            echo
+            echo "| Check | Result |"
+            echo "|---|---|"
+            echo "| \`pip-audit\` | ${PIP_AUDIT_OUTCOME} |"
+            echo "| \`gitleaks\` | ${GITLEAKS_OUTCOME} |"
+            echo
+            echo "Run: ${RUN_URL}"
+            echo
+            if [ "${PIP_AUDIT_OUTCOME}" = "failure" ] && [ -s pip-audit.txt ]; then
+              echo "<details><summary>pip-audit output</summary>"
+              echo
+              echo '```'
+              tail -c 40000 pip-audit.txt
+              echo '```'
+              echo
+              echo "</details>"
+              echo
+            fi
+            echo "### What to decide"
+            echo
+            echo "Upgrade, pin, or accept with a written reason. A \`ccxt\` major bump"
+            echo "escalates rather than being applied -- its correctness on current"
+            echo "Binance reality is why it was chosen and cannot be assumed across"
+            echo "majors (SECURITY.md 7). A gitleaks finding means rotating the"
+            echo "credential first and editing history second; a secret in a pack file"
+            echo "is valid until it is revoked at the source."
+          } > audit-body.md
+
+          existing="$(gh issue list --state open --label 'status:needs-human' \
+            --search "\"${ISSUE_TITLE}\" in:title" --json number --jq '.[0].number // empty')"
+
+          if [ -n "${existing}" ]; then
+            # Comment rather than a second issue: the first one is where the
+            # discussion already is, and a duplicate splits it.
+            gh issue comment "${existing}" --body-file audit-body.md
+          else
+            gh issue create \
+              --title "${ISSUE_TITLE}" \
+              --body-file audit-body.md \
+              --label 'status:needs-human' \
+              --label 'area:security' \
+              --label 'P1-high'
+          fi
+
+      # The job's own verdict still reflects reality. The issue is how a human finds
+      # out; a green run on a night with a finding would make the workflow list lie.
+      - name: Fail the run if either audit found something
+        if: ${{ steps.pip_audit.outcome == 'failure' || steps.gitleaks.outcome == 'failure' }}
+        run: |
+          echo "::error title=Nightly security audit::pip-audit=${{ steps.pip_audit.outcome }} gitleaks=${{ steps.gitleaks.outcome }}"
+          exit 1

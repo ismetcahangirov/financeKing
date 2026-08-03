@@ -42,6 +42,12 @@ htmlcov/
 /data/
 *.parquet
 
+# Rendered by `make audit` and by CI from uv.lock. Never committed: a checked-in
+# requirements file becomes a second, silently divergent source of dependency truth
+# the moment someone edits it instead of the lockfile.
+/audited-requirements.txt
+/merged-compose.yml
+
 # Editors / OS
 .idea/
 .vscode/

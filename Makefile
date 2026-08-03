@@ -11,7 +11,7 @@ ARGS ?=
 COMPOSE ?= docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help check lint format types imports checks adr-index test cover secrets up down logs ps config migrate migrate-down migrate-sql seed
+.PHONY: help check lint format types imports checks adr-index test cover secrets audit up down logs ps config migrate migrate-down migrate-sql seed
 
 help:  ## Show the available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -71,6 +71,19 @@ cover:  ## Enforce per-module coverage floors
 ## that has only run `uv sync`. CI wires it in separately (#15).
 secrets:  ## Scan the working tree for committed secrets (requires gitleaks on PATH)
 	gitleaks detect --config .gitleaks.toml --redact --verbose
+
+## Also not part of `check`: it resolves advisories over the network, and a gate that
+## fails because PyPI was slow is a gate people learn to re-run rather than read. CI
+## runs it on every pull request, and .github/workflows/nightly-security.yml runs it
+## on a schedule -- which is the half that matters, because the common shape is an
+## advisory published against a dependency that is already locked. SECURITY.md 7.
+##
+## Exported from uv.lock rather than from the installed environment, so the audit
+## covers exactly what a reproducible install would produce.
+audit:  ## Audit the locked dependency set for published advisories
+	$(UV) export --frozen --all-groups --no-emit-project --format requirements.txt \
+		> audited-requirements.txt
+	$(UV) tool run pip-audit --strict --requirement audited-requirements.txt
 
 # ---------------------------------------------------------------------------
 # Local stack. DEPLOYMENT.md is the specification.
