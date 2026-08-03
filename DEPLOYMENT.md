@@ -24,7 +24,7 @@ The failure this document exists to prevent: *"works on my machine"* becoming a 
 
 Nine services. Adding a tenth requires justifying it against §4's memory budget, and **adding a service to reduce load on another service is forbidden** — that is microservices arriving by the back door, and `ARCHITECTURE.md` §2 already priced it.
 
-> **Current state (2026-08-03).** Eight of the nine are defined and come up healthy. `dashboard` is absent because the Next.js application does not exist yet (#103), and shipping a service definition for an application that is not there would be a stub. `app` is present and builds, but is a **one-shot boot validator** rather than a long-running service: it runs the boot sequence that exists today — validate configuration, resolve every venue endpoint against the compiled-in allowlist, log the allowlist — and exits 0, or exits 78 and takes the stack down with it. The long-running process arrives with migrations (#17), the runtime and event bus (#18) and the FastAPI surface (#102); the `/health/ready` health check described in §3 and its `condition: service_healthy` land in the pull request that lands the endpoint.
+> **Current state (2026-08-03).** Eight of the nine are defined and come up healthy. `dashboard` is absent because the Next.js application does not exist yet (#103), and shipping a service definition for an application that is not there would be a stub. `app` is present and builds, but is a **one-shot boot validator** rather than a long-running service: it runs the boot sequence that exists today — validate configuration, resolve every venue endpoint against the compiled-in allowlist, log the allowlist — and exits 0, or exits 78 and takes the stack down with it. The long-running process arrives with the runtime and event bus (#18) and the FastAPI surface (#102); the `/health/ready` health check described in §3 and its `condition: service_healthy` land in the pull request that lands the endpoint. The schema and its migrations landed with #17, but they are applied by `make migrate` rather than from the entrypoint — see §3's note on the entrypoint.
 >
 > The seven infrastructure services all carry health checks and reach healthy, so `make up` is unattended and all-green today. This table describes the intended end state and is the specification the compose files are written against; this note records how far along it is, so that a reader can tell a design from a claim.
 
@@ -164,6 +164,8 @@ Anonymous volumes are forbidden because they lose data silently on recreate — 
 The app entrypoint does exactly two things before starting: run Alembic migrations, then start. Migrations run as the `fking_migrator` role; the application connects as `fking_app`, which has no `UPDATE`/`DELETE` on audit or memory tables (`SECURITY.md` §6).
 
 Migrations run in the entrypoint rather than as a separate service because a separate migration service that must complete before the app starts is a health-check dependency with extra steps, and it can be skipped.
+
+> **Current state (2026-08-03).** The migrations exist (#17) and `make migrate` applies them, but the entrypoint does not run them yet, because there is no long-running process for them to precede — the container is still a one-shot boot validator that exits 0. Wiring `alembic upgrade head` into a start that then exits would apply a schema change from a service whose logs nobody watches. The two-step entrypoint above lands with the server in #18/#102. The `fking_migrator`/`fking_app` split is created by #17's first migration as NOLOGIN group roles with grants on the audit tables only; the full privilege matrix and login roles are #106.
 
 ---
 
@@ -313,7 +315,8 @@ These carry the `FKING_` prefix and land in the app container through `env_file`
 ```bash
 make up          # docker compose up -d
 make logs        # watch until every service is healthy
-make migrate     # Alembic; also runs from the app entrypoint
+make migrate     # Alembic; moves into the app entrypoint with #18
+make seed        # venues and instruments for local development; idempotent
 make check       # lint, format, mypy --strict, import-linter, tests
 ```
 
