@@ -51,6 +51,8 @@ The failure this prevents is not a corrupt file that fails to open. It is a **tr
 
 Prefer monthly archives where they exist (one request instead of thirty, one checksum instead of thirty) and fall back to daily for the current and previous month, which monthly archives lag.
 
+`fking.data.archive` implements all of this: `resolve_granularity()` makes the monthly/daily choice from an injected `today_utc` rather than a clock read, and `ArchiveFetcher.fetch()` verifies before writing, caches the verified bytes with their `.CHECKSUM` sibling beside them, and re-verifies on every cache hit. It reaches the host over a **separate egress path** — `ARCHIVE_HOSTS` and `guarded_archive_client()`, not the trading allowlist — which holds no credential and which `fking.execution` cannot import. ADR 0017 records why the trading allowlist was not simply widened.
+
 ### Coverage reference points
 
 | Series | Earliest |

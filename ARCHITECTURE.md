@@ -150,6 +150,7 @@ The demo-only guarantee, implemented structurally.
 - `guarded_client()` validates the host on **every request**, not only at construction, because base URLs can be overridden per call
 - Startup resolves configured endpoints and aborts if any is not allowlisted; the allowlist is logged at every boot
 - `import-linter` forbids `execution` from importing `httpx`, `aiohttp`, `websockets` or `requests` directly
+- A non-venue host gets a **second** literal and a **second** client, never an entry in the trading set: `ARCHIVE_HOSTS` + `guarded_archive_client()` for `data.binance.vision`, credential-free, unimportable from `execution`. Two egress paths that cannot reach each other's hosts, rather than one list with an extra host on it (ADR 0017)
 - No override exists. No flag, no environment variable, no `--force`
 
 The threat model is not malice. It is a config edit, a copied environment variable, an agent generating its own HTTP client, or a library changing a default base URL in a minor bump. A guardrail living in configuration defends against none of those, because configuration is precisely what changes.

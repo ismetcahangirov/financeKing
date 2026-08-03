@@ -12,6 +12,13 @@ like a module-level parsing constant is the epoch-unit trap waiting to recur, so
 `format_resolver` is the only place a format decision is made and it refuses to guess.
 """
 
+from fking.data.archive import (
+    ArchiveCoordinate,
+    ArchiveFetcher,
+    FetchedArchive,
+    Granularity,
+    resolve_granularity,
+)
 from fking.data.format_resolver import (
     ArchiveFormat,
     BooleanEncoding,
@@ -23,11 +30,16 @@ from fking.data.format_resolver import (
 )
 
 __all__: tuple[str, ...] = (
+    "ArchiveCoordinate",
+    "ArchiveFetcher",
     "ArchiveFormat",
     "BooleanEncoding",
     "Dataset",
     "EpochUnit",
+    "FetchedArchive",
+    "Granularity",
     "Market",
     "epoch_to_utc",
     "resolve_archive_format",
+    "resolve_granularity",
 )

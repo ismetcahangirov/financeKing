@@ -7,7 +7,7 @@
 The mechanism, in full:
 
 1. The set of permitted hosts is a **compiled-in `frozenset` literal** in `fking.platform.safety`. It is not read from configuration, environment, database, file, feature flag, CLI argument or remote service.
-2. Every outbound HTTP and WebSocket connection in the process is made through `guarded_client()` (or `guarded_ccxt()`, which wraps it). The host is validated **on every request**, not once at construction, because base URLs can be overridden per call.
+2. Every outbound HTTP and WebSocket connection to a **trading venue** is made through `guarded_client()` (or `guarded_ccxt()`, which wraps it). The host is validated **on every request**, not once at construction, because base URLs can be overridden per call.
 3. The client is constructed with `trust_env=False` and `follow_redirects=False`.
 4. At startup, every configured endpoint is resolved and checked. A single failure aborts the process before the event loop accepts work. The allowlist literal is logged at every boot.
 5. `SafetyViolation` inherits `BaseException` and is **never caught**. There is no handler for it anywhere in `src/fking/`.
@@ -15,6 +15,14 @@ The mechanism, in full:
 7. Any diff touching the allowlist literal fails CI unless the pull request carries the `safety:critical` label.
 
 There is no override. No flag, no environment variable, no `--force`, no `DRY_RUN=0`, no `if settings.i_know_what_im_doing`.
+
+### The second egress path, and why it is not a widening
+
+A non-venue host — today only `data.binance.vision`, the public archive — gets **its own compiled-in literal and its own client**, never an entry in `PERMITTED_HOSTS`. `ARCHIVE_HOSTS` lives in `fking.platform.safety._archive_allowlist` and is reached only by `guarded_archive_client()` in `fking.platform.safety.archive`, which holds no credential and cannot import one. The two sets are disjoint, each client refuses every host in the other's set, and `import-linter` forbids `fking.execution` from importing either archive module. Both literals are covered by the `safety-kernel-diff` CI job, so widening either still requires `safety:critical`.
+
+The reason this is not clause 1 with a longer list: `PERMITTED_HOSTS` earns its value by being short, entirely venue endpoints, and reviewable in one glance. Once it also contains a data host, reviewing an addition means deciding which category the new entry falls into — and that judgement is made by whoever wants it added. The rule survives; the criterion for applying it moves. Everything below about refusing to widen an allowlist applies to `ARCHIVE_HOSTS` unchanged. ADR 0017 carries the full argument, including what the rejected one-list design got right.
+
+The *checking* is deliberately not duplicated: `fking.platform.safety._hostcheck` holds one implementation of scheme validation, userinfo stripping and trailing-dot normalisation, and takes the permitted set as an argument. Two allowlists, one parser — a hardening fix lands once.
 
 ## Why
 
@@ -439,7 +447,7 @@ The golden test and the CI label check are deliberately redundant. The test make
 
 Not for read-only endpoints. Not for a market-data feed that "does not have credentials attached". Not for a one-off script outside `src/`. Not temporarily, behind a branch that will never merge.
 
-The argument that arrives most often is: *let me hit mainnet read-only to calibrate the cost model, since `../../CLAUDE.md` §2 requires production-calibrated costs anyway and testnet showed a 7.5bp spread against production's 0.16bp.* The requirement is real; the conclusion is wrong. Production market data is obtained from the public historical archives, downloaded and checksum-verified out of band, and loaded from Parquet — not by opening a live client against a production host from a process that also holds order-placement code paths. **Read paths become write paths during refactors** (`../../CLAUDE.md` §11): a `_request()` helper written for klines gets a `method` parameter six weeks later, then a signing step, and nobody re-derives the safety property because the allowlist already had the host in it.
+The argument that arrives most often is: *let me hit mainnet read-only to calibrate the cost model, since `../../CLAUDE.md` §2 requires production-calibrated costs anyway and testnet showed a 7.5bp spread against production's 0.16bp.* The requirement is real; the conclusion is wrong. Production market data is obtained from the public historical archives — fetched and checksum-verified over the separate, credential-free archive egress path described above, then loaded from Parquet — not by opening a live client against a production *exchange* host from a process that also holds order-placement code paths. Note what the archive path is not: it is not `PERMITTED_HOSTS` with an extra entry, and it cannot sign a request, so it is not a route to an authenticated endpoint even by accident. **Read paths become write paths during refactors** (`../../CLAUDE.md` §11): a `_request()` helper written for klines gets a `method` parameter six weeks later, then a signing step, and nobody re-derives the safety property because the allowlist already had the host in it.
 
 The second argument is that the friction is slowing work down. It is. That is the feature. Widening the allowlist costs a source edit, a `safety:critical` pull request, a broken golden test, and a human reviewer — four separate moments where somebody has to state out loud that they intend this system to be able to reach a production exchange. A guardrail with an exception is a guardrail with a documented procedure for turning it off, and the procedure is always used by someone in a hurry.
 

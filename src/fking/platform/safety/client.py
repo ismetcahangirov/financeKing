@@ -17,7 +17,6 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from typing import Final
-from urllib.parse import urlsplit
 
 import httpx
 import structlog
@@ -26,65 +25,36 @@ from websockets.asyncio.client import ClientConnection
 
 from fking.platform.safety._allowlist import PERMITTED_HOSTS
 from fking.platform.safety._errors import SafetyViolation
+from fking.platform.safety._hostcheck import assert_permitted, inspect_url
 
 _LOG: Final = structlog.get_logger(__name__)
 
-# TLS only. A downgrade to plaintext puts the API key on the wire, and the host check
-# alone would accept it because the host is right.
-_PERMITTED_SCHEMES: Final[frozenset[str]] = frozenset({"https", "wss"})
+# Named in every rejection this module produces, so a reader can tell which of the two
+# compiled-in allowlists refused the request. See `_archive_allowlist.py` for why there
+# are two and why they must never be merged.
+_ALLOWLIST_NAME: Final[str] = "the permitted host set (PERMITTED_HOSTS)"
 
 
 def _inspect(url: str) -> tuple[str | None, str | None]:
-    """Return `(normalised_host, rejection_reason)`; exactly one is None.
+    """Return `(normalised_host, rejection_reason)` against the trading allowlist.
 
-    Split out from `assert_host_permitted` so that `verify_endpoints_or_abort` can
-    collect every rejection without catching `SafetyViolation` -- which
+    Kept as a non-raising form so that `verify_endpoints_or_abort` can collect every
+    rejection without catching `SafetyViolation` -- which
     `tools/checks/no_catch_safety.py` forbids, and rightly: the moment one `except
     SafetyViolation` exists in the tree, the next one has a precedent to point at.
     """
-    parts = urlsplit(url)
-
-    if parts.scheme not in _PERMITTED_SCHEMES:
-        return None, (
-            f"non-TLS scheme {parts.scheme!r} in {url}; "
-            f"permitted schemes are {sorted(_PERMITTED_SCHEMES)}"
-        )
-
-    # `hostname` rather than `netloc`: it drops userinfo and the port, so
-    # `https://testnet.binance.vision@api.binance.com/` yields api.binance.com --
-    # which is the host that actually answers, and the one a netloc comparison would
-    # get wrong.
-    host = parts.hostname
-    if not host:
-        return None, f"no host in {url}"
-
-    # A trailing dot makes the DNS root label explicit; `example.com.` and
-    # `example.com` are the same name. Stripping it before comparison stops
-    # `api.binance.com.` from being treated as an unrecognised -- and therefore
-    # separately evaluated -- host. urlsplit already lowercases; casefold is
-    # belt-and-braces for non-ASCII.
-    normalised = host.rstrip(".").casefold()
-    if normalised not in PERMITTED_HOSTS:
-        return None, (
-            f"host {normalised!r} is not in the permitted host set "
-            f"(the compiled-in allowlist is {sorted(PERMITTED_HOSTS)})"
-        )
-    return normalised, None
+    return inspect_url(url, permitted_hosts=PERMITTED_HOSTS, allowlist_name=_ALLOWLIST_NAME)
 
 
 def assert_host_permitted(url: str | httpx.URL) -> str:
-    """Validate one URL's host against the compiled-in allowlist.
+    """Validate one URL's host against the compiled-in trading allowlist.
 
     Returns the normalised host so callers can log what was actually contacted rather
     than what they believe they asked for. Raises `SafetyViolation` otherwise.
     """
-    host, reason = _inspect(str(url))
-    if host is None:
-        # Narrowing on `host` rather than on `reason`, so the return type follows
-        # without an assert -- an assert here would vanish under `python -O` and take
-        # the guarantee with it, which is what S101 exists to prevent.
-        raise SafetyViolation(reason or f"unvalidatable url {url!s}")
-    return host
+    return assert_permitted(
+        str(url), permitted_hosts=PERMITTED_HOSTS, allowlist_name=_ALLOWLIST_NAME
+    )
 
 
 async def _guard_httpx_request(request: httpx.Request) -> None:
