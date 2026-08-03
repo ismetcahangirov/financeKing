@@ -17,6 +17,13 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.14",
     "asyncpg>=0.30",
+    # Parquet corpus and its read path (#24, DATA_PIPELINE.md 6). duckdb is the scan
+    # engine because it pushes hive partition predicates down into *file selection*, so
+    # a filtered query over a thousand-symbol corpus opens only the files that can
+    # contribute -- which is the entire return on the partition layout. pyarrow is the
+    # writer: it is the only way to declare `decimal128(38, 18)` explicitly, and an
+    # inferred schema is how an OHLCV column becomes a double.
+    "duckdb>=1.1",
     "httpx>=0.28.1",
     # Telemetry (#18). The SDK plus the OTLP/gRPC exporter is the whole pipeline into
     # the Collector; the three instrumentation packages are exactly the libraries this
@@ -27,8 +34,15 @@ dependencies = [
     "opentelemetry-instrumentation-redis>=0.55b0",
     "opentelemetry-instrumentation-sqlalchemy>=0.55b0",
     "opentelemetry-sdk>=1.30",
+    "pyarrow>=18.0",
     "pydantic>=2.11",
     "pydantic-settings>=2.7",
+    # Not imported by anything in src/fking. duckdb's own conversion of a
+    # TIMESTAMP WITH TIME ZONE into a Python datetime imports pytz, and raises
+    # `Required module 'pytz' failed to import` without it -- so every read of an
+    # `_utc` column depends on it. duckdb does not declare it, which is why it is
+    # named here rather than arriving transitively.
+    "pytz>=2025.2",
     # Event bus (#18, ADR-0004). Streams, consumer groups and XAUTOCLAIM; the async
     # client ships with the package, so there is no second aioredis dependency.
     "redis>=6.0",
@@ -70,6 +84,12 @@ dev = [
     # It also binds a random host port, which matters on Windows where 5432 is
     # frequently already taken or reserved.
     "testcontainers[postgres,redis]>=4.9",
+    # pyarrow ships no py.typed marker, so mypy --strict treats every `pa.*` call as a
+    # source of Any and that Any propagates across the whole Parquet write path -- one
+    # untyped import silently disabling type checking on the module that decides a
+    # column is decimal128 rather than double. duckdb needs no stubs; it ships py.typed.
+    "pyarrow-stubs>=20",
+    "types-pytz>=2025.2",
 ]
 
 # ---------------------------------------------------------------------------
@@ -149,6 +169,17 @@ ignore = [
 # object here would be a second thing to keep in step with argparse, and the mismatch
 # between the two would be silent.
 "tools/record_archive_fragment.py" = ["PLR0913"]
+# S608: the Parquet read path builds `read_parquet('<glob>')` by interpolation, because
+# DuckDB's table function takes a path pattern rather than a bind parameter -- there is
+# no parameterised spelling of it. The interpolated values are a filesystem glob derived
+# from typed partition keys and a predicate this repository writes, never anything a
+# caller supplied; `fking.data.parquet.reader.scanned_file_count` states that on the one
+# line in src/ that does it, and it carries its own inline noqa.
+# S311: the shuffle that proves the writer sorts. A seeded Mersenne twister is exactly
+# right here -- the test must be reproducible, which is what a cryptographic generator
+# would take away.
+# DTZ001: one deliberate naive datetime, in the test asserting the writer refuses one.
+"tests/data/test_parquet_layout.py" = ["S101", "S311", "S608", "DTZ001"]
 # S608: a migration is hand-written DDL over identifiers that are compiled into the
 # file. DDL takes no bind parameters -- there is no parameterised spelling of
 # `CREATE ROLE x` or `CREATE TRIGGER y ON z` -- and a migration never sees runtime

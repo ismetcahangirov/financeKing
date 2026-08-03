@@ -246,17 +246,39 @@ data/parquet/
 
 ### Canonical bar schema
 
+Declared once in `fking.data.parquet.schema`, never inferred from the values being written — pyarrow derives a `Decimal` column's precision and scale from the batch it is handed, so a month whose prices all carry two decimal places produces `decimal128(8, 2)` and the next month produces something else. Two files, two schemas, one glob, and a scan that fails on a type mismatch nobody introduced.
+
 | Column | Type | Note |
 |---|---|---|
-| `open_time` | `timestamp[us, tz=UTC]` | Bar start, half-open `[open_time, close_time)` |
-| `open`, `high`, `low`, `close` | `decimal128(38, 18)` | Never float |
-| `volume`, `quote_volume` | `decimal128(38, 18)` | Base and quote |
+| `open_time_utc` | `timestamp[us, tz=UTC]` | Bar start, half-open `[open_time_utc, close_time_utc)` |
+| `close_time_utc` | `timestamp[us, tz=UTC]` | As the archive filed it, not rounded up |
+| `open_quote_price`, `high_quote_price`, `low_quote_price`, `close_quote_price` | `decimal128(38, 18)` | Never float |
+| `base_volume`, `quote_volume` | `decimal128(38, 18)` | Base and quote |
 | `trade_count` | `int64` | |
-| `taker_buy_base`, `taker_buy_quote` | `decimal128(38, 18)` | |
+| `taker_buy_base_volume`, `taker_buy_quote_volume` | `decimal128(38, 18)` | |
 | `source` | `string` | `archive` or `stream` |
-| `ingested_at` | `timestamp[us, tz=UTC]` | Wall time of write |
+| `ingested_at_utc` | `timestamp[us, tz=UTC]` | Wall time of write, injected rather than read |
 
-`source` and `ingested_at` are not decoration. When a backtest result is disputed, the first question is which rows came from a live stream and when they landed, because a stream-sourced bar backfilled after the fact has a different provenance from one that arrived on time.
+### Canonical trade schema
+
+| Column | Type | Note |
+|---|---|---|
+| `venue_trade_id` | `string` | An identifier, not a quantity. The seam reconciliation join key |
+| `event_time_utc` | `timestamp[us, tz=UTC]` | |
+| `quote_price`, `base_quantity`, `quote_quantity` | `decimal128(38, 18)` | |
+| `is_buyer_maker`, `is_best_match` | `bool` | `is_buyer_maker` is the aggressor side inverted — trap 3 |
+| `source` | `string` | `archive` or `stream` |
+| `ingested_at_utc` | `timestamp[us, tz=UTC]` | |
+
+**Column names mirror the record field names in `fking.data.loaders.records` character for character**, per `.claude/rules/naming.md`. `open` and `price` are ambiguous in a trading system, and — more mechanically — a column with no unit suffix is invisible to any check that keys on one. The test asserting that every money column reads back as `DECIMAL(38, 18)` selects its columns by the `_price` / `_volume` / `_quantity` suffix, so a column added next year is covered the moment it is named, rather than when someone remembers to extend a list.
+
+`KlineRecord.ignored_field` is deliberately **not** stored. The parser retains Binance's trailing always-zero column so that the field count it checks is the file's field count — an 11-column row means a column was removed upstream, which is worth failing on. On disk it is a column of zeroes with no reader.
+
+`source` and `ingested_at_utc` are not decoration. When a backtest result is disputed, the first question is which rows came from a live stream and when they landed, because a stream-sourced bar backfilled after the fact has a different provenance from one that arrived on time. Gate 11 below queries `source` to prove no synthesised rows exist, which is only possible because it is written here.
+
+**Writes are idempotent by content digest.** A SHA-256 over the sorted records and their `source` — excluding `ingested_at_utc`, because when we happened to read a file is not part of what the file said — is stored in the file's own Parquet key-value metadata. A re-run whose digest matches declines to rewrite, so re-backfilling a month tomorrow is a no-op rather than a new set of bytes. `source` is inside the digest because a stream-written month later re-fetched from the archive is the one rewrite that must happen.
+
+**Reads go through `fking.data.parquet.read_connection`, which pins `SET TimeZone = 'UTC'`.** DuckDB renders a `TIMESTAMP WITH TIME ZONE` in the session timezone, defaulting to the machine's local zone. The instant survives — an equality assertion against the same instant in UTC still passes — but the returned object carries a local offset, so `.hour`, `.date()` and anything that later drops the tzinfo are wrong by that offset, and a developer outside UTC disagrees with CI about which day a bar belongs to with no error on either side. Same pin, same reason, as `ALTER DATABASE fking SET timezone TO 'UTC'`.
 
 ### TimescaleDB — operational state and recent series
 
