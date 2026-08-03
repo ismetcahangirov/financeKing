@@ -60,6 +60,11 @@ jobs:
         id: pip_audit
         continue-on-error: true
         run: |
+          # pipefail is load-bearing. Actions runs this with `bash -e`, not `-o
+          # pipefail`, so the exit status of `pip-audit | tee` is tee's -- which is
+          # always 0. Without this line the audit reports success on every finding
+          # it makes, which is the exact shape of a gate that verifies nothing.
+          set -o pipefail
           uv export --frozen --all-groups --no-emit-project --format requirements.txt \
             > audited-requirements.txt
           uvx pip-audit --strict --requirement audited-requirements.txt \
