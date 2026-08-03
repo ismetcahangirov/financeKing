@@ -66,3 +66,14 @@ services:
     environment:
       FKING_TELEMETRY__LOG_LEVEL: info
       FKING_TELEMETRY__ENVIRONMENT: demo
+      # The base file gives each login role a local-only default password so a
+      # clean clone comes up unattended. The demo runtime holds real testnet
+      # credentials and must not inherit those defaults -- the `?err` form makes
+      # compose refuse to start rather than come up on a password that is
+      # written in this repository. Same reasoning as the Grafana password above.
+      FKING_DATABASE__DSN: >-
+        postgresql+asyncpg://fking_app_login:${FKING_APP_PASSWORD:?set FKING_APP_PASSWORD in .env for the demo runtime}@postgres:5432/${FKING_POSTGRES_DB:-fking}
+      FKING_DATABASE__INGEST_DSN: >-
+        postgresql+asyncpg://fking_ingest_login:${FKING_INGEST_PASSWORD:?set FKING_INGEST_PASSWORD in .env for the demo runtime}@postgres:5432/${FKING_POSTGRES_DB:-fking}
+      FKING_DATABASE__MIGRATOR_DSN: >-
+        postgresql+asyncpg://fking_migrator_login:${FKING_MIGRATOR_PASSWORD:?set FKING_MIGRATOR_PASSWORD in .env for the demo runtime}@postgres:5432/${FKING_POSTGRES_DB:-fking}

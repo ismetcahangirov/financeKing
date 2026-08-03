@@ -625,27 +625,86 @@ class TelemetrySettings(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def dsn_credential(dsn: PostgresDsn) -> tuple[str | None, str | None]:
+    """The username and password a DSN carries, or `None` where it carries none.
+
+    `PostgresDsn` is a *multi-host* URL in pydantic v2 -- Postgres connection strings may
+    list several hosts for failover -- so there is no top-level `.username`; the
+    credential lives per host. Reading `hosts()[0]` is correct here because every DSN in
+    this project names exactly one host, and a multi-host DSN with two different
+    credentials is a configuration this code would be wrong to silently pick one of.
+    """
+    hosts = dsn.hosts()
+    if not hosts:
+        return None, None
+    first = hosts[0]
+    return first.get("username"), first.get("password")
+
+
 class DatabaseSettings(BaseModel):
     """Postgres/TimescaleDB connection and roles."""
 
     model_config = _FROZEN
 
-    dsn: PostgresDsn = PostgresDsn("postgresql+asyncpg://fking_app@127.0.0.1:5432/fking")
+    # Three DSNs, one per privilege class, and they connect as the *login* roles rather
+    # than as the NOLOGIN group roles that hold the grants. A single shared DSN is the
+    # failure this split exists to prevent: it collapses the separation on the first
+    # deploy and nothing fails visibly, because the over-privileged connection works
+    # perfectly for every query anyone tries.
+    dsn: PostgresDsn = PostgresDsn("postgresql+asyncpg://fking_app_login@127.0.0.1:5432/fking")
+    ingest_dsn: PostgresDsn = PostgresDsn(
+        "postgresql+asyncpg://fking_ingest_login@127.0.0.1:5432/fking"
+    )
+    # Used by `alembic upgrade`, never by a running service. The one exception is the
+    # initial bootstrap of an empty database: `CREATE EXTENSION` in 0001 requires
+    # superuser, so the first run needs an admin connection. DEPLOYMENT.md.
+    migrator_dsn: PostgresDsn = PostgresDsn(
+        "postgresql+asyncpg://fking_migrator_login@127.0.0.1:5432/fking"
+    )
     pool_min_size: int = Field(default=2, ge=0)
     # Raising this is not a fix for connection exhaustion: each connection carries
     # work_mem, so it converts a connection problem into a memory problem, and the
     # memory problem manifests as an OOM kill on Postgres.
     pool_max_size: int = Field(default=10, ge=1)
     statement_timeout_seconds: int = Field(default=30, gt=0)
+    # The privilege-holding group roles, which are what grants name and what
+    # `has_table_privilege` is asserted against. Not what anything connects as.
     migration_role: str = "fking_migrator"
     # Holds no UPDATE or DELETE on audit tables. .claude/rules/append-only-audit.md.
     application_role: str = "fking_app"
+    # Writes market data; the application role holds SELECT only, which is what makes
+    # "a strategy cannot rewrite history" a permission error. .claude/rules/no-lookahead.md.
+    ingest_role: str = "fking_ingest"
 
     @model_validator(mode="after")
     def _pool_bounds_are_ordered(self) -> Self:
         if self.pool_min_size > self.pool_max_size:
             raise ValueError(
                 f"pool_min_size={self.pool_min_size} exceeds pool_max_size={self.pool_max_size}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _each_dsn_connects_as_a_different_role(self) -> Self:
+        """Three DSNs, three distinct users.
+
+        Checked rather than assumed, because the way least privilege dies is not a bad
+        grant -- it is one `DATABASE_URL` copied into all three environment variables
+        during a deploy. Nothing about that fails at runtime: the ingestion worker
+        connected as the application role writes bars perfectly well, and the separation
+        is gone with no error anywhere. The only moment it is observable is here.
+        """
+        by_role: dict[str, list[str]] = {}
+        for field_name in ("dsn", "ingest_dsn", "migrator_dsn"):
+            username, _ = dsn_credential(getattr(self, field_name))
+            by_role.setdefault(username or "<none>", []).append(field_name)
+        shared = {role: fields for role, fields in by_role.items() if len(fields) > 1}
+        if shared:
+            collisions = "; ".join(
+                f"{role!r} used by {', '.join(sorted(fields))}" for role, fields in shared.items()
+            )
+            raise ValueError(
+                f"each database DSN must connect as a different role, but {collisions}"
             )
         return self
 

@@ -291,8 +291,18 @@ services:
     environment:
       # Point the app at the compose services rather than at the 127.0.0.1
       # defaults, which are correct for a developer running outside Docker.
+      # Three DSNs, one per privilege class, each connecting as its own login
+      # role rather than as the superuser. A single shared connection string is
+      # how least privilege dies: the over-privileged connection serves every
+      # query correctly, so nothing fails and nobody notices. The roles hold no
+      # password until `python -m fking.platform.persistence provision-roles`
+      # applies these credentials -- see DEPLOYMENT.md.
       FKING_DATABASE__DSN: >-
-        postgresql+asyncpg://${FKING_POSTGRES_USER:-postgres}:${FKING_POSTGRES_PASSWORD:-fking_local_only}@postgres:5432/${FKING_POSTGRES_DB:-fking}
+        postgresql+asyncpg://fking_app_login:${FKING_APP_PASSWORD:-fking_app_local_only}@postgres:5432/${FKING_POSTGRES_DB:-fking}
+      FKING_DATABASE__INGEST_DSN: >-
+        postgresql+asyncpg://fking_ingest_login:${FKING_INGEST_PASSWORD:-fking_ingest_local_only}@postgres:5432/${FKING_POSTGRES_DB:-fking}
+      FKING_DATABASE__MIGRATOR_DSN: >-
+        postgresql+asyncpg://fking_migrator_login:${FKING_MIGRATOR_PASSWORD:-fking_migrator_local_only}@postgres:5432/${FKING_POSTGRES_DB:-fking}
       FKING_BUS__REDIS_URL: redis://redis:6379/0
       FKING_TELEMETRY__OTLP_ENDPOINT: http://otel-collector:4317
     depends_on:
