@@ -46,6 +46,9 @@ from hypothesis import HealthCheck, Verbosity, settings
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from testcontainers.community.postgres import PostgresContainer
 
+from fking.platform.persistence.privileges import APP_ROLE, INGEST_ROLE, LOGIN_ROLE_FOR
+from tests.support.roles import engine_as
+
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 
 # The same digest docker-compose.yml pins, so a migration cannot pass here and fail on
@@ -267,6 +270,32 @@ async def engine(migrated_dsn: str) -> AsyncIterator[AsyncEngine]:
     connection bound to a closed loop failing in whichever test happens to run second.
     """
     created = create_async_engine(migrated_dsn)
+    try:
+        yield created
+    finally:
+        await created.dispose()
+
+
+@pytest_asyncio.fixture
+async def app_engine(migrated_dsn: str) -> AsyncIterator[AsyncEngine]:
+    """An engine running as `fking_app`: reads through `fking_feature_as_of` and no further.
+
+    Here rather than beside the feature-store suite because two directories need it now --
+    `tests/data/features/` for the grant matrix and `tests/lookahead/` for the store-level
+    probe -- and pytest resolves fixtures from the root conftest for every test. Two
+    copies of a role fixture is two places for the role to be wrong.
+    """
+    created = await engine_as(migrated_dsn, LOGIN_ROLE_FOR[APP_ROLE])
+    try:
+        yield created
+    finally:
+        await created.dispose()
+
+
+@pytest_asyncio.fixture
+async def ingest_engine(migrated_dsn: str) -> AsyncIterator[AsyncEngine]:
+    """An engine running as `fking_ingest`: appends feature values and cannot rewrite one."""
+    created = await engine_as(migrated_dsn, LOGIN_ROLE_FOR[INGEST_ROLE])
     try:
         yield created
     finally:
