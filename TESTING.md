@@ -422,25 +422,29 @@ Nightly, `main` runs the full suite with `--hypothesis-seed=random` and `-p rand
 
 ## 8. The five adversarial tests
 
-These are the tests without which nothing else in the suite means very much. Each one attempts a violation and asserts the system refuses. They live in `tests/adversarial/` and are named so that a failure is self-explaining.
+These are the tests without which nothing else in the suite means very much. Each one attempts a violation and asserts the system refuses. Most live in `tests/adversarial/`; the look-ahead probe below has its own directory and its own required CI job, for the reason stated there. All are named so that a failure is self-explaining.
 
-### 8.1 Look-ahead leak — `test_feature_pipeline_cannot_see_the_future`
+### 8.1 Look-ahead leak — `tests/lookahead/`
 
 **The enemy**: look-ahead bias. The most dangerous defect class in the project, because it does not fail — it makes bad strategies look excellent (`ARCHITECTURE.md` §6).
 
-**The test**: build a dataset where every bar after time *t* is poisoned — prices replaced with a value that any leaking computation will visibly reflect (e.g. `Decimal("999999")`). Compute the full feature set as-of *t*. Assert **no feature value depends on any poisoned bar**, by comparing against the same computation over a dataset truncated at *t*.
+It gets its own directory and its own required CI job rather than a file under `tests/adversarial/`, because it is not a test of a module — it is the test of the guarantee that makes every other result in the repository worth reading, and a failure buried among two thousand unit tests is a failure somebody re-runs rather than reads.
+
+**The test**: replace everything after a cut with something unrecognisable — closes tripled and then alternately thirded, so every return's magnitude is multiplied by nine and its sign flipped — replay every registered feature, and require every value at or before the cut to be **byte-identical**. The poison is gross on purpose: a small perturbation can be absorbed by rounding and produce a *false pass*, which is the worst available outcome for this particular test. `Decimal` values are digested in their exact positional form, so a `1e-15` difference fails — a leak that only moves the fifteenth digit today moves the third digit on a different fold.
 
 ```python
-@pytest.mark.parametrize("feature", ALL_REGISTERED_FEATURES)
-def test_feature_is_point_in_time(feature: FeatureSpec, poisoned: BarSet, truncated: BarSet):
-    assert feature.compute(poisoned, as_of=T) == feature.compute(truncated, as_of=T)
+@pytest.mark.parametrize("feature_key", sorted(FEATURES), ids=str)
+def test_no_registered_feature_reads_the_future(feature_key: tuple[str, int]) -> None:
+    probe_feature(FEATURES[feature_key], bars(_CLOSES))
 ```
 
-Parametrised over the **feature registry**, so a newly added feature is automatically covered. A feature that is not registered cannot be requested by a strategy, so there is no way to add one that escapes this test — that coupling is the point.
+Parametrised over the **feature registry**, so a newly added feature is automatically covered, and `tools/checks/feature_registry.py` fails the build on a computation the registry does not carry. That coupling is the point.
 
-It catches the real culprits: centred rolling windows, `shift(-n)`, normalization statistics computed over the full range, and joins that forward-fill from the future.
+It catches the real culprits: centred and right-labelled rolling windows, `shift(-n)`, normalization statistics computed over the full range, and joins that forward-fill from the future. It also carries a second clause the poisoning cannot reach — every point's `available_at_utc` must equal its `event_time_utc` plus the *declared* lag, because a value that is perfectly trailing and merely claims to have been knowable too early is admitted by the store's filter to a decision that could not have seen it.
 
-**Also required**: the same test against the *cache*. A cached feature keyed on symbol but not on as-of time is a look-ahead bug wearing a performance costume, and it is the single most likely way this invariant gets broken in future (`PERFORMANCE_GUIDE.md` §5).
+**The half that makes the rest mean anything**: `tests/lookahead/test_probe_detects_a_known_leak.py` carries one deliberately broken definition per known leak shape and requires the probe to raise for every one. A leak test that has never been observed to fail is not evidence of anything; it might be asserting `True == True`.
+
+**Also required**: the same test against the *cache*, once one exists. A cached feature keyed on symbol but not on as-of time is a look-ahead bug wearing a performance costume, and it is the single most likely way this invariant gets broken in future (`PERFORMANCE_GUIDE.md` §5).
 
 ### 8.2 Safety kernel rejects mainnet — `test_guarded_client_rejects_production_hosts`
 
