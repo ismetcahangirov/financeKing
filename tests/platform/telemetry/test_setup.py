@@ -75,7 +75,11 @@ def test_configure_telemetry_installs_both_providers_with_the_resource() -> None
     otherwise leave a patched SQLAlchemy behind for every test after it.
     """
     settings = TelemetrySettings.model_validate({"environment": "ci", "git_sha": "abc1234"})
-    previous_tracer = trace.get_tracer_provider()
+    # The raw global, not `get_tracer_provider()`: with no provider installed the
+    # accessor materialises a ProxyTracerProvider without storing it, and restoring
+    # that object as the global makes the proxy delegate to itself -- every later
+    # span in the suite then dies with RecursionError inside get_tracer.
+    previous_tracer = trace._TRACER_PROVIDER
     previous_meter = metrics.get_meter_provider()
     telemetry = configure_telemetry(settings, instrument_libraries=False)
     try:
