@@ -70,8 +70,8 @@ LOGIN_ROLES: Final[tuple[str, ...]] = tuple(LOGIN_ROLE_FOR[group] for group in G
 class PrivilegeClass(StrEnum):
     """What a table is, from the point of view of who may write to it.
 
-    Four classes rather than a per-table grant list, because the interesting question
-    about a new table is which of these it is -- and there are only four answers.
+    Five classes rather than a per-table grant list, because the interesting question
+    about a new table is which of these it is -- and there are only five answers.
     """
 
     # INSERT and SELECT for the application, nothing else, ever. The trigger in 0002 is
@@ -87,6 +87,13 @@ class PrivilegeClass(StrEnum):
     # `no-lookahead.md` requires that `fking_app` hold no SELECT on `feature_values`, so
     # that a look-ahead bug is `permission denied` rather than a review miss.
     APP_INVISIBLE = "app_invisible"
+    # Reference data: the application maintains it, ingestion reads it and cannot touch
+    # it. Split out of APP_MUTABLE for live ingestion (#27), which keys every `bar` row
+    # on an `instrument_id` it has to look up by symbol. Read-only rather than mutable
+    # for `fking_ingest` is the whole point: a market-data writer that could insert an
+    # instrument could invent the thing it claims to be recording, and a symbol with no
+    # instrument row must stop the session rather than create one.
+    REFERENCE = "reference"
 
 
 # Every privilege PostgreSQL defines for a table. The test asserts against all seven
@@ -116,6 +123,7 @@ PRIVILEGES: Final[Mapping[PrivilegeClass, Mapping[str, frozenset[str]]]] = Mappi
         PrivilegeClass.APP_MUTABLE: MappingProxyType({APP_ROLE: _WRITE, INGEST_ROLE: _NONE}),
         PrivilegeClass.INGEST_OWNED: MappingProxyType({APP_ROLE: _READ, INGEST_ROLE: _WRITE}),
         PrivilegeClass.APP_INVISIBLE: MappingProxyType({APP_ROLE: _NONE, INGEST_ROLE: _APPEND}),
+        PrivilegeClass.REFERENCE: MappingProxyType({APP_ROLE: _WRITE, INGEST_ROLE: _READ}),
     }
 )
 
@@ -129,12 +137,14 @@ PRIVILEGES: Final[Mapping[PrivilegeClass, Mapping[str, frozenset[str]]]] = Mappi
 # fails at 03:00 in whichever code path reaches it first.
 CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
     {
-        # Reference. Mutable because instrument filters are reconciled against the
-        # venue's own exchangeInfo at startup, so a stale tick size has to be
-        # correctable without a migration.
-        "venue": PrivilegeClass.APP_MUTABLE,
-        "instrument": PrivilegeClass.APP_MUTABLE,
-        "venue_maintenance_window": PrivilegeClass.APP_MUTABLE,
+        # Reference. Mutable for the application because instrument filters are
+        # reconciled against the venue's own exchangeInfo at startup, so a stale tick
+        # size has to be correctable without a migration -- and readable by ingestion
+        # because a `bar` row is keyed on `instrument_id`, which live ingestion resolves
+        # from the symbol the stream names (#27).
+        "venue": PrivilegeClass.REFERENCE,
+        "instrument": PrivilegeClass.REFERENCE,
+        "venue_maintenance_window": PrivilegeClass.REFERENCE,
         # Market data. The one split that already existed before this module, in 0003.
         "bar": PrivilegeClass.INGEST_OWNED,
         "funding_rate": PrivilegeClass.INGEST_OWNED,

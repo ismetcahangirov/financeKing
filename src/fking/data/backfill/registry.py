@@ -50,6 +50,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from fking.data.archive import ArchiveCoordinate, Granularity
+from fking.data.format_resolver import Dataset, Market
 from fking.data.loaders import NormalizationResult
 from fking.data.parquet.layout import PartitionGrain
 
@@ -63,6 +64,7 @@ __all__ = [
     "PartitionState",
     "RecordedGap",
     "SeriesGap",
+    "SeriesKey",
 ]
 
 # The sentinel meaning "this dataset is not keyed by an interval". Declared once, here,
@@ -73,11 +75,18 @@ NO_INTERVAL: Final[str] = ""
 class GapKind(StrEnum):
     """Why a period holds no rows, and therefore what can honestly be said about it.
 
-    `CADENCE` and `SEAM` are claims about *bars*: the interval says how many should be
-    there and they are not, so `missing_bar_count` is exact. `ABSENT_ARCHIVE` is a claim
-    about *publication*, which is all that can be said about a dataset with no cadence -- a
-    trades file that does not exist is not evidence that any particular print is missing,
-    and recording a count there would invent a denominator.
+    `CADENCE`, `SEAM` and `SEQUENCE` are claims about *records*: something says how many
+    should be there and they are not, so `missing_bar_count` is exact. `ABSENT_ARCHIVE`
+    is a claim about *publication*, which is all that can be said about a dataset with no
+    cadence -- a trades file that does not exist is not evidence that any particular print
+    is missing, and recording a count there would invent a denominator. `DISCONNECT` is a
+    claim about *observation* and carries no count at all.
+
+    The last two arise only from live ingestion (`fking.data.live`), and the values are
+    admitted by the table's `CHECK` in `migrations/versions/0011_live_gap_kinds.py`. They
+    are separate kinds rather than reuses of the archive's three because a reader
+    grouping by kind is asking "why is this missing", and "the socket dropped" is not the
+    same answer as "the host never published it".
     """
 
     CADENCE = "cadence"
@@ -89,6 +98,16 @@ class GapKind(StrEnum):
     ABSENT_ARCHIVE = "absent_archive"
     """The host does not publish this period, for a dataset with no declared cadence."""
 
+    SEQUENCE = "sequence"
+    """A live `aggTrade.a` jump: the exact number of prints the venue assigned and we
+    did not receive. The only kind carrying an exact count for a dataset with no
+    cadence, because the venue's own monotone id supplies the denominator."""
+
+    DISCONNECT = "disconnect"
+    """A live socket outage. `missing_bar_count` is NULL even for a kline series: a
+    400 ms reconnect inside one minute loses no bar, and the claim being made is that
+    nothing was being observed rather than that anything specific is absent."""
+
 
 @dataclass(frozen=True, slots=True)
 class IngestedFile:
@@ -98,6 +117,31 @@ class IngestedFile:
     granularity: Granularity
     source_checksum_hex: str
     normalization: NormalizationResult
+
+
+@dataclass(frozen=True, slots=True)
+class SeriesKey:
+    """The four columns every registry statement identifies a series by.
+
+    Separate from `ArchiveCoordinate` because a series is not an archive: live ingestion
+    (`fking.data.live`) discovers gaps in a series that has no `archive_date` at all, and
+    passing an invented date so that a coordinate could be constructed would put a
+    fiction into the one structure a reader trusts to say what is missing.
+    """
+
+    market: Market
+    dataset: Dataset
+    symbol: str
+    bar_interval: str
+
+    @classmethod
+    def from_coordinate(cls, coordinate: ArchiveCoordinate) -> SeriesKey:
+        return cls(
+            market=coordinate.market,
+            dataset=coordinate.dataset,
+            symbol=coordinate.symbol,
+            bar_interval=coordinate.interval if coordinate.interval is not None else NO_INTERVAL,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -434,12 +478,29 @@ class IngestRegistry:
         partition row -- writing a zero-row file to have something to point at is the one
         thing the writer refuses, because a later scan reads it as "we have this period".
         """
+        return await self.record_series_gaps(
+            SeriesKey.from_coordinate(coordinate), gaps, discovered_at_utc=discovered_at_utc
+        )
+
+    async def record_series_gaps(
+        self,
+        series: SeriesKey,
+        gaps: Sequence[RecordedGap],
+        *,
+        discovered_at_utc: datetime,
+    ) -> int:
+        """Register gaps against a series that has no archive behind it.
+
+        The live path's entry point. Identical statement, identical deduplication: a
+        downstream reader cannot tell whether a gap came from a missing archive or from
+        a dropped socket, and `DATA_PIPELINE.md` section 5 requires exactly that.
+        """
         if not gaps:
             return 0
         async with self._engine.begin() as connection:
             return await self._insert_gaps(
                 connection,
-                _series_parameters(coordinate),
+                _series_key_parameters(series),
                 gaps,
                 discovered_at_utc=discovered_at_utc,
             )
@@ -548,11 +609,15 @@ class IngestRegistry:
 
 def _series_parameters(coordinate: ArchiveCoordinate) -> dict[str, object]:
     """The four columns identifying a series, spelled the way every statement binds them."""
+    return _series_key_parameters(SeriesKey.from_coordinate(coordinate))
+
+
+def _series_key_parameters(series: SeriesKey) -> dict[str, object]:
     return {
-        "market": coordinate.market.value,
-        "dataset": coordinate.dataset.value,
-        "symbol": coordinate.symbol,
-        "bar_interval": coordinate.interval if coordinate.interval is not None else NO_INTERVAL,
+        "market": series.market.value,
+        "dataset": series.dataset.value,
+        "symbol": series.symbol,
+        "bar_interval": series.bar_interval,
     }
 
 
