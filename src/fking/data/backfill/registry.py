@@ -62,6 +62,7 @@ __all__ = [
     "PartitionRecord",
     "PartitionState",
     "RecordedGap",
+    "SeriesGap",
 ]
 
 # The sentinel meaning "this dataset is not keyed by an interval". Declared once, here,
@@ -170,6 +171,26 @@ class PartitionState:
     parquet_path: str
     first_event_time_utc: datetime
     last_event_time_utc: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class SeriesGap:
+    """One recorded gap, carrying the series it belongs to.
+
+    `CoverageRow` aggregates gaps into a count and a total duration, which answers "how
+    holed is this series" and cannot answer "does *this* window intersect a hole" -- the
+    question the availability contract asks before a backtest reads anything (#30). The
+    series columns are plain strings for the same reason `CoverageRow`'s are: they come
+    back from the database as text, and parsing them into enums here would put a second
+    failure mode -- an unrecognised value -- in the middle of a read whose only job is
+    reporting.
+    """
+
+    market: str
+    dataset: str
+    symbol: str
+    bar_interval: str
+    gap: RecordedGap
 
 
 @dataclass(frozen=True, slots=True)
@@ -452,6 +473,47 @@ class IngestRegistry:
                 gap_count=int(row.gap_count),
                 total_gapped_duration=row.total_gapped_duration,
                 missing_bar_count=int(row.missing_bar_count),
+            )
+            for row in rows
+        )
+
+    async def recorded_gaps(self) -> tuple[SeriesGap, ...]:
+        """Every gap the registry holds, with its bounds, ordered for a stable readout.
+
+        Read from `coverage_gap` rather than from `data_coverage`, because the aggregate
+        deliberately does not carry bounds and a window check needs them. Ordered by the
+        series and then by `gap_start_utc`, so a refusal names the *first* hole a window
+        runs into rather than whichever one the planner happened to return first --
+        "narrow to before 2021-05-03" is actionable in a way that "there is a hole
+        somewhere" is not.
+        """
+        async with self._engine.connect() as connection:
+            rows = (
+                await connection.execute(
+                    sa.text(
+                        """
+                        SELECT market, dataset, symbol, bar_interval, gap_start_utc,
+                               gap_end_utc, gap_kind, missing_bar_count
+                          FROM coverage_gap
+                         ORDER BY market, dataset, symbol, bar_interval, gap_start_utc
+                        """
+                    )
+                )
+            ).all()
+        return tuple(
+            SeriesGap(
+                market=str(row.market),
+                dataset=str(row.dataset),
+                symbol=str(row.symbol),
+                bar_interval=str(row.bar_interval),
+                gap=RecordedGap(
+                    gap_start_utc=row.gap_start_utc,
+                    gap_end_utc=row.gap_end_utc,
+                    gap_kind=GapKind(row.gap_kind),
+                    missing_bar_count=(
+                        None if row.missing_bar_count is None else int(row.missing_bar_count)
+                    ),
+                ),
             )
             for row in rows
         )

@@ -20,6 +20,13 @@ this type has no field for it, so a caller cannot re-derive "what would this loo
 without the as-of bound". A value that could be filtered again by the caller is a value
 whose filtering is the caller's decision.
 
+**A read is checked against the availability contract before it is issued.** The as-of
+bound stops a read seeing the future; it does nothing about a read whose window predates
+the corpus or runs through a known hole, and that read comes back *short* rather than
+empty. A short series is the dangerous shape: downstream it reads as "no signal in this
+period" rather than as "no data in this period", which is a strategy scored on a window it
+never saw. `fking.data.features.availability` carries the contract and the refusal.
+
 The writer is separate and connects as a different role. `fking_ingest` holds `SELECT`
 and `INSERT` on `feature_values` and nothing else: a feature value that can be `UPDATE`d
 is a feature value whose history can be rewritten to match a backtest.
@@ -36,6 +43,8 @@ from typing import Final, Protocol
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from fking.data.features.availability import AvailabilityContract
+from fking.data.features.registry import registered
 from fking.data.features.spec import FeaturePoint, FeatureRef
 from fking.platform.errors import FeatureContractError
 
@@ -117,10 +126,16 @@ class PostgresFeatureStore:
     Holds an engine rather than a connection: a read is one short statement, and a
     caller handed a connection would either widen somebody else's transaction or commit
     inside it.
+
+    `availability` is a required constructor argument rather than an optional one. An
+    optional contract is a contract that is absent in exactly the process nobody
+    configured, and the store cannot tell the difference between "checked and permitted"
+    and "never checked".
     """
 
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, engine: AsyncEngine, availability: AvailabilityContract) -> None:
         self._engine = engine
+        self._availability = availability
 
     async def load(
         self, feature: FeatureRef, *, as_of: datetime, lookback: timedelta
@@ -131,6 +146,17 @@ class PostgresFeatureStore:
                 f"lookback must be positive; got {lookback}. A zero window returns nothing "
                 f"and reads as 'this feature has no history'"
             )
+        # Resolving the spec here does two jobs: it refuses a feature nobody registered --
+        # the route by which a computation reaches a strategy without ever declaring a
+        # lookback -- and it yields the input datasets the availability check needs.
+        spec = registered(feature.name, feature.version)
+        self._availability.require(
+            spec,
+            market=feature.market,
+            symbol=feature.symbol,
+            window_start_utc=as_of - lookback,
+            window_end_utc=as_of,
+        )
         async with self._engine.connect() as connection:
             rows = (
                 await connection.execute(

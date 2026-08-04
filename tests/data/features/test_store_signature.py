@@ -27,10 +27,15 @@ from fking.data.features.store import (
 )
 from fking.data.format_resolver import Market
 from fking.platform.errors import FeatureContractError
+from tests.support.availability import permitting
 
 pytestmark = pytest.mark.unit
 
 _REF = FeatureRef(name="trailing_return_fraction", version=1, market=Market.SPOT, symbol="BTCUSDT")
+_AVAILABLE = permitting(
+    earliest_event_time_utc=datetime(2020, 1, 1, tzinfo=UTC),
+    latest_event_time_utc=datetime(2030, 1, 1, tzinfo=UTC),
+)
 
 
 def _store() -> PostgresFeatureStore:
@@ -40,7 +45,9 @@ def _store() -> PostgresFeatureStore:
     point: a bad `as_of` is rejected by the caller's own process rather than by a
     database round trip that might succeed against the wrong instant.
     """
-    return PostgresFeatureStore(create_async_engine("postgresql+asyncpg://unused/unused"))
+    return PostgresFeatureStore(
+        create_async_engine("postgresql+asyncpg://unused/unused"), _AVAILABLE
+    )
 
 
 @pytest.mark.parametrize("subject", [FeatureStore.load, PostgresFeatureStore.load])

@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from fking.data.features.spec import FeaturePoint, FeatureRef
 from fking.data.features.store import FeatureValueWriter, PostgresFeatureStore
 from fking.data.format_resolver import Market
+from tests.support.availability import permitting
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
@@ -40,6 +41,14 @@ _REF = FeatureRef(name="trailing_return_fraction", version=1, market=Market.SPOT
 _EVENT = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
 _LOOKBACK = timedelta(hours=6)
 _STEP_COUNT = 3
+
+# Wide enough to cover every window read below and no wider. The availability contract is
+# a required constructor argument, so these tests state what the corpus holds even though
+# their subject is the grant matrix and the as-of bound (#30).
+_AVAILABLE = permitting(
+    earliest_event_time_utc=_EVENT - timedelta(days=1),
+    latest_event_time_utc=_EVENT + timedelta(days=1),
+)
 
 _INSERT = sa.text(
     """
@@ -113,7 +122,9 @@ async def test_the_application_role_can_call_the_as_of_reader(
     await _append_raw(
         ingest_engine, event_time_utc=_EVENT, available_at_utc=_EVENT, decimal_text="0.25"
     )
-    series = await PostgresFeatureStore(app_engine).load(_REF, as_of=_EVENT, lookback=_LOOKBACK)
+    series = await PostgresFeatureStore(app_engine, _AVAILABLE).load(
+        _REF, as_of=_EVENT, lookback=_LOOKBACK
+    )
     assert [entry.feature_value for entry in series.values] == [Decimal("0.25")]
 
 
@@ -162,7 +173,7 @@ async def test_a_revision_is_invisible_until_the_instant_it_was_published(
         available_at_utc=published_at,
         decimal_text="0.31",
     )
-    store = PostgresFeatureStore(app_engine)
+    store = PostgresFeatureStore(app_engine, _AVAILABLE)
 
     before = await store.load(_REF, as_of=published_at - timedelta(seconds=1), lookback=_LOOKBACK)
     after = await store.load(_REF, as_of=published_at, lookback=_LOOKBACK)
@@ -188,7 +199,7 @@ async def test_a_value_published_after_the_as_of_is_not_returned_at_all(
         available_at_utc=_EVENT + timedelta(hours=3),
         decimal_text="0.25",
     )
-    series = await PostgresFeatureStore(app_engine).load(
+    series = await PostgresFeatureStore(app_engine, _AVAILABLE).load(
         _REF, as_of=_EVENT + timedelta(hours=1), lookback=_LOOKBACK
     )
     assert series.values == ()
@@ -212,7 +223,7 @@ async def test_the_lookback_bounds_the_window_from_the_other_side(
             available_at_utc=stamped,
             decimal_text=decimal_text,
         )
-    series = await PostgresFeatureStore(app_engine).load(
+    series = await PostgresFeatureStore(app_engine, _AVAILABLE).load(
         _REF, as_of=_EVENT, lookback=timedelta(hours=6)
     )
     assert [entry.feature_value for entry in series.values] == [Decimal("0.20"), Decimal("0.10")]
@@ -299,7 +310,9 @@ async def test_a_written_series_reads_back_through_the_as_of_path(
     written = await writer.append(_REF, points)
     assert written == _STEP_COUNT
 
-    series = await PostgresFeatureStore(app_engine).load(_REF, as_of=_EVENT, lookback=_LOOKBACK)
+    series = await PostgresFeatureStore(app_engine, _AVAILABLE).load(
+        _REF, as_of=_EVENT, lookback=_LOOKBACK
+    )
     assert series.as_of == _EVENT
     assert series.feature == _REF
     assert [entry.event_time_utc for entry in series.values] == sorted(

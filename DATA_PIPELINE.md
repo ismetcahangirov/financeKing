@@ -380,9 +380,17 @@ The reason a rename does not move the digest, while an edited body does: a diges
 
 ### The adversarial leak test
 
-A dedicated test injects future data into the feature computation path and asserts that the guard **raises**. It runs in CI on every commit.
+`tests/lookahead/` replaces everything after a cut with something unrecognisable — closes tripled and then alternately thirded, so every return's magnitude is multiplied by nine and its sign flipped — replays every registered feature, and requires every value at or before the cut to be **byte-identical**. `Decimal` values are digested in their exact positional form, so a `1e-15` difference is a failure; a leak that only moves the fifteenth digit today moves the third digit on a different fold. The probe is parametrised over `FEATURES`, so a feature added later inherits it with no test-file edit.
 
-The test itself is verified by breaking the guard on purpose and confirming the test goes red. A leak test that has never been observed to fail is not evidence of anything; it is a test that might be asserting `True == True`.
+It runs as its own CI job with **no `paths:` filter**, deliberately: a change to the archive loader or to the store's read predicate can introduce a leak without touching a file under `data/features/`, and a path filter would report success by not running.
+
+The probe has two clauses, because two disjoint failures both count as look-ahead. The first is reading the future. The second is *claiming* to have known something earlier than the venue published it — arithmetically honest, completely trailing, and invisible to any amount of future-poisoning, because the store filters on `available_at_utc` and admits an understated stamp to a decision that could not have seen it. So every emitted point's `available_at_utc` must equal its `event_time_utc` plus the **declared** lag.
+
+Label alignment is part of the probe rather than a separate concern. The label for a decision at bar *i* is entered at the open of bar *i+1* — the price the decision could actually have transacted at — so perturbing `close[i]` alone must not move the label at *i*. Measuring from `close[i]` instead inflates the measured edge by exactly the move the feature was computed from (`fking.data.features.labels`).
+
+`tests/lookahead/test_probe_detects_a_known_leak.py` is the file that makes the rest mean anything. `LEAKY_CASES` carries one deliberately broken definition per known leak shape — a full-sample z-score, an availability stamp that ignores the declared lag, a right-labelled window, and a label entered at the decision bar's own close — and every one of them **must** make the probe raise. It lives under `tests/` and never under `src/`, so nothing in it is reachable by the registry. A leak test that has never been observed to fail is not evidence of anything; it is a test that might be asserting `True == True`. Adding a shape to that tuple is how a newly discovered leak class gets permanently guarded.
+
+`tools/checks/feature_registry.py` closes the last route: it fails the build on a function with the shape of a feature computation that the registry does not carry — an unregistered computation is one the probe never runs — and on any import of a computation module from outside `fking.data`, because a computation called outside `evaluate` derives no availability stamp and reaches no store.
 
 ---
 
@@ -391,19 +399,30 @@ The test itself is verified by breaking the guard on purpose and confirming the 
 The feature store declares what exists. **Strategies cannot request data the system does not have, and the store refuses rather than substituting something adjacent.**
 
 ```python
-class AvailabilityDeclaration(BaseModel):
-    markets: list[str]
-    earliest: date
-    resolution: str
-    known_gaps: list[tuple[date, date]]
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AvailabilityDeclaration:                        # fking.data.features.availability
+    address: SeriesAddress                            # (market, symbol, dataset)
+    resolutions: tuple[str, ...]                      # every interval held; () where the
+                                                      # dataset has no cadence
+    earliest_event_time_utc: datetime
+    latest_event_time_utc: datetime
+    known_gaps: tuple[AvailabilityGap, ...]           # each naming its own interval
     refuses_if_unavailable: Literal[True]             # not configurable
 ```
 
-The `Literal[True]` is deliberate. There is no permissive mode, because the permissive mode is where a strategy gets a forward-filled approximation of depth and does not know it.
+The `Literal[True]` is deliberate. There is no permissive mode, because the permissive mode is where a strategy gets a forward-filled approximation of depth and does not know it. `mypy --strict` rejects `False` at the call site and `__post_init__` rejects it at runtime — the construction that would carry `False` is the one built from an untyped mapping, a config file or an agent response, which no type checker ever saw.
+
+**Declarations are derived from the ingestion registry, never written by hand.** `AvailabilityContract.snapshot()` reads `data_coverage` and `coverage_gap`, so ingesting a new dataset changes what the contract permits with no code edit. A hand-maintained list of what exists is wrong the first time a backfill runs and wrong in the optimistic direction, because nobody removes a symbol from a list.
+
+It is a **snapshot** rather than a live query. A per-read lookup would make a refusal depend on whether a backfill happened to be mid-partition, so the same backtest would refuse and then not refuse with nothing in the code having changed.
+
+`resolution` is plural here because the registry keys klines by interval and a symbol can hold 1m and 1h series beginning on different days. One declaration per `(market, symbol, dataset)`: `earliest` is the earliest across intervals and `known_gaps` is the union across them, each gap naming which interval has the hole. The union is the conservative direction, and the message is specific enough that the answer is to backfill the hole rather than to widen the check.
+
+The store consults it on **every** read, because the as-of bound is not the only way a window goes wrong. A window opening before the corpus does, or running through a recorded gap, comes back *short* rather than empty — and a short series reads downstream as "no signal in this period" rather than as "no data in this period", which is a strategy scored on a window it never saw.
 
 When the store refuses, it says what does exist. "No L2 depth history exists for free; you have tick trades, futures top-of-book, and ~1-minute aggregated depth bands" is a usable answer that redirects the research. A bare `KeyError` is not.
 
-This matters most for LLM-authored strategies. An agent asked to write a mean-reversion strategy will cheerfully request `order_book_imbalance_top_10_levels` because that feature exists in the literature it was trained on. The refusal is the mechanism that keeps the strategy population inside the data the system actually possesses.
+This matters most for LLM-authored strategies. An agent asked to write a mean-reversion strategy will cheerfully request `order_book_imbalance_top_10_levels` because that feature exists in the literature it was trained on. The refusal is the mechanism that keeps the strategy population inside the data the system actually possesses. Matching is on substrings of the requested name rather than on exact identifiers, because `order_book_imbalance_top_10_levels`, `l2_book_pressure` and `queue_position_estimate` are three spellings of two ceilings.
 
 ---
 

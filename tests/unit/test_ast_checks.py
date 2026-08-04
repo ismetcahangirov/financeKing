@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.checks import clock_isolation, money_types, naming, no_catch_safety
+from tools.checks import clock_isolation, feature_registry, money_types, naming, no_catch_safety
 
 pytestmark = pytest.mark.unit
 
@@ -147,8 +147,119 @@ class TestNaming:
         assert naming.package_names(tmp_path) == frozenset({"data"})
 
 
+class TestFeatureRegistry:
+    """The check that closes the "compute it outside the registry" route (#31).
+
+    Its failure mode is silence: a computation nobody registered is a computation the
+    adversarial probe never runs, and nothing else in the repository would say so.
+    """
+
+    def _package(self, tmp_path: Path, *, registry: str, features: Mapping[str, str]) -> Path:
+        package = tmp_path / "fking"
+        directory = package / "data" / "features"
+        directory.mkdir(parents=True)
+        (package / "data" / "__init__.py").touch()
+        (directory / "__init__.py").touch()
+        (directory / "registry.py").write_text(registry, encoding="utf-8")
+        for name, source in features.items():
+            (directory / name).write_text(source, encoding="utf-8")
+        return package
+
+    def test_an_unregistered_computation_is_rejected(self, tmp_path: Path) -> None:
+        package = self._package(
+            tmp_path,
+            registry="FEATURES = {}\n",
+            features={
+                "compute.py": (
+                    "def sneaky(observations: Sequence[FeatureObservation], "
+                    "window: FeatureWindow) -> tuple[FeaturePoint, ...]:\n    return ()\n"
+                )
+            },
+        )
+        failures = feature_registry.check_package(package)
+        assert len(failures) == 1
+        assert "'sneaky'" in failures[0]
+        assert "look-ahead probe never runs" in failures[0]
+
+    def test_a_registered_computation_is_accepted(self, tmp_path: Path) -> None:
+        package = self._package(
+            tmp_path,
+            registry="FEATURES = {'x': FeatureSpec(name='x', compute=declared)}\n",
+            features={
+                "compute.py": (
+                    "def declared(observations: Sequence[FeatureObservation], "
+                    "window: FeatureWindow) -> tuple[FeaturePoint, ...]:\n    return ()\n"
+                )
+            },
+        )
+        assert feature_registry.check_package(package) == []
+
+    def test_a_helper_that_is_not_a_computation_is_not_demanded(self, tmp_path: Path) -> None:
+        """Keyed on the `FeatureWindow` parameter, so a private helper is not swept in.
+
+        A check that flags every function in the package gets disabled within a week.
+        """
+        package = self._package(
+            tmp_path,
+            registry="FEATURES = {}\n",
+            features={"compute.py": "def _mean(values: Sequence[Decimal]) -> Decimal:\n    ...\n"},
+        )
+        assert feature_registry.check_package(package) == []
+
+    def test_a_lambda_registration_leaves_the_function_unregistered(self, tmp_path: Path) -> None:
+        """`compute=lambda ...` collects no name, so the real function is still reported.
+
+        Which is correct rather than incidental: `definition_digest` refuses a lambda too,
+        because a definition has to be diffable against the version it is registered under.
+        """
+        package = self._package(
+            tmp_path,
+            registry="FEATURES = {'x': FeatureSpec(compute=lambda o, w: declared(o, w))}\n",
+            features={
+                "compute.py": (
+                    "def declared(observations: Sequence[FeatureObservation], "
+                    "window: FeatureWindow) -> tuple[FeaturePoint, ...]:\n    return ()\n"
+                )
+            },
+        )
+        assert feature_registry.check_package(package)
+
+    def test_a_strategy_importing_a_compute_module_is_rejected(self, tmp_path: Path) -> None:
+        package = self._package(tmp_path, registry="FEATURES = {}\n", features={})
+        strategy = package / "strategy"
+        strategy.mkdir()
+        (strategy / "__init__.py").touch()
+        (strategy / "breakout.py").write_text(
+            "from fking.data.features.compute import trailing_return_fraction\n", encoding="utf-8"
+        )
+        failures = feature_registry.check_package(package)
+        assert len(failures) == 1
+        assert "point-in-time mechanism is bypassed" in failures[0]
+
+    def test_a_strategy_importing_the_store_or_the_spec_is_accepted(self, tmp_path: Path) -> None:
+        """The sanctioned route. Refusing it would leave no way to read a feature at all,
+        and a rule with no permitted path is a rule that gets deleted."""
+        package = self._package(tmp_path, registry="FEATURES = {}\n", features={})
+        strategy = package / "strategy"
+        strategy.mkdir()
+        (strategy / "__init__.py").touch()
+        (strategy / "breakout.py").write_text(
+            "from fking.data.features.store import FeatureStore\n"
+            "from fking.data.features.spec import FeatureRef\n",
+            encoding="utf-8",
+        )
+        assert feature_registry.check_package(package) == []
+
+    def test_a_missing_registry_is_a_failure_rather_than_a_pass(self, tmp_path: Path) -> None:
+        """A check that reports success when its subject is absent is worse than no check."""
+        package = tmp_path / "fking"
+        package.mkdir()
+        assert feature_registry.check_package(package)
+
+
 CHECK_ENTRY_POINTS: Mapping[str, Callable[[Sequence[str]], int]] = {
     "clock_isolation": clock_isolation.main,
+    "feature_registry": feature_registry.main,
     "money_types": money_types.main,
     "naming": naming.main,
     "no_catch_safety": no_catch_safety.main,

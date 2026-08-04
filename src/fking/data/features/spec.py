@@ -65,15 +65,23 @@ _MINIMUM_PROOF_CHARACTERS: Final[int] = 20
 
 @dataclass(frozen=True, slots=True)
 class FeatureObservation:
-    """One point-in-time input to a feature: a closed bar's close, stamped at its close.
+    """One closed bar, carrying the two prices that mean different things.
 
-    `event_time_utc` is the instant the value became true, which for a closed bar is its
-    close time and never its open time. A feature computed from an *open* bar's close is
-    the single most common look-ahead defect there is, and the way to make it
+    `event_time_utc` is the instant the bar's value became true, which for a closed bar is
+    its close time and never its open time. A feature computed from an *open* bar's close
+    is the single most common look-ahead defect there is, and the way to make it
     unrepresentable is to give this type no field that could carry one.
+
+    `close_quote_price` is what features are computed from. `open_quote_price` is what a
+    decision taken at the *previous* bar's close could actually have transacted at, and it
+    exists so that label alignment is checkable rather than described: a label measured
+    from the decision bar's own close inflates the measured edge by exactly the move the
+    feature was computed from, which reliably produces a strategy that looks profitable
+    and is not (`fking.data.features.labels`).
     """
 
     event_time_utc: datetime
+    open_quote_price: Decimal
     close_quote_price: Decimal
 
 

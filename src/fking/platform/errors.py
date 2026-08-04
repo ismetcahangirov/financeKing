@@ -27,6 +27,7 @@ from fking.platform.safety.archive import ArchiveUnavailableError
 __all__ = [
     "ArchiveUnavailableError",
     "DataIntegrityError",
+    "DataUnavailableError",
     "FeatureContractError",
     "FkingError",
     "SafetyViolation",
@@ -68,6 +69,21 @@ class FeatureContractError(FkingError):
     Deliberately not a subclass of `DataIntegrityError`: that one means the *bytes* were
     wrong, and re-reading them will not help. This one means the *declaration* is wrong,
     and the data may be fine.
+    """
+
+
+class DataUnavailableError(FkingError):
+    """A read asked for data this corpus does not hold, and will not be approximated.
+
+    Distinct from `FeatureContractError`, which says the *declaration* is wrong, and from
+    `DataIntegrityError`, which says the bytes are wrong. This one says the declaration
+    and the bytes are both fine and the answer is simply absent -- which is the one of the
+    three a caller can sometimes act on, by narrowing a window or by running a backfill.
+
+    Its message is part of its contract: it names what the corpus *does* hold. A bare
+    refusal sends a reader looking for a bug, and the most frequent caller is an
+    LLM-authored strategy asking for a feature that exists in the literature it was
+    trained on rather than in this corpus (`DATA_PIPELINE.md` section 8).
     """
 
 
