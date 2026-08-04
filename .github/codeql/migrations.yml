@@ -1,0 +1,36 @@
+# CodeQL scope: Alembic migrations only, minus one rule.
+#
+# `revision`, `down_revision`, `branch_labels` and `depends_on` are read off the module
+# object by Alembic's ScriptDirectory to build the migration graph. There is no Python
+# reference for CodeQL to follow, so `py/unused-global-variable` fires on all four in
+# every migration -- four false positives per migration, forever, on a schema that
+# keeps growing. With `required_conversation_resolution` on, each one is a review
+# thread that has to be dismissed by hand before the branch can merge (#140).
+#
+# Deleting the globals does not tidy the file; it breaks every upgrade.
+#
+# Why a second analysis rather than one config:
+#
+# CodeQL's `query-filters` are global -- they cannot be scoped to a path -- and
+# `paths-ignore` drops *every* rule for the paths it names. Neither alone gives what is
+# wanted: the rule off inside `migrations/`, on everywhere else, and every other rule
+# still on inside `migrations/`. Two path-disjoint analyses uploading under distinct
+# SARIF categories do, and the category is what keeps them from overwriting each
+# other's results on the same commit.
+#
+# Deliberately not done: per-migration suppression comments, which spread the
+# workaround across every migration ever written and every one still to come; and
+# dropping the `security-and-quality` pack, which would take the swallowed-exception
+# and unreachable-code queries with it -- correctness rules here rather than style
+# ones, per .github/workflows/codeql.yml.
+name: financeKing — Alembic migrations
+
+paths:
+  - migrations
+
+query-filters:
+  # The only rule filtered anywhere in this repository. Anything else CodeQL finds
+  # under migrations/ -- a swallowed exception in a data migration, an unreachable
+  # branch in a downgrade() -- still raises.
+  - exclude:
+      id: py/unused-global-variable

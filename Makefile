@@ -44,8 +44,18 @@ types:  ## mypy --strict over src, tests and tools
 ## the process still exits 1 -- so `make check > log` fails while `make check` on a
 ## terminal succeeds, which is the worst available failure mode for a gate: it is the
 ## captured run, the one in CI logs and in a PR body, that reports a phantom breach.
+##
+## It is set as a target-specific exported variable rather than as a `VAR=value cmd`
+## prefix on the recipe line, because that prefix is shell syntax: it forces make to
+## hand the whole line to `sh` instead of exec'ing it, and `sh` then eats the
+## backslashes in an absolute Windows $(UV) -- turning
+## `C:\...\Scripts\uv.exe` into `C:...Scriptsuv.exe: command not found` (#141). Same
+## class of trap as the one above, same direction: the gate failed while the thing it
+## gates passed. The variable still reaches the child process, which is all the
+## paragraph above requires.
+imports: export PYTHONIOENCODING = utf-8
 imports:  ## import-linter architecture contracts
-	PYTHONIOENCODING=utf-8 $(UV) run lint-imports
+	$(UV) run lint-imports
 
 ## The AST checks enforce rules that no off-the-shelf linter knows about: that a
 ## money-named field is never a float, that strategy and risk never read the wall
