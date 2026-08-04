@@ -468,6 +468,54 @@ coverage_gap = sa.Table(
 )
 
 # ---------------------------------------------------------------------------
+# Feature store
+#
+# The one table in this schema the application role holds *no* privilege on, not even
+# SELECT. `fking_app` reaches it only through `fking_feature_as_of()`, which takes an
+# `as_of` and cannot be asked to ignore it, so a look-ahead defect is a permission error
+# rather than a review miss (.claude/rules/no-lookahead.md, DATA_PIPELINE.md section 7).
+#
+# `available_at_utc` is the earliest instant this system could have known the value;
+# `event_time_utc` is when the thing happened. Only the first governs visibility, and the
+# CHECK below is what lets the reader omit an event-time bound as unreachable rather than
+# carry one that looks load-bearing and is not.
+# ---------------------------------------------------------------------------
+
+feature_values = sa.Table(
+    "feature_values",
+    METADATA,
+    sa.Column("feature_name", identifier(), nullable=False),
+    # Part of the key, not a column beside it: a definition change is a new version, and
+    # the values computed under the old one stay attributable to the definition that
+    # produced them. Recomputing history under a new definition would make every earlier
+    # backtest a test of a definition that did not exist then.
+    sa.Column("feature_version", sa.Integer(), nullable=False),
+    sa.Column("market", identifier(), nullable=False),
+    sa.Column("symbol", identifier(), nullable=False),
+    sa.Column("event_time_utc", utc_timestamp(), nullable=False),
+    sa.Column("available_at_utc", utc_timestamp(), nullable=False),
+    # `feature_value`, not `value`: .claude/rules/naming.md bans the bare noun, and the
+    # money-column scans key on the suffix, so a column named `value` would be invisible
+    # to both.
+    sa.Column("feature_value", money(), nullable=False),
+    _recorded_at_utc(),
+    # available_at_utc closes the key, which is what makes a revision a second row rather
+    # than an UPDATE of the first.
+    sa.PrimaryKeyConstraint(
+        "feature_name",
+        "feature_version",
+        "market",
+        "symbol",
+        "event_time_utc",
+        "available_at_utc",
+        name="pk_feature_values",
+    ),
+    _one_of("market", MARKETS),
+    sa.CheckConstraint("feature_version >= 1", name="feature_version_is_positive"),
+    sa.CheckConstraint("available_at_utc >= event_time_utc", name="availability_follows_event"),
+)
+
+# ---------------------------------------------------------------------------
 # Strategy
 # ---------------------------------------------------------------------------
 

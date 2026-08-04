@@ -145,6 +145,11 @@ CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
         "ingest_partition": PrivilegeClass.INGEST_OWNED,
         "ingest_file": PrivilegeClass.INGEST_OWNED,
         "coverage_gap": PrivilegeClass.INGEST_OWNED,
+        # The feature store, and the only member of APP_INVISIBLE. `fking_app` holds
+        # nothing on it -- not even SELECT -- because the read it is allowed to perform
+        # is "as of this instant", and a role that can also read the table can perform
+        # the read that has no such bound.
+        "feature_values": PrivilegeClass.APP_INVISIBLE,
         # Strategy and evolution state the application advances.
         "strategy": PrivilegeClass.APP_MUTABLE,
         "strategy_version": PrivilegeClass.APP_MUTABLE,
@@ -191,6 +196,24 @@ VIEW_PRIVILEGES: Final[Mapping[str, Mapping[str, frozenset[str]]]] = MappingProx
     }
 )
 
+# `EXECUTE` is granted to PUBLIC by default on every function, so a function that nobody
+# thought about is a function every role can call. Declared here for the same reason the
+# table matrix is: the interesting failure is the grant nobody wrote, and it is invisible
+# in a review of the grants that exist.
+#
+# The signature is spelled with its argument types because a function name is not unique
+# in PostgreSQL, and `has_function_privilege` needs the identity rather than the name.
+FEATURE_READER: Final[str] = "fking_feature_as_of(text, integer, text, text, timestamptz, interval)"
+
+FUNCTION_PRIVILEGES: Final[Mapping[str, Mapping[str, frozenset[str]]]] = MappingProxyType(
+    {
+        # The application role's only route to feature data, and the reason
+        # `feature_values` itself is APP_INVISIBLE. The ingest role writes values and has
+        # no use for an as-of read.
+        FEATURE_READER: MappingProxyType({APP_ROLE: frozenset({"EXECUTE"}), INGEST_ROLE: _NONE}),
+    }
+)
+
 
 def tables_in_class(privilege_class: PrivilegeClass) -> tuple[str, ...]:
     """Every table of one class, sorted, so migrations and tests iterate identically."""
@@ -219,6 +242,8 @@ def granted_privileges(table: str, group_role: str) -> frozenset[str]:
 __all__: tuple[str, ...] = (
     "APP_ROLE",
     "CLASSIFICATION",
+    "FEATURE_READER",
+    "FUNCTION_PRIVILEGES",
     "GROUP_ROLES",
     "INGEST_ROLE",
     "LOGIN_ROLES",

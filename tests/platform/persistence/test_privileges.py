@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_en
 from fking.platform.persistence.privileges import (
     APP_ROLE,
     CLASSIFICATION,
+    FUNCTION_PRIVILEGES,
     GROUP_ROLES,
     INGEST_ROLE,
     LOGIN_ROLE_FOR,
@@ -55,33 +56,14 @@ from fking.platform.persistence.privileges import (
 from fking.platform.persistence.roles import UnknownLoginRoleError, provision_login_passwords
 from fking.platform.persistence.schema import APPEND_ONLY_TABLES, METADATA
 from tests.conftest import alembic_config
+from tests.support.roles import engine_as
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
 
-async def _engine_as(migrated_dsn: str, login_role: str) -> AsyncEngine:
-    """An engine connected as `login_role`, with a password minted for this test.
-
-    The migration deliberately leaves the login roles without a password, so the test
-    provisions one rather than the repository carrying a credential. `token_urlsafe` and
-    not a fixed literal: a password constant in a test file is a password that ends up
-    in a deployment, because it is right there and it works.
-    """
-    password = secrets.token_urlsafe(24)
-    admin = create_async_engine(migrated_dsn)
-    try:
-        async with admin.begin() as connection:
-            await provision_login_passwords(connection, {login_role: SecretStr(password)})
-    finally:
-        await admin.dispose()
-
-    url = make_url(migrated_dsn).set(username=login_role, password=password)
-    return create_async_engine(url)
-
-
 @pytest_asyncio.fixture
 async def app_engine(migrated_dsn: str) -> AsyncIterator[AsyncEngine]:
-    engine = await _engine_as(migrated_dsn, LOGIN_ROLE_FOR[APP_ROLE])
+    engine = await engine_as(migrated_dsn, LOGIN_ROLE_FOR[APP_ROLE])
     try:
         yield engine
     finally:
@@ -90,7 +72,7 @@ async def app_engine(migrated_dsn: str) -> AsyncIterator[AsyncEngine]:
 
 @pytest_asyncio.fixture
 async def ingest_engine(migrated_dsn: str) -> AsyncIterator[AsyncEngine]:
-    engine = await _engine_as(migrated_dsn, LOGIN_ROLE_FOR[INGEST_ROLE])
+    engine = await engine_as(migrated_dsn, LOGIN_ROLE_FOR[INGEST_ROLE])
     try:
         yield engine
     finally:
@@ -183,6 +165,52 @@ async def test_view_grants_equal_the_declared_matrix(engine: AsyncEngine, view: 
                 )
             }
         assert held == set(expected), f"{view} for {group_role}"
+
+
+@pytest.mark.parametrize("routine", sorted(FUNCTION_PRIVILEGES))
+@pytest.mark.asyncio
+async def test_function_grants_equal_the_declared_matrix(engine: AsyncEngine, routine: str) -> None:
+    """Functions are granted `EXECUTE` to PUBLIC by default, so a routine nobody thought
+    about is a routine every role can call -- and `fking_feature_as_of` is a
+    `SECURITY DEFINER` read of a table `fking_app` is otherwise blind to.
+
+    PUBLIC is checked through `aclexplode` rather than `has_function_privilege`, because
+    PUBLIC is grantee OID 0 and is not a row in `pg_roles`.
+    """
+    for group_role, expected in FUNCTION_PRIVILEGES[routine].items():
+        async with engine.connect() as connection:
+            may_execute = await connection.scalar(
+                sa.text("SELECT has_function_privilege(:role, :routine, 'EXECUTE')"),
+                {"role": group_role, "routine": routine},
+            )
+        assert bool(may_execute) is ("EXECUTE" in expected), f"{routine} for {group_role}"
+
+    async with engine.connect() as connection:
+        granted_to_public = await connection.scalar(
+            sa.text(
+                """
+                SELECT count(*)
+                  FROM pg_proc p
+                  JOIN LATERAL aclexplode(p.proacl) a ON true
+                 WHERE p.oid = to_regprocedure(:routine)
+                   AND a.grantee = 0
+                """
+            ),
+            {"routine": routine},
+        )
+    assert granted_to_public == 0
+
+
+@pytest.mark.asyncio
+async def test_every_declared_routine_exists(engine: AsyncEngine) -> None:
+    """A declaration naming a routine that was never created reads as covered and grants
+    nothing, which is the one impression the matrix must never give."""
+    async with engine.connect() as connection:
+        for routine in sorted(FUNCTION_PRIVILEGES):
+            exists = await connection.scalar(
+                sa.text("SELECT to_regprocedure(:routine) IS NOT NULL"), {"routine": routine}
+            )
+            assert exists is True, routine
 
 
 # ---------------------------------------------------------------------------
