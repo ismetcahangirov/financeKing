@@ -179,6 +179,8 @@ Four properties are worth knowing before changing it, because each closes a fail
 
 **An absent archive is re-probed on every run.** Absence is a claim about upstream, and upstream does publish a missing day later. Caching a 404 makes that fix permanently invisible, so a partition that met one is never marked complete — one eighty-byte request per absent day, which is the only route by which a corrected archive is ever picked up.
 
+**A rewrite that would cover less than the corpus already holds is refused.** A partition is written whole, so re-deriving one from fewer archives than last time *deletes* the difference — and the only surviving evidence would be a row count nobody is comparing against last week's. The reachable path is not operator error: a partition that met an absent archive is deliberately re-derived, and a narrower `--through` or a tail day that stopped being published then truncates it. The run raises and names both ranges.
+
 **Per-symbol earliest dates are discovered by probing, never assumed** (§2). The probe is a binary search over `.CHECKSUM` siblings, so a hundred months costs seven requests. It assumes publication is contiguous from a symbol's listing; a hole after that date is not the search's problem — the backfill meets it as an absent archive and it becomes a gap. The run summary states the consequence explicitly, because it is the one a researcher forgets: **a hypothesis inherits the shortest history among its inputs**, which is usually far shorter than the BTC history that made the idea look testable.
 
 ### Gaps are data, not defects to be patched

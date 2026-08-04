@@ -6,7 +6,12 @@ are the ones a re-run depends on:
 
 **A partition row is upserted; a gap row is not.** Re-reading the same archives produces
 the same facts, so `ON CONFLICT DO UPDATE` on `ingest_partition` and `ingest_file` is
-idempotent by construction. `coverage_gap` uses `ON CONFLICT DO NOTHING` instead, because
+idempotent by construction. Every updated column takes `EXCLUDED` rather than a `LEAST` or
+`GREATEST` of the old and new values: the row has to describe the Parquet file that is
+actually on disk, and a widest-ever coverage range merged across runs would describe a file
+that never existed. Keeping the row honest is what lets `runner._require_no_narrowing` use
+it to refuse a truncating rewrite. `coverage_gap` uses `ON CONFLICT DO NOTHING` instead,
+because
 its `discovered_at_utc` is the one column a rebuild cannot reproduce: it answers "which
 completed backtests consumed this range before anybody knew there was a hole in it"
 (`DATA_PIPELINE.md` section 11), and an upsert would move it forward on every run until it
@@ -151,8 +156,14 @@ class PartitionState:
     against the digest in the Parquet footer, so "the registry and the corpus agree" is
     demonstrated rather than assumed -- a progress file could agree with neither and be
     believed by both.
+
+    The covered dates are the other half, and they are read for a different reason: a
+    partition is written whole, so a run whose archives cover *less* than this row records
+    would silently delete the difference from the corpus. The runner refuses that rather
+    than narrowing (`runner._require_no_narrowing`).
     """
 
+    covered_from_date: date
     covered_through_date: date
     absent_archive_count: int
     content_digest_hex: str
@@ -194,19 +205,15 @@ _UPSERT_PARTITION: Final[sa.TextClause] = sa.text(
     )
     ON CONFLICT (market, dataset, symbol, bar_interval, period_start_date) DO UPDATE SET
         partition_grain      = EXCLUDED.partition_grain,
-        covered_from_date    = LEAST(ingest_partition.covered_from_date,
-                                     EXCLUDED.covered_from_date),
-        covered_through_date = GREATEST(ingest_partition.covered_through_date,
-                                        EXCLUDED.covered_through_date),
+        covered_from_date    = EXCLUDED.covered_from_date,
+        covered_through_date = EXCLUDED.covered_through_date,
         archive_count        = EXCLUDED.archive_count,
         absent_archive_count = EXCLUDED.absent_archive_count,
         rows_in              = EXCLUDED.rows_in,
         rows_out             = EXCLUDED.rows_out,
         rows_rejected        = EXCLUDED.rows_rejected,
-        first_event_time_utc = LEAST(ingest_partition.first_event_time_utc,
-                                     EXCLUDED.first_event_time_utc),
-        last_event_time_utc  = GREATEST(ingest_partition.last_event_time_utc,
-                                        EXCLUDED.last_event_time_utc),
+        first_event_time_utc = EXCLUDED.first_event_time_utc,
+        last_event_time_utc  = EXCLUDED.last_event_time_utc,
         content_digest_hex   = EXCLUDED.content_digest_hex,
         parquet_path         = EXCLUDED.parquet_path,
         written_at_utc       = EXCLUDED.written_at_utc
@@ -280,9 +287,9 @@ class IngestRegistry:
                 await connection.execute(
                     sa.text(
                         """
-                        SELECT covered_through_date, absent_archive_count,
-                               content_digest_hex, parquet_path, first_event_time_utc,
-                               last_event_time_utc
+                        SELECT covered_from_date, covered_through_date,
+                               absent_archive_count, content_digest_hex, parquet_path,
+                               first_event_time_utc, last_event_time_utc
                           FROM ingest_partition
                          WHERE market = :market AND dataset = :dataset
                            AND symbol = :symbol AND bar_interval = :bar_interval
@@ -298,6 +305,7 @@ class IngestRegistry:
         if row is None:
             return None
         return PartitionState(
+            covered_from_date=row.covered_from_date,
             covered_through_date=row.covered_through_date,
             absent_archive_count=int(row.absent_archive_count),
             content_digest_hex=str(row.content_digest_hex),

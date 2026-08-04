@@ -60,6 +60,7 @@ from fking.data.backfill.registry import (
     IngestedFile,
     IngestRegistry,
     PartitionRecord,
+    PartitionState,
     RecordedGap,
 )
 from fking.data.backfill.report import BackfillReport, SymbolReport
@@ -73,6 +74,7 @@ from fking.data.parquet.layout import partition_path
 from fking.data.parquet.schema import CONTENT_DIGEST_KEY
 from fking.data.quality import ArchiveMember, ingest_partition
 from fking.data.quality.gates import CADENCE_INTERVALS, CadenceGap
+from fking.platform.errors import DataIntegrityError
 from fking.platform.safety.archive import ArchiveEgress, ArchiveUnavailableError
 
 __all__ = ["BackfillRequest", "run_backfill"]
@@ -222,7 +224,9 @@ async def _backfill_partition(
     fetcher: ArchiveFetcher,
     registry: IngestRegistry,
 ) -> None:
-    if await _already_complete(plan, request, registry=registry, tally=tally):
+    state = await registry.partition_state(plan.coordinate)
+    if _is_complete(state, plan, request):
+        _resume(plan, request, tally, state)
         return
 
     present: list[_FetchedMember] = []
@@ -238,6 +242,10 @@ async def _backfill_partition(
     if not present:
         await _register_absent_period(plan, request, tally, absent_days, registry=registry)
         return
+
+    covered_from = min(member.planned.covered_from_date for member in present)
+    covered_through = max(member.planned.covered_through_date for member in present)
+    _require_no_narrowing(plan, state, covered_from=covered_from, covered_through=covered_through)
 
     ingested = ingest_partition(
         tuple(
@@ -262,8 +270,8 @@ async def _backfill_partition(
         PartitionRecord(
             coordinate=plan.coordinate,
             grain=plan.grain,
-            covered_from_date=min(member.planned.covered_from_date for member in present),
-            covered_through_date=max(member.planned.covered_through_date for member in present),
+            covered_from_date=covered_from,
+            covered_through_date=covered_through,
             absent_archive_count=len(absent_days),
             first_event_time_utc=ingested.first_event_time_utc,
             last_event_time_utc=ingested.last_event_time_utc,
@@ -302,12 +310,8 @@ async def _backfill_partition(
     )
 
 
-async def _already_complete(
-    plan: PartitionPlan,
-    request: BackfillRequest,
-    *,
-    registry: IngestRegistry,
-    tally: _SymbolTally,
+def _is_complete(
+    state: PartitionState | None, plan: PartitionPlan, request: BackfillRequest
 ) -> bool:
     """Whether this partition can be skipped, checked against the registry *and* the corpus.
 
@@ -315,20 +319,64 @@ async def _already_complete(
     monthly archive covers days beyond a run that asked for fewer, and demanding the archive's
     own end would re-fetch a finished month on every shorter run.
     """
-    state = await registry.partition_state(plan.coordinate)
     if state is None or state.absent_archive_count > 0:
         return False
-    required_through = min(plan.covered_through_date, request.through_date)
-    if state.covered_through_date < required_through:
+    if state.covered_through_date < min(plan.covered_through_date, request.through_date):
         return False
     destination = partition_path(plan.coordinate, root=request.write_root)
-    if _stored_digest(destination) != state.content_digest_hex:
-        return False
+    return _stored_digest(destination) == state.content_digest_hex
 
+
+def _resume(
+    plan: PartitionPlan,
+    request: BackfillRequest,
+    tally: _SymbolTally,
+    state: PartitionState | None,
+) -> None:
+    if state is None:  # pragma: no cover - _is_complete returns False for None
+        raise DataIntegrityError(f"{plan.label} was resumed with no registry row")
     tally.partitions_resumed += 1
     _observe_bounds(tally, state.first_event_time_utc, state.last_event_time_utc)
-    _LOG.info("backfill.partition_resumed", partition=plan.label, path=str(destination))
-    return True
+    _LOG.info(
+        "backfill.partition_resumed",
+        partition=plan.label,
+        path=str(partition_path(plan.coordinate, root=request.write_root)),
+    )
+
+
+def _require_no_narrowing(
+    plan: PartitionPlan,
+    state: PartitionState | None,
+    *,
+    covered_from: date,
+    covered_through: date,
+) -> None:
+    """Refuse a rewrite that would cover less of the period than the corpus already holds.
+
+    A partition is written whole, so the write about to happen *replaces* the Parquet file
+    rather than adding to it. If this run's archives span less than the registry records --
+    a deliberately narrower `--through`, or a tail day that has stopped being published --
+    the difference is silently deleted from the corpus, and the only surviving evidence is
+    a row count nobody is comparing against last week's.
+
+    So it raises. Widening the run or removing the partition on purpose are both fine; doing
+    it by accident, in the middle of an eight-year backfill, is not. This is the same posture
+    the fetcher takes toward a cached archive that no longer matches its checksum: a quiet
+    repair is how the condition stops being reported by anything.
+    """
+    if state is None:
+        return
+    if covered_from <= state.covered_from_date and covered_through >= state.covered_through_date:
+        return
+    raise DataIntegrityError(
+        f"{plan.label} already holds "
+        f"[{state.covered_from_date.isoformat()}, {state.covered_through_date.isoformat()}] "
+        f"and this run covers only "
+        f"[{covered_from.isoformat()}, {covered_through.isoformat()}]. A partition is written "
+        f"whole, so continuing would delete the difference from the corpus. Widen the run "
+        f"(--through), or delete the partition and its registry row deliberately if the "
+        f"narrower range is what you want"
+    )
 
 
 async def _register_absent_period(

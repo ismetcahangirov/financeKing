@@ -13,6 +13,7 @@ zero rows -- not an interpolated bar, not a forward fill, nothing.
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Final
@@ -32,6 +33,7 @@ from fking.data.parquet import (
     partition_path,
     read_connection,
 )
+from fking.platform.errors import DataIntegrityError
 from tests.support import archive_fixtures
 from tests.support.archive_stub import (
     InterruptedRunError,
@@ -265,6 +267,41 @@ async def test_a_partition_that_met_an_absent_archive_is_probed_again(
     # The gap row stays. It is a record that the corpus did not hold this range at a known
     # instant, which is exactly what a backtest run before now has to be checked against.
     assert await _scalar(engine, "SELECT count(*) FROM coverage_gap") == 1
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_would_narrow_an_existing_partition_is_refused(
+    engine: AsyncEngine, tmp_path: Path
+) -> None:
+    """A partition is written whole, so a narrower re-run would delete the difference.
+
+    Reachable without operator error: the first run met an absent archive, so the partition
+    is deliberately not marked complete and the second run re-derives it -- and if that
+    second run asks for fewer days, the rewrite silently truncates the corpus. It raises
+    instead, for the same reason the fetcher refuses a cached archive whose checksum no
+    longer matches: a quiet repair is how a condition stops being reported by anything.
+    """
+    write_root, cache_root = tmp_path / "parquet", tmp_path / "archive"
+    served = tuple(day for day in days_in(FIRST_DAY, THROUGH) if day != MISSING_DAY)
+    await _run(_stub(days=served), engine, write_root, cache_root)
+
+    narrower = dataclasses.replace(_request(write_root), through_date=date(2025, 1, 3))
+    egress = _stub(days=served)
+    with pytest.raises(DataIntegrityError, match="written whole"):
+        await run_backfill(
+            narrower,
+            fetcher=ArchiveFetcher(egress=egress, cache_root=cache_root),
+            egress=egress,
+            registry=IngestRegistry(engine),
+        )
+
+    glob_sql = market_dataset_glob(_partition(), root=write_root)
+    with read_connection() as connection:
+        surviving = connection.execute(
+            f"SELECT count(*) FROM read_parquet('{glob_sql}', hive_partitioning = true)"  # noqa: S608
+        ).fetchone()
+    assert surviving is not None
+    assert surviving[0] == SERVED_DAY_COUNT * MINUTES_PER_DAY
 
 
 @pytest.mark.asyncio
