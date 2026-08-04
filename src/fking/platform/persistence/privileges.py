@@ -138,6 +138,13 @@ CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
         # Market data. The one split that already existed before this module, in 0003.
         "bar": PrivilegeClass.INGEST_OWNED,
         "funding_rate": PrivilegeClass.INGEST_OWNED,
+        # The backfill's own record of what it read and what is missing. Ingest-owned for
+        # the same reason `bar` is: an application role that can write a coverage row can
+        # declare a gap closed that the corpus does not hold, and a backtest reading that
+        # row would narrow no window and refuse no run.
+        "ingest_partition": PrivilegeClass.INGEST_OWNED,
+        "ingest_file": PrivilegeClass.INGEST_OWNED,
+        "coverage_gap": PrivilegeClass.INGEST_OWNED,
         # Strategy and evolution state the application advances.
         "strategy": PrivilegeClass.APP_MUTABLE,
         "strategy_version": PrivilegeClass.APP_MUTABLE,
@@ -175,7 +182,13 @@ CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
 # mechanism `feature_as_of()` will use, and it is why `global_trial_count` can be
 # readable while nothing else about `trial_ledger` changes.
 VIEW_PRIVILEGES: Final[Mapping[str, Mapping[str, frozenset[str]]]] = MappingProxyType(
-    {"global_trial_count": MappingProxyType({APP_ROLE: _READ, INGEST_ROLE: _NONE})}
+    {
+        "global_trial_count": MappingProxyType({APP_ROLE: _READ, INGEST_ROLE: _NONE}),
+        # `backtest` reads this before every run to decide whether its window contains a
+        # gap, so the application role reads it. The ingest role reads the underlying
+        # tables directly and has no use for the aggregate.
+        "data_coverage": MappingProxyType({APP_ROLE: _READ, INGEST_ROLE: _NONE}),
+    }
 )
 
 

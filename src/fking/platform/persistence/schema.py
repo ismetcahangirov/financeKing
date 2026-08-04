@@ -274,6 +274,200 @@ funding_rate = sa.Table(
 )
 
 # ---------------------------------------------------------------------------
+# Ingestion registry
+#
+# What the bulk backfill knows about the Parquet corpus. Three tables at two grains,
+# because two different questions are asked of them and neither answers the other:
+#
+#   ingest_file      one archive's NormalizationResult -- rejections, per reason
+#   ingest_partition one Parquet file's state -- content digest, coverage, event bounds
+#   coverage_gap     a period the corpus does not hold, with the instant it was found
+#
+# `bar_interval` rather than `interval`, which is a reserved word: `SELECT interval FROM`
+# is a syntax error, and a column that can only be read quoted is a column that will be
+# read wrongly by the first ad-hoc query written against it.
+# ---------------------------------------------------------------------------
+
+# The empty string means "this dataset is not keyed by an interval", and the CHECK below
+# ties it to the dataset rather than leaving it a convention. NULL was the alternative and
+# is wrong here: these columns are primary-key components, a primary key cannot hold NULL,
+# and a surrogate key with a `UNIQUE NULLS NOT DISTINCT` index alongside it would put the
+# real identity of a row one index definition away from the thing that enforces it.
+_NO_INTERVAL: Final[str] = ""
+
+INGEST_GRANULARITIES: Final[tuple[str, ...]] = ("daily", "monthly")
+PARTITION_GRAINS: Final[tuple[str, ...]] = ("daily", "monthly")
+# Why a period holds no rows. `cadence` and `seam` are claims about *bars* -- the
+# interval says how many should be there and they are not -- while `absent_archive` is a
+# claim about *publication*, which is all that can be said about a dataset with no
+# cadence. A trades file that does not exist is not evidence that any particular print is
+# missing, and recording it as though it were would invent a denominator.
+GAP_KINDS: Final[tuple[str, ...]] = ("cadence", "seam", "absent_archive")
+
+
+def _coordinate_columns() -> tuple[sa.Column[str], ...]:
+    """The four columns that identify a series, spelled identically in all three tables.
+
+    Written once because the coverage view joins on all four, and a join on four columns
+    that were declared separately three times is a join that silently produces no rows the
+    first time one of them is spelled differently.
+    """
+    return (
+        sa.Column("market", identifier(), nullable=False),
+        sa.Column("dataset", identifier(), nullable=False),
+        sa.Column("symbol", identifier(), nullable=False),
+        sa.Column("bar_interval", identifier(), nullable=False),
+    )
+
+
+def _interval_matches_dataset() -> sa.CheckConstraint:
+    return sa.CheckConstraint(
+        f"(dataset = 'klines') = (bar_interval <> '{_NO_INTERVAL}')",
+        name="bar_interval_matches_dataset",
+    )
+
+
+ingest_partition = sa.Table(
+    "ingest_partition",
+    METADATA,
+    *_coordinate_columns(),
+    # The first calendar day of the period one Parquet file covers: the month's first day
+    # for bars, the day itself for trades. Derived from the partition grain rather than
+    # from the archive's own date, so that thirty daily archives feeding one monthly file
+    # produce one row here and thirty in `ingest_file`.
+    sa.Column("period_start_date", sa.Date(), nullable=False),
+    sa.Column("partition_grain", identifier(), nullable=False),
+    # The calendar range of archives that were actually read into this file. A backfill
+    # resumes on `covered_through_date`: a partition whose coverage already reaches the
+    # run's target end date and that holds `content_digest_hex` on disk is skipped
+    # entirely, which is what makes the current month cheap to extend and a finished month
+    # free to revisit.
+    sa.Column("covered_from_date", sa.Date(), nullable=False),
+    sa.Column("covered_through_date", sa.Date(), nullable=False),
+    sa.Column("archive_count", sa.Integer(), nullable=False),
+    # Archives inside the covered range that the host does not publish. Non-zero means the
+    # partition is complete only in the sense that we asked: the next run asks again,
+    # because absence is a claim about upstream and upstream can publish a missing day
+    # later. Caching a 404 is how a fixed archive stays invisible forever.
+    sa.Column("absent_archive_count", sa.Integer(), nullable=False),
+    sa.Column("rows_in", sa.BigInteger(), nullable=False),
+    sa.Column("rows_out", sa.BigInteger(), nullable=False),
+    sa.Column("rows_rejected", sa.BigInteger(), nullable=False),
+    sa.Column("first_event_time_utc", utc_timestamp(), nullable=False),
+    sa.Column("last_event_time_utc", utc_timestamp(), nullable=False),
+    # The writer's content digest, which covers the records and their provenance and
+    # deliberately not the write clock. Comparing it against the digest stored in the
+    # Parquet footer is what makes "the registry and the corpus agree" checkable rather
+    # than assumed -- a progress file can disagree with both and be believed by neither.
+    sa.Column("content_digest_hex", identifier(), nullable=False),
+    sa.Column("parquet_path", identifier(), nullable=False),
+    sa.Column("written_at_utc", utc_timestamp(), nullable=False),
+    _recorded_at_utc(),
+    sa.PrimaryKeyConstraint(
+        "market",
+        "dataset",
+        "symbol",
+        "bar_interval",
+        "period_start_date",
+        name="pk_ingest_partition",
+    ),
+    _one_of("market", MARKETS),
+    _one_of("partition_grain", PARTITION_GRAINS),
+    _interval_matches_dataset(),
+    sa.CheckConstraint("covered_through_date >= covered_from_date", name="coverage_is_ordered"),
+    sa.CheckConstraint("last_event_time_utc >= first_event_time_utc", name="events_are_ordered"),
+    # A zero-row partition has no file, and a row here claiming one would make a scan
+    # report "we have this period" over a path that does not exist.
+    sa.CheckConstraint("rows_out > 0", name="rows_out_is_positive"),
+    sa.CheckConstraint("rows_in = rows_out + rows_rejected", name="rows_balance"),
+    sa.CheckConstraint("archive_count > 0", name="archive_count_is_positive"),
+    sa.CheckConstraint("absent_archive_count >= 0", name="absent_archive_count_is_not_negative"),
+)
+
+ingest_file = sa.Table(
+    "ingest_file",
+    METADATA,
+    *_coordinate_columns(),
+    sa.Column("archive_date", sa.Date(), nullable=False),
+    # In the key, because the same month is legitimately read twice under two
+    # granularities: a month backfilled from thirty daily archives before its monthly file
+    # was published, and re-read as one monthly archive later. Both readings happened and
+    # both are recorded; the partition they feed is the same and is written once.
+    sa.Column("granularity", identifier(), nullable=False),
+    sa.Column("period_start_date", sa.Date(), nullable=False),
+    sa.Column("source_checksum_hex", identifier(), nullable=False),
+    sa.Column("rows_in", sa.BigInteger(), nullable=False),
+    sa.Column("rows_out", sa.BigInteger(), nullable=False),
+    sa.Column("rows_rejected", sa.BigInteger(), nullable=False),
+    # Per reason, never a bare total. A run reporting "0.4% rejected" cannot distinguish a
+    # drifted boolean encoding from a wrong epoch unit; `boolean_unrecognised=1440/1440`
+    # can. DATA_PIPELINE.md section 4.
+    sa.Column("rejection_reasons", postgresql.JSONB(), nullable=False),
+    sa.Column("epoch_unit_applied", identifier(), nullable=False),
+    # NULL only for an archive with no data rows at all, which is a real observation on an
+    # illiquid symbol and deliberately not the same claim as a gap.
+    sa.Column("first_event_time_utc", utc_timestamp(), nullable=True),
+    sa.Column("last_event_time_utc", utc_timestamp(), nullable=True),
+    sa.Column("ingested_at_utc", utc_timestamp(), nullable=False),
+    _recorded_at_utc(),
+    sa.PrimaryKeyConstraint(
+        "market",
+        "dataset",
+        "symbol",
+        "bar_interval",
+        "archive_date",
+        "granularity",
+        name="pk_ingest_file",
+    ),
+    _one_of("market", MARKETS),
+    _one_of("granularity", INGEST_GRANULARITIES),
+    _interval_matches_dataset(),
+    sa.CheckConstraint("rows_in = rows_out + rows_rejected", name="rows_balance"),
+    sa.CheckConstraint("rows_out >= 0", name="rows_out_is_not_negative"),
+)
+
+coverage_gap = sa.Table(
+    "coverage_gap",
+    METADATA,
+    *_coordinate_columns(),
+    # Half-open `[start, end)` over *event* time, naming the missing region itself rather
+    # than the observations bracketing it. That is what makes `sum(end - start)` a
+    # truthful total gapped duration; bracketing bounds would overstate every gap by one
+    # bar and understate nothing, which is the direction that reads as reassuring.
+    sa.Column("gap_start_utc", utc_timestamp(), nullable=False),
+    sa.Column("gap_end_utc", utc_timestamp(), nullable=False),
+    sa.Column("gap_kind", identifier(), nullable=False),
+    # NULL where the dataset has no cadence. A trades archive that was never published
+    # tells you nothing about how many prints are missing, and a zero there would read as
+    # "none", which is a stronger claim than the evidence supports.
+    sa.Column("missing_bar_count", sa.BigInteger(), nullable=True),
+    # First discovery, preserved across re-runs by ON CONFLICT DO NOTHING. This column is
+    # the reason the table exists rather than the gap bounds: a gap discovered inside a
+    # range a completed backtest already consumed makes those results suspect, and only
+    # the discovery instant can tell you which runs are affected
+    # (DATA_PIPELINE.md section 11).
+    sa.Column("discovered_at_utc", utc_timestamp(), nullable=False),
+    _recorded_at_utc(),
+    sa.PrimaryKeyConstraint(
+        "market",
+        "dataset",
+        "symbol",
+        "bar_interval",
+        "gap_start_utc",
+        "gap_end_utc",
+        name="pk_coverage_gap",
+    ),
+    _one_of("market", MARKETS),
+    _one_of("gap_kind", GAP_KINDS),
+    _interval_matches_dataset(),
+    sa.CheckConstraint("gap_end_utc > gap_start_utc", name="gap_is_forward"),
+    sa.CheckConstraint(
+        "missing_bar_count IS NULL OR missing_bar_count > 0", name="missing_bar_count_is_positive"
+    ),
+    sa.Index("ix_coverage_gap_discovered_at_utc", "discovered_at_utc"),
+)
+
+# ---------------------------------------------------------------------------
 # Strategy
 # ---------------------------------------------------------------------------
 
@@ -923,8 +1117,11 @@ MONEY_COLUMN_SUFFIXES: Final[tuple[str, ...]] = (
 
 __all__: tuple[str, ...] = (
     "APPEND_ONLY_TABLES",
+    "GAP_KINDS",
     "HASH_CHAINED_TABLES",
+    "INGEST_GRANULARITIES",
     "METADATA",
     "MONEY_COLUMN_SUFFIXES",
     "NAMING_CONVENTION",
+    "PARTITION_GRAINS",
 )
