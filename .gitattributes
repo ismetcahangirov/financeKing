@@ -22,6 +22,13 @@ uv.lock linguist-generated=true
 tests/fixtures/archives/**/*.csv text eol=lf
 tests/fixtures/archives/**/*.zip binary
 
+# Recorded WebSocket frames, for exactly the same reason: one JSON document per line,
+# committed verbatim, with a SHA-256 over the file asserted in
+# tests/data/test_stream_fixture_integrity.py. A checkout that rewrote the separators
+# would fail that assertion on the platform that did the rewriting -- and the failure
+# reads as a hand-edited fixture, which is the thing the digest exists to detect.
+tests/fixtures/streams/**/*.jsonl text eol=lf
+
 # The corrupted corpus is derived from those recordings and asserted byte for byte against
 # a re-run of its generator. It needs the same protection and needs it more: the members
 # are STORED rather than deflated, so a corrupt .zip is mostly ASCII CSV and git's text
