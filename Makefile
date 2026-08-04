@@ -59,8 +59,9 @@ imports:  ## import-linter architecture contracts
 
 ## The AST checks enforce rules that no off-the-shelf linter knows about: that a
 ## money-named field is never a float, that strategy and risk never read the wall
-## clock, that SafetyViolation is never caught, and that ambiguous trading nouns
-## never become identifiers. .claude/rules/ carries the reasoning for each.
+## clock, that SafetyViolation is never caught, that ambiguous trading nouns never
+## become identifiers, and that every feature computation is in the registry the
+## look-ahead probe iterates. .claude/rules/ carries the reasoning for each.
 ##
 ## adr_index is not an AST check -- it reads Markdown front matter -- but it belongs
 ## here for the same reason: a stale decision index is a document that answers a
@@ -70,6 +71,7 @@ checks:  ## Project-specific AST and documentation checks
 	$(UV) run python tools/checks/clock_isolation.py $(SRC)
 	$(UV) run python tools/checks/no_catch_safety.py $(SRC) tests
 	$(UV) run python tools/checks/naming.py $(SRC)
+	$(UV) run python tools/checks/feature_registry.py $(SRC)
 	$(UV) run python tools/checks/adr_index.py docs/adr
 	$(UV) run python tools/corrupt_archive_fixture.py --check
 

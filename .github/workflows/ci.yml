@@ -83,7 +83,7 @@ jobs:
         run: |
           set +e
           status=0
-          for check in money_types clock_isolation no_catch_safety naming adr_index; do
+          for check in money_types clock_isolation no_catch_safety naming feature_registry adr_index; do
             targets="src/fking"
             if [ "$check" = "no_catch_safety" ]; then targets="src/fking tests"; fi
             if [ "$check" = "adr_index" ]; then targets="docs/adr"; fi
@@ -223,6 +223,51 @@ jobs:
           FKING_REQUIRE_DB: "1"
         run: |
           uv run python -m pytest             tests/data/test_quality_gates.py             tests/data/test_quality_gates_against_postgres.py             tests/data/test_corrupt_fixture_integrity.py             --no-cov -v
+
+  # --------------------------------------------------------------------------
+  # Look-ahead probe.
+  #
+  # Its own job rather than a step inside `test`, and for the same reason as the
+  # corruption corpus: this is not a test of a module, it is the test of the
+  # guarantee that makes every other result in the repository worth reading. A
+  # failure buried among 1,800 unit tests is a failure somebody re-runs rather than
+  # reads, and the defect class it guards -- look-ahead -- does not fail loudly
+  # anywhere else. It makes bad strategies look excellent.
+  #
+  # Deliberately no `paths:` filter, here or on the workflow. A change to the
+  # archive loader, to the normalization step, or to the store's read predicate can
+  # introduce a leak without touching a file under data/features/, and a path filter
+  # would report success by not running (#31). The job must also be marked required
+  # in branch protection alongside `test` -- a job that can be skipped is a job that
+  # will be, on the pull request in a hurry.
+  #
+  # Both halves run: the probe over every registered feature, and the corpus of
+  # deliberate leaks the probe must catch. Without the second, the first might be
+  # asserting True == True.
+  # --------------------------------------------------------------------------
+  lookahead:
+    name: Look-ahead probe (every feature, every known leak shape)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: fast
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen
+
+      - name: Every feature computation is in the registry the probe iterates
+        run: uv run python tools/checks/feature_registry.py src/fking
+
+      - name: The probe, and the leaks it must catch
+        # --no-cov: the coverage floors are the `test` job's business, and running
+        # them over a subset reports a breach that is an artefact of the subset.
+        env:
+          FKING_REQUIRE_DB: "1"
+        run: uv run python -m pytest tests/lookahead --no-cov -v
 
   # --------------------------------------------------------------------------
   # Safety gate.
