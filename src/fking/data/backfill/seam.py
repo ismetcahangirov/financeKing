@@ -16,6 +16,17 @@ two records be recognised as one fact regardless of what their other fields say,
 timestamp does not -- so a shared open time is a *claim* that has to be verified rather
 than a join that can be trusted.
 
+**Trades have an id, so `reconcile_trades` joins on `venue_trade_id` and leaves
+`event_time_utc` out of the comparison entirely.** That inversion is the point of the
+rule quoted above and it cuts both ways. Two records carrying the same id and event times
+a few milliseconds apart are one print filed twice, and exactly one survives -- the stream
+stamps `T` from the frame it received and a REST view of the same aggregate can re-derive
+it, so a timestamp difference there says something about two clocks and nothing about two
+trades. Two records carrying the same millisecond and different ids are two prints, and
+both survive -- which is the case a `(symbol, timestamp)` dedupe loses silently, and it is
+not rare: a single aggressive order fills against several resting ones inside one
+millisecond routinely.
+
 **A disagreement escalates. It is not merged, and nothing is written.** A closed bar is
 immutable, so two sources disagreeing about one means at least one of them is wrong about
 a period that is already final. Resolving it by preferring the stream, or the REST view,
@@ -51,13 +62,16 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Final
 
-from fking.data.loaders.records import KlineRecord
-from fking.platform.errors import SeamDisagreementError
+from fking.data.loaders.records import KlineRecord, TradeRecord
+from fking.platform.errors import DataIntegrityError, SeamDisagreementError
 
 __all__ = [
     "SEAM_COMPARED_FIELDS",
+    "TRADE_SEAM_COMPARED_FIELDS",
     "KlineSeam",
+    "TradeSeam",
     "reconcile_klines",
+    "reconcile_trades",
 ]
 
 # Every field that describes the market. Named explicitly rather than derived by
@@ -74,6 +88,24 @@ SEAM_COMPARED_FIELDS: Final[tuple[str, ...]] = (
     "trade_count",
     "taker_buy_base_volume",
     "taker_buy_quote_volume",
+)
+
+# Everything about a print that two sources must agree on once they agree it is the same
+# print. Two fields of `TradeRecord` are deliberately absent, and neither omission is a
+# tolerance:
+#
+# - `event_time_utc` is the field the id exists to replace. `DATA_PIPELINE.md` section 5
+#   makes it the least reliable one at a seam, so comparing it would escalate on exactly
+#   the disagreement the join key was chosen to survive.
+# - `is_best_match` is not an observation on the live side. The `aggTrade` stream carries
+#   no such flag and `AggTradeFrame.to_record` sets it `True` by construction, so
+#   comparing it would compare our own constant against whatever the other source filed
+#   -- an escalation about a field the stream never saw.
+TRADE_SEAM_COMPARED_FIELDS: Final[tuple[str, ...]] = (
+    "quote_price",
+    "base_quantity",
+    "quote_quantity",
+    "is_buyer_maker",
 )
 
 
@@ -152,6 +184,137 @@ def _index_by_open_time(
             )
         indexed[record.open_time_utc] = record
     return indexed
+
+
+@dataclass(frozen=True, slots=True)
+class TradeSeam:
+    """The result of merging fetched prints into the prints the corpus already holds.
+
+    `merged` is ordered by `(event_time_utc, aggregate id)` rather than by event time
+    alone, because event time is not a total order over a tape -- many prints share a
+    millisecond -- and an order that depends on which source a print came from would make
+    the Parquet content digest a function of the merge rather than of the content.
+    `fking.data.parquet.write_records` sorts stably by event time, so this order survives
+    the write.
+    """
+
+    merged: tuple[TradeRecord, ...]
+    agreed: int
+    recovered: int
+
+
+def reconcile_trades(held: Sequence[TradeRecord], fetched: Sequence[TradeRecord]) -> TradeSeam:
+    """Merge `fetched` into `held` on `venue_trade_id`, refusing any disagreement.
+
+    Passing an empty `held` is the deduplication case rather than a degenerate one: the
+    live corpus writer hands its whole spool in as `fetched` so that a print delivered
+    twice across a reconnect becomes one row, and gets the same contradiction check for
+    free.
+
+    Where two sources agree that a print is the same print but stamp it differently, the
+    **held** record is kept. Not because the corpus is more trustworthy -- neither is, and
+    that is why the field is outside the comparison -- but because keeping it makes the
+    merge stable: a repair that preferred the fetch would rewrite the partition, and its
+    content digest, on every pass over a range that had already been reconciled.
+
+    Args:
+        held: Prints the corpus already holds over the window, in any order.
+        fetched: Prints the other source supplied, in any order.
+
+    Returns:
+        The union ordered by `(event_time_utc, aggregate id)`, with the counts of prints
+        both sources carried and of prints only the fetch supplied.
+
+    Raises:
+        SeamDisagreementError: two records share a `venue_trade_id` and differ in a
+            compared field. One trade cannot have had two prices.
+        DataIntegrityError: a `venue_trade_id` is not a decimal integer. The whole seam
+            rests on the venue's id being the monotone integer `DATA_PIPELINE.md`
+            section 5 says it is; an id that is not one cannot order the tape, and
+            ordering it by its characters would put print 9 after print 10.
+    """
+    held_by_id = _index_by_trade_id(held, source_name="corpus")
+    fetched_by_id = _index_by_trade_id(fetched, source_name="REST")
+
+    agreed = 0
+    for venue_trade_id, held_record in held_by_id.items():
+        fetched_record = fetched_by_id.get(venue_trade_id)
+        if fetched_record is None:
+            continue
+        disagreement = _first_trade_disagreement(held_record, fetched_record)
+        if disagreement is not None:
+            field_name, held_value, fetched_value = disagreement
+            raise SeamDisagreementError(
+                f"the corpus and the venue disagree about trade {venue_trade_id}: "
+                f"{field_name} is {held_value} held and {fetched_value} fetched. The id "
+                f"is the venue's own and identifies one execution, so nothing from this "
+                f"seam is written -- choosing a winner would leave no record that two "
+                f"sources described one trade differently"
+            )
+        agreed += 1
+
+    merged = {**fetched_by_id, **held_by_id}
+    return TradeSeam(
+        merged=tuple(
+            sorted(
+                merged.values(),
+                key=lambda record: (record.event_time_utc, _aggregate_id(record)),
+            )
+        ),
+        agreed=agreed,
+        recovered=len(fetched_by_id) - agreed,
+    )
+
+
+def _index_by_trade_id(
+    records: Sequence[TradeRecord], *, source_name: str
+) -> Mapping[str, TradeRecord]:
+    """One record per id, refusing a source that filed one id two different ways.
+
+    A *repeated* id whose fields all agree is deduplicated silently, because that is what
+    a reconnect produces and it is the case this function exists to absorb. A repeated id
+    whose fields differ is the same contradiction as the cross-source one, one step
+    earlier, and it is not something a merge can resolve.
+    """
+    indexed: dict[str, TradeRecord] = {}
+    for record in records:
+        _aggregate_id(record)  # refuses a non-integer id before it reaches the sort
+        previous = indexed.get(record.venue_trade_id)
+        if previous is not None and _first_trade_disagreement(previous, record) is not None:
+            raise SeamDisagreementError(
+                f"the {source_name} view contains two different trades under id "
+                f"{record.venue_trade_id}; the venue assigns one id to one execution, and "
+                f"a source that filed it twice cannot be reconciled against anything"
+            )
+        indexed[record.venue_trade_id] = record
+    return indexed
+
+
+def _aggregate_id(record: TradeRecord) -> int:
+    """The venue's id as the integer it is, for ordering only.
+
+    The string stays the record's identity -- the value that must match is the value the
+    venue sent -- and this is the one place it is read as a number, because a tape sorted
+    by the characters of its ids puts print 9 after print 10.
+    """
+    if not record.venue_trade_id.isdigit():
+        raise DataIntegrityError(
+            f"trade id {record.venue_trade_id!r} is not a decimal integer. The seam joins "
+            f"and orders on the venue's monotone id; an id that is not one cannot order "
+            f"the tape, and a lexical order would file print 9 after print 10"
+        )
+    return int(record.venue_trade_id)
+
+
+def _first_trade_disagreement(
+    held: TradeRecord, fetched: TradeRecord
+) -> tuple[str, object, object] | None:
+    for field_name in TRADE_SEAM_COMPARED_FIELDS:
+        held_value = getattr(held, field_name)
+        fetched_value = getattr(fetched, field_name)
+        if held_value != fetched_value:
+            return field_name, held_value, fetched_value
+    return None
 
 
 def _first_disagreement(

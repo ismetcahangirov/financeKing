@@ -20,6 +20,7 @@ import random
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -31,6 +32,7 @@ from fking.data.live import (
     LiveIngestSupervisor,
     LiveRouter,
     LiveStreamProfile,
+    TapeCorpusWriter,
 )
 from fking.data.live.streams import LIVE_STREAM_PROFILES
 from fking.platform.errors import DataIntegrityError
@@ -157,13 +159,25 @@ def _after_last_event(frames: Sequence[str]) -> datetime:
     return datetime.fromtimestamp(newest / 1000, tz=UTC) + timedelta(seconds=1)
 
 
-def _supervisor(
+def _tape(tape_root: Path) -> TapeCorpusWriter:
+    """A real tape writer over a temporary corpus, never a double.
+
+    It writes files rather than rows, so there is no schema, trigger or grant for a
+    double to be wrong about -- and pointing it at `tmp_path` is cheaper than describing
+    it. Every recording's prints fall on the day its clock is set to, so nothing here
+    reaches a seal; `test_tape_corpus.py` owns the seal.
+    """
+    return TapeCorpusWriter(corpus_root=tape_root / "parquet", spool_root=tape_root / "spool")
+
+
+def _supervisor(  # noqa: PLR0913 - one parameter per collaborator the session owns
     profile: LiveStreamProfile,
     factory: ReplayFactory,
     writer: RecordingWriter,
     clock: SteppedClock,
     *,
     started_at_utc: datetime,
+    tape_root: Path,
 ) -> LiveIngestSupervisor:
     router = LiveRouter(profile, (SYMBOL,), started_at_utc=started_at_utc)
     return LiveIngestSupervisor(
@@ -171,6 +185,7 @@ def _supervisor(
         symbols=(SYMBOL,),
         router=router,
         writer=writer,  # type: ignore[arg-type]  # the recording double; see the module docstring
+        tape=_tape(tape_root),
         clock=clock,
         rng=random.Random(20260804),
         connect=factory,
@@ -181,7 +196,9 @@ def _supervisor(
     )
 
 
-async def test_open_klines_are_never_written_and_the_closed_bar_for_the_minute_is() -> None:
+async def test_open_klines_are_never_written_and_the_closed_bar_for_the_minute_is(
+    tmp_path: Path,
+) -> None:
     """The single most important assertion in the live path.
 
     An open kline is a partial aggregate that will change; persisting one and updating
@@ -201,7 +218,7 @@ async def test_open_klines_are_never_written_and_the_closed_bar_for_the_minute_i
     factory = ReplayFactory(frames)
     clock = SteppedClock(_after_last_event(frames))
     outcome = await _supervisor(
-        SPOT, factory, writer, clock, started_at_utc=_first_event_time(frames)
+        SPOT, factory, writer, clock, started_at_utc=_first_event_time(frames), tape_root=tmp_path
     ).run_once()
 
     written_minutes = {int(bar.record.open_time_utc.timestamp() * 1000) for bar in writer.bars}
@@ -212,7 +229,7 @@ async def test_open_klines_are_never_written_and_the_closed_bar_for_the_minute_i
     assert all(bar.series.dataset is Dataset.KLINES for bar in writer.bars)
 
 
-async def test_a_healthy_replay_reports_no_sequence_gap() -> None:
+async def test_a_healthy_replay_reports_no_sequence_gap(tmp_path: Path) -> None:
     """The detector must stay quiet on a clean tape, or its alarms mean nothing."""
     frames = _spot_recording().frames()
     writer = RecordingWriter()
@@ -222,12 +239,45 @@ async def test_a_healthy_replay_reports_no_sequence_gap() -> None:
         writer,
         SteppedClock(_after_last_event(frames)),
         started_at_utc=_first_event_time(frames),
+        tape_root=tmp_path,
     ).run_once()
 
     assert [gap for gap in writer.gaps if gap.gap.gap_kind is GapKind.SEQUENCE] == []
 
 
-async def test_a_skipped_aggregate_trade_id_is_reported_with_its_exact_size() -> None:
+async def test_every_trade_print_the_session_received_reaches_the_spool(tmp_path: Path) -> None:
+    """The wiring assertion for #146.
+
+    Before the tape writer existed this session parsed every print for the sequence
+    detector and dropped it, which is the failure that reads as a healthy ingester and an
+    empty corpus. What is checked here is that the session *routed* every print onto disk
+    -- how a spool becomes a partition is `test_tape_corpus.py`'s question.
+    """
+    frames = _spot_recording().frames()
+    expected_prints = sum(1 for frame in frames if json.loads(frame)["data"]["e"] == "aggTrade")
+    assert expected_prints > 0
+
+    writer = RecordingWriter()
+    outcome = await _supervisor(
+        SPOT,
+        ReplayFactory(frames),
+        writer,
+        SteppedClock(_after_last_event(frames)),
+        started_at_utc=_first_event_time(frames),
+        tape_root=tmp_path,
+    ).run_once()
+
+    assert outcome.prints_spooled == expected_prints
+    spooled_lines = sum(
+        len(path.read_text(encoding="utf-8").splitlines())
+        for path in (tmp_path / "spool").rglob("*.jsonl")
+    )
+    assert spooled_lines == expected_prints
+
+
+async def test_a_skipped_aggregate_trade_id_is_reported_with_its_exact_size(
+    tmp_path: Path,
+) -> None:
     """A real recording with one aggTrade frame removed: the venue's own numbering is
     what makes the size exact, so the gap must be three prints wide when three are cut."""
     frames = list(_spot_recording().frames())
@@ -245,6 +295,7 @@ async def test_a_skipped_aggregate_trade_id_is_reported_with_its_exact_size() ->
         writer,
         SteppedClock(_after_last_event(surviving)),
         started_at_utc=_first_event_time(surviving),
+        tape_root=tmp_path,
     ).run_once()
 
     sequence_gaps = [gap for gap in writer.gaps if gap.gap.gap_kind is GapKind.SEQUENCE]
@@ -253,7 +304,9 @@ async def test_a_skipped_aggregate_trade_id_is_reported_with_its_exact_size() ->
     assert sequence_gaps[0].series.dataset is Dataset.AGG_TRADES
 
 
-async def test_a_drop_mid_stream_records_a_gap_even_when_the_reconnect_is_instant() -> None:
+async def test_a_drop_mid_stream_records_a_gap_even_when_the_reconnect_is_instant(
+    tmp_path: Path,
+) -> None:
     """A 400 ms reconnect that loses nothing still leaves a row.
 
     Reconnects that recover invisibly are how a missing minute becomes unexplainable
@@ -271,6 +324,7 @@ async def test_a_drop_mid_stream_records_a_gap_even_when_the_reconnect_is_instan
         writer,
         clock,
         started_at_utc=_first_event_time(frames),
+        tape_root=tmp_path,
     )
 
     first = await supervisor.run_once()
@@ -292,14 +346,21 @@ async def test_a_drop_mid_stream_records_a_gap_even_when_the_reconnect_is_instan
         assert entry.gap.missing_bar_count is None
 
 
-async def test_a_session_that_never_reconnects_still_closes_its_gap_on_shutdown() -> None:
+async def test_a_session_that_never_reconnects_still_closes_its_gap_on_shutdown(
+    tmp_path: Path,
+) -> None:
     """Otherwise the outage goes unrecorded through the door marked "we were about to
     reconnect"."""
     frames = _spot_recording().frames()
     writer = RecordingWriter()
     clock = SteppedClock(_after_last_event(frames))
     supervisor = _supervisor(
-        SPOT, ReplayFactory(frames), writer, clock, started_at_utc=_first_event_time(frames)
+        SPOT,
+        ReplayFactory(frames),
+        writer,
+        clock,
+        started_at_utc=_first_event_time(frames),
+        tape_root=tmp_path,
     )
 
     await supervisor.run_once()
@@ -310,7 +371,7 @@ async def test_a_session_that_never_reconnects_still_closes_its_gap_on_shutdown(
     assert all(gap.gap.gap_kind is GapKind.DISCONNECT for gap in writer.gaps)
 
 
-async def test_the_session_subscribes_to_the_url_the_profile_declares() -> None:
+async def test_the_session_subscribes_to_the_url_the_profile_declares(tmp_path: Path) -> None:
     """A recorded fixture proves nothing about a session pointed somewhere else."""
     frames = _spot_recording().frames()
     writer = RecordingWriter()
@@ -321,6 +382,7 @@ async def test_the_session_subscribes_to_the_url_the_profile_declares() -> None:
         writer,
         SteppedClock(_after_last_event(frames)),
         started_at_utc=_first_event_time(frames),
+        tape_root=tmp_path,
     )
 
     await supervisor.run_once()
@@ -360,7 +422,9 @@ class GapSignallingWriter(RecordingWriter):
         return written
 
 
-async def test_a_connected_but_silent_stream_produces_a_cadence_gap_on_the_timer() -> None:
+async def test_a_connected_but_silent_stream_produces_a_cadence_gap_on_the_timer(
+    tmp_path: Path,
+) -> None:
     """No frame ever arrives, so nothing but the timer can report anything.
 
     This is the assertion that shows the cadence poller is wired into the session at
@@ -382,6 +446,7 @@ async def test_a_connected_but_silent_stream_produces_a_cadence_gap_on_the_timer
         symbols=(SYMBOL,),
         router=router,
         writer=writer,  # type: ignore[arg-type]  # the recording double
+        tape=_tape(tmp_path),
         # Far enough past the session start that the first poll is already overdue,
         # so the assertion does not depend on wall-clock time passing.
         clock=SteppedClock(started + timedelta(minutes=5)),
@@ -399,9 +464,9 @@ async def test_a_connected_but_silent_stream_produces_a_cadence_gap_on_the_timer
     assert all((gap.gap.missing_bar_count or 0) > 0 for gap in cadence_gaps)
 
 
-async def test_run_forever_reconnects_after_a_transport_failure_and_stops_at_anything_else() -> (
-    None
-):
+async def test_run_forever_reconnects_after_a_transport_failure_and_stops_at_anything_else(
+    tmp_path: Path,
+) -> None:
     """The two halves of the reconnect policy, in one run.
 
     A dropped socket is the expected end of a session and is retried. A frame the parser
@@ -419,6 +484,7 @@ async def test_run_forever_reconnects_after_a_transport_failure_and_stops_at_any
         writer,
         SteppedClock(_after_last_event(frames)),
         started_at_utc=_first_event_time(frames),
+        tape_root=tmp_path,
     )
 
     with pytest.raises(DataIntegrityError, match="did not subscribe"):

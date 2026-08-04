@@ -53,7 +53,7 @@ from fking.data.parquet.layout import (
 from fking.data.parquet.schema import CONTENT_DIGEST_KEY, RecordSource, schema_for
 from fking.platform.errors import DataIntegrityError
 
-__all__ = ["WriteOutcome", "write_records"]
+__all__ = ["WriteOutcome", "partition_row_count", "write_records"]
 
 # ZSTD level 3 (DATA_PIPELINE.md section 6). Level 3 rather than the maximum because the
 # corpus is scanned far more often than it is written: past 3 the decompression cost
@@ -75,6 +75,7 @@ _ROW_GROUP_ROWS: Final[int] = 122_880
 _DATASET_RECORD_TYPES: Final[dict[Dataset, type[KlineRecord] | type[TradeRecord]]] = {
     Dataset.KLINES: KlineRecord,
     Dataset.TRADES: TradeRecord,
+    Dataset.AGG_TRADES: TradeRecord,
 }
 
 
@@ -221,6 +222,28 @@ def _require_inside_partition(
                 f"key is read from the path, not from the row, so a stray record is filed "
                 f"under a period it does not belong to and every filtered query agrees"
             )
+
+
+def partition_row_count(path: Path) -> int | None:
+    """How many rows the partition at `path` already holds, or `None` if there is none.
+
+    Read from the Parquet footer, so it costs one small seek rather than a scan -- which
+    is what makes it affordable as a pre-write guard for a caller that is about to replace
+    the file. `None` for an absent or unreadable file, matching `_already_holds`: a
+    truncated file from an interrupted write must stay recoverable by re-running the
+    write that produced it, and a guard that raised on one would make that impossible.
+
+    The caller decides what a row count means. `write_records` deliberately does not: an
+    archive re-read that legitimately produces fewer rows -- a corrected upstream file --
+    is a rewrite that must happen, while a live tape seal writing fewer prints than the
+    partition holds is a partition about to lose data (`fking.data.live.tape`).
+    """
+    if not path.is_file():
+        return None
+    try:
+        return int(pq.read_metadata(path).num_rows)
+    except pa.ArrowInvalid:
+        return None
 
 
 def _already_holds(path: Path, digest_hex: str) -> bool:

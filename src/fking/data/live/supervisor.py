@@ -20,10 +20,14 @@ after the reconnect. A 400 ms reconnect that loses nothing still leaves a row, b
 reconnect that recovers invisibly is how a missing minute becomes unexplainable nine
 months later -- and the cost of the honest version is one row.
 
-**The cadence timer.** The cadence detector answers "did a bar arrive for that minute",
-which cannot be driven by arrivals: the case it exists for is a socket that is connected
-and silent, which produces nothing to poll on. So a companion task polls the router on a
-fixed interval for as long as the session is open, and is cancelled with it.
+**The cadence timer, which also seals the tape.** The cadence detector answers "did a bar
+arrive for that minute", which cannot be driven by arrivals: the case it exists for is a
+socket that is connected and silent, which produces nothing to poll on. So a companion
+task polls the router on a fixed interval for as long as the session is open, and is
+cancelled with it. The tape seal rides the same timer for the same reason -- a day ends
+whether or not a print arrives to notice it -- and it runs in a worker thread, because
+sealing writes a whole day of prints to Parquet and doing that on the event loop would
+stall the read of every socket for the duration.
 
 The clock and the RNG are injected. A supervisor that read `datetime.now(UTC)` and the
 module-level `random` could not be replayed, and the backoff schedule could not be
@@ -46,6 +50,7 @@ from fking.data.live.backoff import reconnect_delay_seconds
 from fking.data.live.router import LiveGap, LiveRouter
 from fking.data.live.session import WebSocketConnection, read_frames
 from fking.data.live.streams import LiveStreamProfile, combined_stream_url
+from fking.data.live.tape import SealedPartition, TapeCorpusWriter
 from fking.data.live.writer import LiveMarketDataWriter
 from fking.platform.correlation import correlation_scope
 from fking.platform.logging import get_logger
@@ -81,6 +86,11 @@ class SessionOutcome:
     frames_received: int
     open_klines_skipped: int
     bars_written: int
+    # Spooled, not written: a print is durable on disk the moment it is appended, and it
+    # becomes a Parquet row a day later. Reporting it as "written" would conflate the two
+    # and make a session that spooled a million prints and sealed nothing look complete.
+    prints_spooled: int
+    partitions_sealed: int
     gaps_recorded: int
     ended_because: str
 
@@ -100,6 +110,7 @@ class LiveIngestSupervisor:
         "_rng",
         "_router",
         "_symbols",
+        "_tape",
         "_writer",
     )
 
@@ -110,6 +121,7 @@ class LiveIngestSupervisor:
         symbols: tuple[str, ...],
         router: LiveRouter,
         writer: LiveMarketDataWriter,
+        tape: TapeCorpusWriter,
         clock: Callable[[], datetime] = _system_now_utc,
         rng: random.Random | None = None,
         connect: ConnectionFactory = guarded_ws_connect,
@@ -119,6 +131,11 @@ class LiveIngestSupervisor:
         self._symbols = symbols
         self._router = router
         self._writer = writer
+        # Required rather than optional. Both profiles list `aggTrades` in
+        # `persisted_datasets`, so a session constructed without a tape writer would route
+        # every print and drop it -- which is the state #146 exists to end, and an
+        # `| None` default is how it would quietly come back.
+        self._tape = tape
         self._clock = clock
         # SystemRandom rather than the default Mersenne Twister: jitter across processes
         # is the point, and a seeded default would give two replicas started by the same
@@ -174,6 +191,8 @@ class LiveIngestSupervisor:
         frames_received = 0
         open_klines_skipped = 0
         bars_written = 0
+        prints_spooled = 0
+        partitions_sealed = 0
         gaps_recorded = 0
         ended_because = "connection closed"
 
@@ -197,11 +216,17 @@ class LiveIngestSupervisor:
                     gaps_recorded += await self._write_gaps(
                         self._router.close_pending_gaps(self._clock())
                     )
+                    # Once on connect as well as on the timer, so a spool a previous
+                    # process left behind becomes a partition at startup rather than at
+                    # the first poll -- which on a session that dies inside fifteen
+                    # seconds would be never.
+                    partitions_sealed += len(await self._seal_tape())
                     async for raw in read_frames(connection):
                         frames_received += 1
                         routed = self._router.route(raw, now_utc=self._clock())
                         open_klines_skipped += routed.open_klines
                         bars_written += await self._writer.write_bars(routed.bars)
+                        prints_spooled += self._tape.append(routed.trades)
                         gaps_recorded += await self._write_gaps(routed.gaps)
             except TRANSPORT_ERRORS as dropped:
                 ended_because = f"{type(dropped).__name__}: {dropped}"
@@ -215,6 +240,11 @@ class LiveIngestSupervisor:
                     with contextlib.suppress(asyncio.CancelledError):
                         await poller
                 self._router.mark_disconnected(self._clock())
+                # Closes the spool handles and seals nothing. A session that stops at noon
+                # has half a day spooled, and the half-day stays a spool: the next session
+                # continues the same file, and only a day that has ended becomes a
+                # partition (`fking.data.live.tape`).
+                self._tape.close()
 
             _LOG.warning(
                 "live.session_ended",
@@ -223,12 +253,16 @@ class LiveIngestSupervisor:
                 frames_received=frames_received,
                 open_klines_skipped=open_klines_skipped,
                 bars_written=bars_written,
+                prints_spooled=prints_spooled,
+                partitions_sealed=partitions_sealed,
                 gaps_recorded=gaps_recorded,
             )
         return SessionOutcome(
             frames_received=frames_received,
             open_klines_skipped=open_klines_skipped,
             bars_written=bars_written,
+            prints_spooled=prints_spooled,
+            partitions_sealed=partitions_sealed,
             gaps_recorded=gaps_recorded,
             ended_because=ended_because,
         )
@@ -244,15 +278,28 @@ class LiveIngestSupervisor:
         return await self._write_gaps(self._router.close_pending_gaps(self._clock()))
 
     async def _poll_cadence(self) -> None:
-        """Report cadence gaps on a timer for as long as the session is open.
+        """Report cadence gaps and seal elapsed tape days, on a timer.
 
         Returns nothing and is never awaited for a value: it ends by cancellation when
-        the session does. The gaps it records are counted where they are written and
-        logged individually, so the tally is not lost by the cancellation.
+        the session does. What it records is counted where it is written and logged
+        individually, so the tally is not lost by the cancellation -- which is why
+        `SessionOutcome.partitions_sealed` counts only the seal on connect and the
+        `live.tape_sealed` line is the record of the rest.
         """
         while True:
             await asyncio.sleep(self._poll_interval_seconds)
             await self._write_gaps(self._router.poll(self._clock()))
+            await self._seal_tape()
+
+    async def _seal_tape(self) -> tuple[SealedPartition, ...]:
+        """Seal every tape day that has ended, off the event loop.
+
+        In a thread because the work is a whole day of prints serialised to Parquet --
+        seconds of CPU on a busy symbol -- and doing it inline would stop reading the
+        socket for that long, which on a venue that pings every three minutes expecting a
+        pong within ten is a self-inflicted disconnect.
+        """
+        return await asyncio.to_thread(self._tape.seal_elapsed_days, now_utc=self._clock())
 
     async def _write_gaps(self, gaps: tuple[LiveGap, ...]) -> int:
         if not gaps:

@@ -136,13 +136,30 @@ _TRADE_FIELDS: Final[tuple[pa.Field[pa.DataType], ...]] = (
 DATASET_SCHEMAS: Final[dict[Dataset, pa.Schema]] = {
     Dataset.KLINES: pa.schema([*_KLINE_FIELDS, *_PROVENANCE]),
     Dataset.TRADES: pa.schema([*_TRADE_FIELDS, *_PROVENANCE]),
+    Dataset.AGG_TRADES: pa.schema([*_TRADE_FIELDS, *_PROVENANCE]),
 }
-"""Exactly the datasets `fking.data.loaders` can parse.
+"""Exactly the datasets something in this system produces records for.
 
-A schema for `aggTrades`, `bookDepth` or `bookTicker` would have to be written from a
-column layout recalled from memory rather than from a recorded archive, which is the
-failure `fking.data.loaders.parse_archive` refuses in the same words. A dataset arrives
-here with a resolver entry, a recorded fragment and a row parser, never before them.
+Two producers, not one. `klines` and `trades` have archive parsers, so their schemas are
+written from a recorded `data.binance.vision` fragment. `aggTrades` has **no** archive
+parser and no entry in `DECLARED_FORMATS` -- its CSV boolean encoding has never been
+read, and inferring it would invert the side of every print in the file
+(`fking.data.format_resolver`) -- but the *live* `aggTrade` stream produces the same
+`TradeRecord`, from frames recorded in `tests/fixtures/streams/`, and #146 gives that tape
+somewhere to land. So the schema here is still written from a recording; it is a
+recording of a socket rather than of a CSV, and the archive loader still refuses the
+dataset.
+
+That the two trade datasets share `_TRADE_FIELDS` is a consequence rather than a
+convenience: an aggregate print and a raw print carry the same seven observations, and
+giving them separate schemas would mean a reader had to know which corpus it was in to
+name a column. They stay separate *datasets* -- different partition trees, never unioned
+by accident -- because one aggregate print covers a range of raw ones and summing volume
+across both would double-count.
+
+`bookDepth` and `bookTicker` remain absent: nothing in this system produces their records
+from either direction, so a schema for them would be a column layout recalled from
+memory, which is the failure `fking.data.loaders.parse_archive` refuses in the same words.
 """
 
 
