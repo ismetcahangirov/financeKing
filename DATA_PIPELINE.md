@@ -229,6 +229,10 @@ Binance closes a WebSocket connection after **24 hours** regardless of health, a
 - Connection state changes emit an event with the correlation ID of the ingestion session.
 - **The stream is never restarted by catching an exception inside the read loop.** Per `CLAUDE.md` §4, a swallowed exception converts a visible failure into silent wrong data. The supervisor restarts the session; the loop does not defend itself.
 
+A disconnect gap's bounds are **the last event observed before the drop, and the instant listening resumed** — the second being a wall-clock reading, not the event time of the first frame after the reconnect. The distinction is not cosmetic. A kline's event time is the bar's *open*, up to a full interval before the frame carrying it arrived, so closing the gap on it would routinely produce a region that ends before it starts. Taking the left edge from the last observation rather than from the error instant matters for the opposite reason: a connection killed by a missed pong surfaces as an error up to ten minutes after the last frame, and anchoring there would report ten unobserved minutes as observed.
+
+Only exceptions in the transport's own failure vocabulary end a session for a retry — `fking.platform.safety.TRANSPORT_ERRORS`, which is the one place allowed to know what the transport is. A frame the parser cannot understand is not in that set and stops the process: a venue whose payload shape changed is not something to retry into for a week.
+
 ### Gap detection
 
 Two independent detectors, because they fail differently:
@@ -237,6 +241,14 @@ Two independent detectors, because they fail differently:
 2. **Cadence detector** — for `kline_1m`, a closed bar must arrive for every minute. A minute with no closed bar within a 90s grace window is a gap. This catches the case the sequence detector cannot: a stream that is connected and silent.
 
 Both write the same `gaps_detected` structure the archive loader writes. Downstream code cannot tell whether a gap came from a live outage or a missing archive, and should not need to.
+
+The 90 second window is measured from the interval's **open**, which is the only edge a detector knows about before anything arrives. A 1m bar is published within about a second of its close, so the effective slack is roughly thirty seconds; measuring from the close instead would put the deadline a full interval later and let a silent stream run for two and a half minutes unreported.
+
+An outage therefore produces two rows rather than one: a `disconnect` gap over the unobserved window, and — once their grace windows expire — a `cadence` gap naming the exact minutes whose bars are absent. They answer different questions, "when were we not listening" and "which bars are missing", and the availability contract (§8) refuses a window intersecting either. The cost is that `data_coverage.total_gapped_duration` counts an outage twice, which is why that column is a diagnostic aggregate and not an accounting figure.
+
+`missing_bar_count` on a `disconnect` gap is **NULL, never zero**. A 400ms reconnect inside one minute loses no bar at all, and a zero would claim we checked and found nothing absent when in fact nothing was being checked.
+
+**The live `aggTrade` tape is parsed but not yet persisted.** It is consumed for sequence detection and for the live risk path; there is no operational trade table, because §6 puts the tape in Parquet written whole partitions at a time, and a live print has nowhere to land until the REST backfill and the corpus writer meet at the seam below.
 
 ### Backfill, and the seam
 

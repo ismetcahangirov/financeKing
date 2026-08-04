@@ -1,0 +1,15 @@
+{
+  "closed_kline_count": 2,
+  "frame_count": 946,
+  "frames_sha256": "9a498ba7f99623b88bbea2116dc5eb0e812e30b477edf121def10c98beffce42",
+  "recorded_at_utc": "2026-08-04T12:07:06.033945+00:00",
+  "source_url": "wss://stream.binancefuture.com/stream?streams=btcusdt@aggTrade/btcusdt@bookTicker/btcusdt@kline_1m/btcusdt@markPrice@1s",
+  "streams": [
+    "btcusdt@kline_1m",
+    "btcusdt@aggTrade",
+    "btcusdt@bookTicker",
+    "btcusdt@markPrice@1s"
+  ],
+  "symbol": "BTCUSDT",
+  "venue_id": "binance-futures-testnet"
+}

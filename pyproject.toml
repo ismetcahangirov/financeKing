@@ -169,6 +169,13 @@ ignore = [
 # object here would be a second thing to keep in step with argparse, and the mismatch
 # between the two would be silent.
 "tools/record_archive_fragment.py" = ["PLR0913"]
+"tools/record_stream_frames.py" = ["PLR0913"]
+# PLR0913: the supervisor's constructor is six injected collaborators -- profile,
+# symbols, router, writer, clock, RNG, connection factory -- plus one tunable. Every one
+# of them exists so that the reconnect schedule and the gap bounds are replayable rather
+# than a function of wall-clock time and a module-level random. Bundling them into a
+# config object would hide exactly the injection points a reviewer needs to see.
+"src/fking/data/live/supervisor.py" = ["PLR0913"]
 # S608: the Parquet read path builds `read_parquet('<glob>')` by interpolation, because
 # DuckDB's table function takes a path pattern rather than a bind parameter -- there is
 # no parameterised spelling of it. The interpolated values are a filesystem glob derived
@@ -180,6 +187,12 @@ ignore = [
 # would take away.
 # DTZ001: one deliberate naive datetime, in the test asserting the writer refuses one.
 "tests/data/test_parquet_layout.py" = ["S101", "S311", "S608", "DTZ001"]
+# S311: the reconnect backoff is seeded here on purpose. Production uses SystemRandom --
+# jitter across replicas is the entire point of full jitter -- but a *test* of a
+# schedule must be reproducible, and a cryptographic generator is exactly what takes
+# that away. The suite asserts the schedule, not the entropy.
+"tests/data/test_live_backoff.py" = ["S101", "S311"]
+"tests/data/test_live_ingestion.py" = ["S101", "S311"]
 # DTZ001: the same, one file over -- the naive `as_of` the feature store must refuse.
 # The rule exists so that a naive datetime never reaches the system by accident; a test
 # that constructs one on purpose, to prove it is rejected, is the one place it must.
@@ -239,6 +252,7 @@ warn_unused_ignores = true
 # anywhere else still fails.
 [[tool.mypy.overrides]]
 module = [
+    "fking.data.live.frames",
     "fking.platform.bus._envelope",
     "fking.platform.config.settings",
     "tests.platform.bus.test_registry",
