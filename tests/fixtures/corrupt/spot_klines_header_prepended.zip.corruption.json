@@ -1,0 +1,11 @@
+{
+  "corrupt_archive_sha256": "7b14b33a5794ee3d6e51af414859ebeab3d5d61819868924bac0a8a0ba421d85",
+  "gate": "2 - header expectation",
+  "member_name": "BTCUSDT-1m-2025-01-02.csv",
+  "mutation": "mutate",
+  "name": "spot_klines_header_prepended",
+  "pristine_archive_sha256": "5a973faa79550ccedd81724523d526da8812ea87a06a0fa0711e0a2938b6de78",
+  "rationale": "Spot kline archives carry no header. Reading one as though it did silently discards the first real bar of the day -- always 00:00 UTC, which correlates precisely with the daily-boundary behaviour strategies care about.",
+  "source_member_sha256": "d598bb132154bd1d60b75092a9e0482f1de184ec5b670a2da463b3061703ef28",
+  "source_recording": "spot/klines/BTCUSDT-1m"
+}

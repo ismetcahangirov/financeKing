@@ -1,0 +1,11 @@
+{
+  "corrupt_archive_sha256": "5a779653991810a89b45c92eabe3aa140fb0657c48ba3d574da1179fec78125f",
+  "gate": "4 - monotone timestamps",
+  "member_name": "BTCUSDT-1m-2025-01-02.csv",
+  "mutation": "move_a_row_block_earlier",
+  "name": "spot_klines_rows_out_of_order",
+  "pristine_archive_sha256": "5a973faa79550ccedd81724523d526da8812ea87a06a0fa0711e0a2938b6de78",
+  "rationale": "What two files merged upstream, or one epoch unit applied to half a file, looks like on disk. Every row is individually valid.",
+  "source_member_sha256": "d598bb132154bd1d60b75092a9e0482f1de184ec5b670a2da463b3061703ef28",
+  "source_recording": "spot/klines/BTCUSDT-1m"
+}

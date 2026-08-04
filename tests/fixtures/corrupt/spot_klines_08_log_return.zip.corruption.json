@@ -1,0 +1,11 @@
+{
+  "corrupt_archive_sha256": "853a5a7282354c3d464b453bbef5c1469282d0c5ea256406f7a1f9bb4de78383",
+  "gate": "9 - price continuity (flagged, never refused)",
+  "member_name": "BTCUSDT-1m-2025-01-02.csv",
+  "mutation": "scale_the_last_bar",
+  "name": "spot_klines_08_log_return",
+  "pristine_archive_sha256": "5a973faa79550ccedd81724523d526da8812ea87a06a0fa0711e0a2938b6de78",
+  "rationale": "A 50% single-minute move on a thin altcoin is a real event. Rejecting it removes exactly the tail the risk engine most needs to have seen, and gates that discard unusual-but-real data bias every volatility estimate toward calm.",
+  "source_member_sha256": "d598bb132154bd1d60b75092a9e0482f1de184ec5b670a2da463b3061703ef28",
+  "source_recording": "spot/klines/BTCUSDT-1m"
+}
