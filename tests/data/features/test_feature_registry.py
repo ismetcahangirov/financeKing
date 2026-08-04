@@ -38,9 +38,18 @@ _START = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
 def _series(
     closes: Sequence[str], *, step: timedelta = timedelta(minutes=15)
 ) -> tuple[FeatureObservation, ...]:
-    """A minute-stamped series of closed bars, one observation per `step`."""
+    """A minute-stamped series of closed bars, one observation per `step`.
+
+    Each bar opens where the previous one closed, which is what a continuously traded
+    market produces. No feature below reads the open; it is here because the type carries
+    it for label alignment (`fking.data.features.labels`).
+    """
     return tuple(
-        FeatureObservation(event_time_utc=_START + step * index, close_quote_price=Decimal(close))
+        FeatureObservation(
+            event_time_utc=_START + step * index,
+            open_quote_price=Decimal(closes[index - 1] if index else close),
+            close_quote_price=Decimal(close),
+        )
         for index, close in enumerate(closes)
     )
 
@@ -118,8 +127,16 @@ def test_duplicate_event_times_are_refused_rather_than_deduplicated() -> None:
     """
     spec = registered("trailing_return_fraction", 1)
     duplicated = (
-        FeatureObservation(event_time_utc=_START, close_quote_price=Decimal("100")),
-        FeatureObservation(event_time_utc=_START, close_quote_price=Decimal("101")),
+        FeatureObservation(
+            event_time_utc=_START,
+            open_quote_price=Decimal("100"),
+            close_quote_price=Decimal("100"),
+        ),
+        FeatureObservation(
+            event_time_utc=_START,
+            open_quote_price=Decimal("100"),
+            close_quote_price=Decimal("101"),
+        ),
     )
     with pytest.raises(FeatureContractError, match="ascend strictly"):
         evaluate(spec, duplicated)
@@ -131,10 +148,18 @@ def test_a_descending_series_is_refused() -> None:
         evaluate(spec, tuple(reversed(_series(["100", "101", "102"]))))
 
 
-def test_a_non_positive_price_is_refused() -> None:
+@pytest.mark.parametrize("corrupt_field", ["open_quote_price", "close_quote_price"])
+def test_a_non_positive_price_is_refused(corrupt_field: str) -> None:
+    """Both prices, not just the one the features happen to read.
+
+    An open of zero is corrupt input whether or not today's feature set consumes it, and a
+    label divides by it.
+    """
     spec = registered("trailing_return_fraction", 1)
-    corrupt = (FeatureObservation(event_time_utc=_START, close_quote_price=Decimal("0")),)
-    with pytest.raises(FeatureContractError, match="non-positive price is corrupt"):
+    prices = {"open_quote_price": Decimal("100"), "close_quote_price": Decimal("100")}
+    prices[corrupt_field] = Decimal("0")
+    corrupt = (FeatureObservation(event_time_utc=_START, **prices),)
+    with pytest.raises(FeatureContractError, match=f"{corrupt_field} at .* non-positive price"):
         evaluate(spec, corrupt)
 
 

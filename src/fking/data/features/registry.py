@@ -138,11 +138,15 @@ def _require_strictly_increasing(observations: Sequence[FeatureObservation]) -> 
     """
     previous: FeatureObservation | None = None
     for observation in observations:
-        if observation.close_quote_price <= Decimal("0"):
-            raise FeatureContractError(
-                f"close_quote_price at {observation.event_time_utc.isoformat()} is "
-                f"{observation.close_quote_price}; a non-positive price is corrupt input"
-            )
+        for field_name, quoted in (
+            ("close_quote_price", observation.close_quote_price),
+            ("open_quote_price", observation.open_quote_price),
+        ):
+            if quoted <= Decimal("0"):
+                raise FeatureContractError(
+                    f"{field_name} at {observation.event_time_utc.isoformat()} is "
+                    f"{quoted}; a non-positive price is corrupt input"
+                )
         if previous is not None and observation.event_time_utc <= previous.event_time_utc:
             raise FeatureContractError(
                 f"observations must ascend strictly by event_time_utc; "

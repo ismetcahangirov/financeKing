@@ -197,13 +197,18 @@ def test_an_observation_carries_the_instant_the_value_became_true() -> None:
     """A `FeatureObservation` has no field that could hold an open bar's close.
 
     The single most common look-ahead defect is using the close of the bar a decision is
-    made inside. There is no `open_time_utc` here, so the shape that produces it cannot
-    be constructed.
+    made inside. There is no `open_time_utc` here, so the shape that produces it cannot be
+    constructed: the one timestamp is the close, and `open_quote_price` is a price rather
+    than an instant -- the price a decision taken on the *previous* close could have
+    transacted at, which is what makes label alignment checkable.
     """
     field_names = {field.name for field in dataclasses.fields(FeatureObservation)}
-    assert field_names == {"event_time_utc", "close_quote_price"}
+    assert field_names == {"event_time_utc", "open_quote_price", "close_quote_price"}
+    assert not any(name.endswith("_time_utc") and name != "event_time_utc" for name in field_names)
     observation = FeatureObservation(
-        event_time_utc=datetime(2026, 1, 1, tzinfo=UTC), close_quote_price=Decimal("1")
+        event_time_utc=datetime(2026, 1, 1, tzinfo=UTC),
+        open_quote_price=Decimal("1"),
+        close_quote_price=Decimal("1"),
     )
     assert observation.event_time_utc.tzinfo is UTC
 
