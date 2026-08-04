@@ -27,6 +27,7 @@ from fking.platform.safety.archive import ArchiveUnavailableError
 __all__ = [
     "ArchiveUnavailableError",
     "DataIntegrityError",
+    "FeatureContractError",
     "FkingError",
     "SafetyViolation",
 ]
@@ -53,6 +54,20 @@ class DataIntegrityError(FkingError):
     The response is to stop and write nothing partial. A partially ingested file is
     worse than none, because a short series parses cleanly and changes every statistic
     computed from it without changing anything that looks like an error.
+    """
+
+
+class FeatureContractError(FkingError):
+    """A feature declaration or an as-of read violated the point-in-time contract.
+
+    One class rather than a pair, because no caller can recover from either: a spec that
+    declares no lookback and a lookup for a feature nobody registered are both
+    programming errors that must be fixed before the process is worth running. The
+    message names the field or the feature, which is the part a caller actually needs.
+
+    Deliberately not a subclass of `DataIntegrityError`: that one means the *bytes* were
+    wrong, and re-reading them will not help. This one means the *declaration* is wrong,
+    and the data may be fine.
     """
 
 

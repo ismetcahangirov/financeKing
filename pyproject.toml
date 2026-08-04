@@ -180,6 +180,10 @@ ignore = [
 # would take away.
 # DTZ001: one deliberate naive datetime, in the test asserting the writer refuses one.
 "tests/data/test_parquet_layout.py" = ["S101", "S311", "S608", "DTZ001"]
+# DTZ001: the same, one file over -- the naive `as_of` the feature store must refuse.
+# The rule exists so that a naive datetime never reaches the system by accident; a test
+# that constructs one on purpose, to prove it is rejected, is the one place it must.
+"tests/data/features/test_store_signature.py" = ["S101", "DTZ001"]
 # S608: a migration is hand-written DDL over identifiers that are compiled into the
 # file. DDL takes no bind parameters -- there is no parameterised spelling of
 # `CREATE ROLE x` or `CREATE TRIGGER y ON z` -- and a migration never sees runtime
