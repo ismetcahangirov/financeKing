@@ -70,8 +70,8 @@ LOGIN_ROLES: Final[tuple[str, ...]] = tuple(LOGIN_ROLE_FOR[group] for group in G
 class PrivilegeClass(StrEnum):
     """What a table is, from the point of view of who may write to it.
 
-    Five classes rather than a per-table grant list, because the interesting question
-    about a new table is which of these it is -- and there are only five answers.
+    Six classes rather than a per-table grant list, because the interesting question
+    about a new table is which of these it is -- and there are only six answers.
     """
 
     # INSERT and SELECT for the application, nothing else, ever. The trigger in 0002 is
@@ -82,6 +82,13 @@ class PrivilegeClass(StrEnum):
     # Written by the ingestion workers, read by everything else. The split is what makes
     # "a strategy cannot rewrite history" a permission error rather than a convention.
     INGEST_OWNED = "ingest_owned"
+    # Ingest-owned, minus DELETE. The class for a table whose rows record what was *not*
+    # observed: a gap that has been backfilled is marked resolved rather than removed,
+    # because the range was still incomplete for every backtest that ran before the
+    # backfill and `discovered_at_utc` is how those runs are found (#28). The revoke is
+    # the primary control and the `BEFORE DELETE` trigger from 0012 is the backstop --
+    # TRUNCATE fires no row trigger, so only the grant reaches it.
+    INGEST_RESOLVABLE = "ingest_resolvable"
     # The application cannot see it at all and reaches it only through a
     # SECURITY DEFINER function. This is the class the feature store lands in (#29):
     # `no-lookahead.md` requires that `fking_app` hold no SELECT on `feature_values`, so
@@ -113,6 +120,7 @@ _NONE: Final[frozenset[str]] = frozenset()
 _READ: Final[frozenset[str]] = frozenset({"SELECT"})
 _APPEND: Final[frozenset[str]] = frozenset({"SELECT", "INSERT"})
 _WRITE: Final[frozenset[str]] = frozenset({"SELECT", "INSERT", "UPDATE", "DELETE"})
+_RESOLVE: Final[frozenset[str]] = frozenset({"SELECT", "INSERT", "UPDATE"})
 
 # class -> group role -> the exact privilege set that role holds on a table of that
 # class. `fking_migrator` is absent from every row on purpose: it does not need grants,
@@ -122,6 +130,9 @@ PRIVILEGES: Final[Mapping[PrivilegeClass, Mapping[str, frozenset[str]]]] = Mappi
         PrivilegeClass.APPEND_ONLY: MappingProxyType({APP_ROLE: _APPEND, INGEST_ROLE: _NONE}),
         PrivilegeClass.APP_MUTABLE: MappingProxyType({APP_ROLE: _WRITE, INGEST_ROLE: _NONE}),
         PrivilegeClass.INGEST_OWNED: MappingProxyType({APP_ROLE: _READ, INGEST_ROLE: _WRITE}),
+        PrivilegeClass.INGEST_RESOLVABLE: MappingProxyType(
+            {APP_ROLE: _READ, INGEST_ROLE: _RESOLVE}
+        ),
         PrivilegeClass.APP_INVISIBLE: MappingProxyType({APP_ROLE: _NONE, INGEST_ROLE: _APPEND}),
         PrivilegeClass.REFERENCE: MappingProxyType({APP_ROLE: _WRITE, INGEST_ROLE: _READ}),
     }
@@ -154,7 +165,11 @@ CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
         # row would narrow no window and refuse no run.
         "ingest_partition": PrivilegeClass.INGEST_OWNED,
         "ingest_file": PrivilegeClass.INGEST_OWNED,
-        "coverage_gap": PrivilegeClass.INGEST_OWNED,
+        # Narrower still: a gap is inserted, and later marked resolved when a backfill
+        # fills it. It is never deleted, because "the corpus now holds this range" and
+        # "nobody remembers this range was ever missing" are different claims and only
+        # the first one is true.
+        "coverage_gap": PrivilegeClass.INGEST_RESOLVABLE,
         # The feature store, and the only member of APP_INVISIBLE. `fking_app` holds
         # nothing on it -- not even SELECT -- because the read it is allowed to perform
         # is "as of this instant", and a role that can also read the table can perform

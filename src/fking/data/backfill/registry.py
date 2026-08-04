@@ -25,6 +25,15 @@ of the only column that matters. Filling is forbidden outright: a synthesised ba
 realised volatility and perfect mean reversion, which is catnip to exactly the strategies
 this system exists to reject (`DATA_PIPELINE.md` section 4).
 
+**A gap that a backfill genuinely closes is *resolved*, which is not any of the above.**
+`resolve_gap` writes two columns and no others, and the trigger from `0012_gap_resolution`
+is what makes that a property of the table rather than of this module. The bounds, the
+kind and `discovered_at_utc` stay exactly as recorded, so the row keeps answering "which
+completed backtests consumed this range while it was holed" -- a question that gets *more*
+interesting after a repair, because those results are still wrong. A partial recovery
+inserts narrower rows carrying the original discovery instant and marks the original
+`superseded`; the region is never rewritten in place and never deleted.
+
 **One transaction per partition.** Not one per run: a backfill of eight years is hours
 long, and a run-length transaction would hold locks for its duration and lose everything to
 one interruption -- which is the interruption the resume path exists for. Not one per row
@@ -53,13 +62,16 @@ from fking.data.archive import ArchiveCoordinate, Granularity
 from fking.data.format_resolver import Dataset, Market
 from fking.data.loaders import NormalizationResult
 from fking.data.parquet.layout import PartitionGrain
+from fking.platform.errors import DataIntegrityError, DataUnavailableError
 
 __all__ = [
     "NO_INTERVAL",
     "CoverageRow",
     "GapKind",
+    "GapResolution",
     "IngestRegistry",
     "IngestedFile",
+    "OpenGap",
     "PartitionRecord",
     "PartitionState",
     "RecordedGap",
@@ -107,6 +119,37 @@ class GapKind(StrEnum):
     """A live socket outage. `missing_bar_count` is NULL even for a kline series: a
     400 ms reconnect inside one minute loses no bar, and the claim being made is that
     nothing was being observed rather than that anything specific is absent."""
+
+
+class GapResolution(StrEnum):
+    """What became of a gap once a backfill reached it (`0012_gap_resolution`).
+
+    There is deliberately no `abandoned`. A gap nobody could fill stays unresolved,
+    because "we gave up" and "the data is here" must not read the same way to the
+    coverage query a backtest is refused by.
+    """
+
+    BACKFILLED = "backfilled"
+    """The corpus now holds the whole region the row named."""
+
+    SUPERSEDED = "superseded"
+    """Part of it was recovered; narrower rows carry what is still absent."""
+
+
+@dataclass(frozen=True, slots=True)
+class OpenGap:
+    """One unresolved gap, with the instant it was first discovered.
+
+    The discovery instant is carried because a partial backfill has to hand it to the
+    residual rows it inserts: those minutes were found missing then and are missing
+    still, and stamping them with the backfill's own clock would launder a long-known
+    hole into a freshly discovered one -- which is exactly the question
+    `discovered_at_utc` exists to answer (`DATA_PIPELINE.md` section 11).
+    """
+
+    series: SeriesKey
+    gap: RecordedGap
+    discovered_at_utc: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,6 +376,33 @@ _INSERT_GAP: Final[sa.TextClause] = sa.text(
     """
 )
 
+# The one UPDATE this table admits, and the `coverage_gap_resolution_only` trigger from
+# 0012 is what makes that a property of the schema rather than of this statement. The
+# `resolved_at_utc IS NULL` predicate is not belt and braces: it is how a concurrent
+# second resolver learns it lost, by updating zero rows instead of overwriting a verdict.
+_RESOLVE_GAP: Final[sa.TextClause] = sa.text(
+    """
+    UPDATE coverage_gap
+       SET resolution = :resolution, resolved_at_utc = :resolved_at_utc
+     WHERE market = :market AND dataset = :dataset AND symbol = :symbol
+       AND bar_interval = :bar_interval
+       AND gap_start_utc = :gap_start_utc AND gap_end_utc = :gap_end_utc
+       AND resolved_at_utc IS NULL
+    RETURNING 1
+    """
+)
+
+_SELECT_OPEN_GAPS: Final[sa.TextClause] = sa.text(
+    """
+    SELECT gap_start_utc, gap_end_utc, gap_kind, missing_bar_count, discovered_at_utc
+      FROM coverage_gap
+     WHERE market = :market AND dataset = :dataset AND symbol = :symbol
+       AND bar_interval = :bar_interval
+       AND resolved_at_utc IS NULL
+     ORDER BY gap_start_utc
+    """
+)
+
 
 class IngestRegistry:
     """Reads and writes the ingestion registry, one short transaction at a time.
@@ -505,6 +575,116 @@ class IngestRegistry:
                 discovered_at_utc=discovered_at_utc,
             )
 
+    async def open_gaps(self, series: SeriesKey) -> tuple[OpenGap, ...]:
+        """Every unresolved gap for one series, oldest first.
+
+        Ordered by `gap_start_utc` so a repair walks a series forward: the oldest hole is
+        the one most likely to have been consumed by a completed backtest, and it is also
+        the one most likely to have fallen off the venue's REST retention -- so failing on
+        it first is failing on the informative one.
+        """
+        async with self._engine.connect() as connection:
+            rows = (
+                await connection.execute(_SELECT_OPEN_GAPS, _series_key_parameters(series))
+            ).all()
+        return tuple(
+            OpenGap(
+                series=series,
+                gap=RecordedGap(
+                    gap_start_utc=row.gap_start_utc,
+                    gap_end_utc=row.gap_end_utc,
+                    gap_kind=GapKind(row.gap_kind),
+                    missing_bar_count=(
+                        None if row.missing_bar_count is None else int(row.missing_bar_count)
+                    ),
+                ),
+                discovered_at_utc=row.discovered_at_utc,
+            )
+            for row in rows
+        )
+
+    async def resolve_gap(
+        self,
+        open_gap: OpenGap,
+        residuals: Sequence[RecordedGap],
+        *,
+        resolved_at_utc: datetime,
+    ) -> GapResolution:
+        """Record that a backfill filled all or part of `open_gap`, in one transaction.
+
+        Residuals are inserted *before* the original is marked, so an interruption between
+        the two statements leaves the region described twice rather than not at all. Each
+        residual carries `open_gap.discovered_at_utc` rather than the backfill's clock:
+        those minutes were discovered missing then and are missing still.
+
+        Returns:
+            `BACKFILLED` when nothing remains, `SUPERSEDED` when residuals were written.
+
+        Raises:
+            DataIntegrityError: a residual is not strictly inside the gap being resolved,
+                or a residual reproduces the gap's own bounds. The second case means
+                nothing was recovered, and marking the original resolved would make the
+                whole hole disappear behind a row the insert had deduplicated away.
+            DataUnavailableError: the gap was already resolved, or is not in the registry.
+        """
+        for residual in residuals:
+            if (residual.gap_start_utc, residual.gap_end_utc) == (
+                open_gap.gap.gap_start_utc,
+                open_gap.gap.gap_end_utc,
+            ):
+                raise DataIntegrityError(
+                    f"a residual reproducing [{residual.gap_start_utc.isoformat()}, "
+                    f"{residual.gap_end_utc.isoformat()}) means the backfill recovered "
+                    f"nothing; resolving on that would delete the gap rather than narrow it"
+                )
+            if (
+                residual.gap_start_utc < open_gap.gap.gap_start_utc
+                or residual.gap_end_utc > open_gap.gap.gap_end_utc
+            ):
+                raise DataIntegrityError(
+                    f"residual [{residual.gap_start_utc.isoformat()}, "
+                    f"{residual.gap_end_utc.isoformat()}) falls outside the gap it "
+                    f"narrows, [{open_gap.gap.gap_start_utc.isoformat()}, "
+                    f"{open_gap.gap.gap_end_utc.isoformat()}). A repair widens nothing"
+                )
+
+        resolution = GapResolution.SUPERSEDED if residuals else GapResolution.BACKFILLED
+        series = _series_key_parameters(open_gap.series)
+        async with self._engine.begin() as connection:
+            await self._insert_gaps(
+                connection,
+                series,
+                residuals,
+                discovered_at_utc=open_gap.discovered_at_utc,
+            )
+            # The insert deduplicates by bounds, so a residual colliding with a row that
+            # is *already resolved* would be silently swallowed and the region would read
+            # as covered while it is not. Rare -- it takes a sub-range that was backfilled
+            # once and has gone missing again -- and exactly the shape of failure this
+            # whole table exists to make impossible, so it is checked rather than assumed.
+            for residual in residuals:
+                await self._require_residual_is_open(connection, series, residual)
+            marked = (
+                await connection.execute(
+                    _RESOLVE_GAP,
+                    {
+                        **series,
+                        "gap_start_utc": open_gap.gap.gap_start_utc,
+                        "gap_end_utc": open_gap.gap.gap_end_utc,
+                        "resolution": resolution.value,
+                        "resolved_at_utc": resolved_at_utc,
+                    },
+                )
+            ).first()
+        if marked is None:
+            raise DataUnavailableError(
+                f"no unresolved gap [{open_gap.gap.gap_start_utc.isoformat()}, "
+                f"{open_gap.gap.gap_end_utc.isoformat()}) for {open_gap.series.symbol} "
+                f"{open_gap.series.dataset.value}; it was resolved by another writer or "
+                f"never recorded, and either way this repair must not claim it"
+            )
+        return resolution
+
     async def coverage(self) -> tuple[CoverageRow, ...]:
         """The coverage report, one row per series, ordered for a stable printout."""
         async with self._engine.connect() as connection:
@@ -541,6 +721,11 @@ class IngestRegistry:
     async def recorded_gaps(self) -> tuple[SeriesGap, ...]:
         """Every gap the registry holds, with its bounds, ordered for a stable readout.
 
+        Resolved gaps are excluded: a range a backfill has since filled must not keep
+        refusing windows, and `data_coverage` stops counting it for the same reason. The
+        row itself stays, because it is still the answer to "which completed backtests
+        consumed this range while it was holed".
+
         Read from `coverage_gap` rather than from `data_coverage`, because the aggregate
         deliberately does not carry bounds and a window check needs them. Ordered by the
         series and then by `gap_start_utc`, so a refusal names the *first* hole a window
@@ -556,6 +741,7 @@ class IngestRegistry:
                         SELECT market, dataset, symbol, bar_interval, gap_start_utc,
                                gap_end_utc, gap_kind, missing_bar_count
                           FROM coverage_gap
+                         WHERE resolved_at_utc IS NULL
                          ORDER BY market, dataset, symbol, bar_interval, gap_start_utc
                         """
                     )
@@ -578,6 +764,37 @@ class IngestRegistry:
             )
             for row in rows
         )
+
+    @staticmethod
+    async def _require_residual_is_open(
+        connection: AsyncConnection, series: Mapping[str, object], residual: RecordedGap
+    ) -> None:
+        resolved_at_utc = (
+            await connection.execute(
+                sa.text(
+                    """
+                    SELECT resolved_at_utc
+                      FROM coverage_gap
+                     WHERE market = :market AND dataset = :dataset AND symbol = :symbol
+                       AND bar_interval = :bar_interval
+                       AND gap_start_utc = :gap_start_utc AND gap_end_utc = :gap_end_utc
+                    """
+                ),
+                {
+                    **series,
+                    "gap_start_utc": residual.gap_start_utc,
+                    "gap_end_utc": residual.gap_end_utc,
+                },
+            )
+        ).scalar_one()
+        if resolved_at_utc is not None:
+            raise DataIntegrityError(
+                f"residual [{residual.gap_start_utc.isoformat()}, "
+                f"{residual.gap_end_utc.isoformat()}) collides with a gap already marked "
+                f"resolved at {resolved_at_utc.isoformat()}. That range is recorded as "
+                f"held and is missing again, which is a corpus that lost data rather than "
+                f"a repair that can proceed"
+            )
 
     @staticmethod
     async def _insert_gaps(

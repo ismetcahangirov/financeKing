@@ -70,7 +70,7 @@ RISK_VERDICTS: Final[tuple[str, ...]] = ("approved", "rejected")
 
 # Vocabularies with no domain counterpart yet. Each names the module that will own it.
 MARKETS: Final[tuple[str, ...]] = ("spot", "futures_um")
-BAR_SOURCES: Final[tuple[str, ...]] = ("archive", "stream")
+BAR_SOURCES: Final[tuple[str, ...]] = ("archive", "stream", "rest_backfill")
 SNAPSHOT_SOURCES: Final[tuple[str, ...]] = ("local", "venue")
 ORDER_STATUSES: Final[tuple[str, ...]] = (
     "pending",
@@ -304,6 +304,12 @@ PARTITION_GRAINS: Final[tuple[str, ...]] = ("daily", "monthly")
 # missing, and recording it as though it were would invent a denominator.
 GAP_KINDS: Final[tuple[str, ...]] = ("cadence", "seam", "absent_archive")
 
+# What became of a gap, once something filled it. `backfilled` means the corpus now holds
+# the whole region; `superseded` means part of it was recovered and narrower rows carry
+# what is still absent. There is no `abandoned`: a gap nobody could fill stays unresolved,
+# because "we gave up" and "the data is here" must not read the same to a coverage query.
+GAP_RESOLUTIONS: Final[tuple[str, ...]] = ("backfilled", "superseded")
+
 
 def _coordinate_columns() -> tuple[sa.Column[str], ...]:
     """The four columns that identify a series, spelled identically in all three tables.
@@ -447,6 +453,13 @@ coverage_gap = sa.Table(
     # the discovery instant can tell you which runs are affected
     # (DATA_PIPELINE.md section 11).
     sa.Column("discovered_at_utc", utc_timestamp(), nullable=False),
+    # The only two columns a resolved gap gains, and the only two an UPDATE may touch --
+    # enforced by the `coverage_gap_resolution_only` trigger from 0012, because no CHECK
+    # can express "everything else is frozen". A filled gap is marked rather than deleted:
+    # the range was still incomplete for every backtest that ran before the backfill, and
+    # `discovered_at_utc` is how those runs are found.
+    sa.Column("resolved_at_utc", utc_timestamp(), nullable=True),
+    sa.Column("resolution", identifier(), nullable=True),
     _recorded_at_utc(),
     sa.PrimaryKeyConstraint(
         "market",
@@ -464,7 +477,34 @@ coverage_gap = sa.Table(
     sa.CheckConstraint(
         "missing_bar_count IS NULL OR missing_bar_count > 0", name="missing_bar_count_is_positive"
     ),
+    # Spelled out rather than built by `_one_of`, which produces a NOT NULL-shaped
+    # membership test: an unresolved gap is the ordinary state and must stay NULL.
+    sa.CheckConstraint(
+        "resolution IS NULL OR resolution IN ("
+        + ", ".join(f"'{member}'" for member in GAP_RESOLUTIONS)
+        + ")",
+        name="resolution_is_known",
+    ),
+    # Both columns or neither. A resolution with no instant cannot be ordered against the
+    # backtests it invalidates; an instant with no resolution says a gap was closed
+    # without saying whether anything was recovered.
+    sa.CheckConstraint(
+        "(resolution IS NULL) = (resolved_at_utc IS NULL)",
+        name="resolution_pairs_with_instant",
+    ),
     sa.Index("ix_coverage_gap_discovered_at_utc", "discovered_at_utc"),
+    # Partial, on the predicate every reader now uses. Once a corpus has been repaired
+    # for a while the unresolved rows are the rare ones, and a full index would be mostly
+    # gaps no availability check can be refused by.
+    sa.Index(
+        "ix_coverage_gap_unresolved",
+        "market",
+        "dataset",
+        "symbol",
+        "bar_interval",
+        "gap_start_utc",
+        postgresql_where=sa.text("resolved_at_utc IS NULL"),
+    ),
 )
 
 # ---------------------------------------------------------------------------
@@ -1166,6 +1206,7 @@ MONEY_COLUMN_SUFFIXES: Final[tuple[str, ...]] = (
 __all__: tuple[str, ...] = (
     "APPEND_ONLY_TABLES",
     "GAP_KINDS",
+    "GAP_RESOLUTIONS",
     "HASH_CHAINED_TABLES",
     "INGEST_GRANULARITIES",
     "METADATA",
