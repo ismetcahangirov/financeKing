@@ -248,7 +248,9 @@ An outage therefore produces two rows rather than one: a `disconnect` gap over t
 
 `missing_bar_count` on a `disconnect` gap is **NULL, never zero**. A 400ms reconnect inside one minute loses no bar at all, and a zero would claim we checked and found nothing absent when in fact nothing was being checked.
 
-**The live `aggTrade` tape is parsed but not yet persisted.** It is consumed for sequence detection and for the live risk path; there is no operational trade table, because §6 puts the tape in Parquet written whole partitions at a time, and a live print has nowhere to land until a live corpus writer exists. #28 built the kline half of the seam below; the trade half waits on that writer (#146), since a repair that fetched prints and discarded them would close a gap over a range it does not hold.
+**The live `aggTrade` tape is spooled, not buffered.** There is no operational trade table, because §6 takes the tape only as a whole daily Parquet partition — so a print cannot become a row until its day is over. `fking.data.live.tape` appends each print to a line-buffered NDJSON spool keyed by `(series, UTC day)` and seals the day into its partition fifteen minutes past the following midnight. The memory bound is **one open file handle per subscribed symbol**, and it does not grow with the day, the print rate, or the session's uptime: a day of BTCUSDT prints runs to millions of rows, and buffering a day per symbol is the design that stops working at exactly the scale this system is for.
+
+Three consequences worth stating, because each closes a failure that is otherwise silent. The spool **outlives the process**, so a session restarted at noon continues the same file and a spool left by a session that died is sealed by the next one — which is why the seal reads the spool directory rather than any in-memory state. A seal **may not shrink a partition**: the row count in the existing file's Parquet footer is compared against what is about to be written, and a rewrite that would delete prints is refused rather than resolved. And a **torn spool line stops the seal** instead of being skipped, because prints dropped there are an absence with no gap row, which is the one shape of hole the coverage registry cannot describe.
 
 ### Backfill, and the seam
 
@@ -266,7 +268,9 @@ The fetch window is deliberately **wider than the gap** — one interval on each
 
 **A `disconnect` gap is not repaired by fetching its bars.** It is a claim about *observation* — nothing was being watched between these two instants — and recovering the klines does not make that false, nor does it recover the trade prints from the same window. Only `cadence` and `seam` gaps, which are claims about bars, are backfillable.
 
-**The `aggTrade` half of this is not built yet.** The trade-id seam rule above is the specification; the tape still has nowhere to land, because §6 puts it in Parquet written whole partitions at a time and there is no live corpus writer (#146). A REST fetch of missing prints that discarded them and then closed the gap would be a repair that recorded a range as held while holding nothing.
+**The trade half of the reconciler exists; the REST fetch behind it does not yet.** `reconcile_trades` joins on `venue_trade_id` and leaves `event_time_utc` out of the comparison entirely, which is the rule above made mechanical: two records under one id and a few milliseconds apart are one print and exactly one survives, and two records sharing a millisecond under different ids are two prints and both survive. `is_best_match` is outside the comparison too — the `aggTrade` stream carries no such flag and the record sets it `True` by construction, so comparing it would escalate about a field the stream never observed. The live corpus writer is its first caller: a print delivered twice across a reconnect is the same same-id case, so the seal deduplicates through the seam and a contradiction — one id, two prices — escalates there as loudly as it would in a repair.
+
+What is still missing is the REST side: a `/aggTrades` fetch paging on `fromId` rather than on time, and with it `sequence` joining `cadence` and `seam` in the backfillable kinds. Paging on time cannot address the gap at all — a loss between two prints in the same millisecond spans a one-millisecond window, and `startTime`/`endTime` have no finer resolution than the prints they are meant to separate.
 
 ---
 
@@ -282,6 +286,8 @@ data/parquet/
       part-2025-01.parquet
   market=spot/dataset=trades/symbol=BTCUSDT/year=2025/month=01/day=02/
       part-2025-01-02.parquet
+  market=spot/dataset=aggTrades/symbol=BTCUSDT/year=2026/month=08/day=03/
+      part-2026-08-03.parquet
   market=futures_um/dataset=bookDepth/symbol=BTCUSDT/year=2025/month=01/
       part-2025-01.parquet
 ```
@@ -321,6 +327,8 @@ Declared once in `fking.data.parquet.schema`, never inferred from the values bei
 **Column names mirror the record field names in `fking.data.loaders.records` character for character**, per `.claude/rules/naming.md`. `open` and `price` are ambiguous in a trading system, and — more mechanically — a column with no unit suffix is invisible to any check that keys on one. The test asserting that every money column reads back as `DECIMAL(38, 18)` selects its columns by the `_price` / `_volume` / `_quantity` suffix, so a column added next year is covered the moment it is named, rather than when someone remembers to extend a list.
 
 `KlineRecord.ignored_field` is deliberately **not** stored. The parser retains Binance's trailing always-zero column so that the field count it checks is the file's field count — an 11-column row means a column was removed upstream, which is worth failing on. On disk it is a column of zeroes with no reader.
+
+The same seven columns serve `trades` and `aggTrades`, because an aggregate print and a raw print carry the same seven observations and giving them separate schemas would mean a reader had to know which corpus it was in to name a column. They stay separate **datasets** — different partition trees, never unioned by accident — because one aggregate print covers a range of raw ones and summing volume across both would double-count. `aggTrades` is the one dataset whose schema is written from a *socket* recording rather than an archive one: its CSV boolean encoding has never been read, so `DECLARED_FORMATS` still refuses the archive and only the live tape produces its rows.
 
 `source` and `ingested_at_utc` are not decoration. When a backtest result is disputed, the first question is which rows came from a live stream and when they landed, because a stream-sourced bar backfilled after the fact has a different provenance from one that arrived on time. Gate 11 below queries `source` to prove no synthesised rows exist, which is only possible because it is written here.
 
