@@ -1,0 +1,17 @@
+# CodeQL scope: everything except Alembic migrations.
+#
+# The full query set, unfiltered. `py/unused-global-variable` still raises here, and
+# that is the half of #140 that has to keep working -- silencing the rule globally to
+# quiet 30 false positives in `migrations/` would also silence the true positives
+# outside it. Two were open on this repository when this file was written
+# (src/fking/platform/persistence/privileges.py:67 `LOGIN_ROLES`, and
+# tests/infra/test_container_hardening.py:47 `COMPOSE_FILES`), which is the assertion
+# rather than a scratch branch: the rule is observably live on the paths this config
+# covers.
+#
+# `migrations` is analysed by .github/codeql/migrations.yml instead, under its own
+# SARIF category, so excluding it here loses no coverage -- it moves it.
+name: financeKing — source
+
+paths-ignore:
+  - migrations

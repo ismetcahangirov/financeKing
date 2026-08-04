@@ -8,7 +8,9 @@ on:
     paths:
       - "src/**"
       - "tools/**"
+      - "migrations/**"
       - ".github/workflows/codeql.yml"
+      - ".github/codeql/**"
   push:
     branches: [main]
   schedule:
@@ -20,13 +22,34 @@ permissions:
   contents: read
 
 jobs:
+  # Two path-disjoint analyses of the same commit, each uploading under its own SARIF
+  # category. The split exists because CodeQL's query-filters are global while the one
+  # rule that needs suppressing is only ever wrong in one directory; the reasoning is
+  # in .github/codeql/migrations.yml, next to the filter it justifies (#140).
+  #
+  # `python` keeps the category it has always had, so the migration alerts already
+  # recorded under it are closed by the first run that no longer reports them, and the
+  # two genuine ones outside migrations/ stay open.
   analyze:
-    name: CodeQL (python)
+    name: CodeQL (${{ matrix.scope.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       security-events: write
       contents: read
+    strategy:
+      # One scope failing must not cancel the other: a migration-only extraction error
+      # would otherwise take the source scan's verdict with it and leave the pull
+      # request with no answer at all.
+      fail-fast: false
+      matrix:
+        scope:
+          - name: python
+            config: .github/codeql/source.yml
+            category: "/language:python"
+          - name: migrations
+            config: .github/codeql/migrations.yml
+            category: "/language:python/migrations"
     steps:
       - uses: actions/checkout@v7
 
@@ -37,7 +60,8 @@ jobs:
           # include the ones about swallowed exceptions and unreachable code, which
           # are correctness rules here rather than style ones.
           queries: security-and-quality
+          config-file: ${{ matrix.scope.config }}
 
       - uses: github/codeql-action/analyze@v4.37.4
         with:
-          category: "/language:python"
+          category: ${{ matrix.scope.category }}
