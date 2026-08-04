@@ -14,7 +14,14 @@ module-level parsing constant is the epoch-unit trap waiting to recur, so
 The parsers themselves are `fking.data.loaders`, a subpackage with its own surface. They
 are not re-exported here: a caller wanting one names `fking.data.loaders`, which keeps this
 namespace to the things every consumer of ingested data needs -- coordinates, formats,
-epochs -- rather than the internals of turning bytes into records.
+epochs -- rather than the internals of turning bytes into records. `fking.data.parquet`,
+`fking.data.quality` and `fking.data.backfill` keep their own surfaces for the same reason.
+
+The one relationship between them worth knowing before reading any of them: **an archive is
+not a Parquet file.** Bars are one file per month and are published daily for the recent
+tail, so a month arrives as up to thirty-one archives that all belong in one partition. The
+unit of work is therefore the partition, not the archive, and `fking.data.backfill` is what
+knows the difference.
 """
 
 from fking.data.archive import (

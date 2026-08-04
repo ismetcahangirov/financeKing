@@ -11,7 +11,7 @@ ARGS ?=
 COMPOSE ?= docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help check lint format types imports checks corrupt-fixtures adr-index test cover secrets audit up down logs ps config migrate migrate-down migrate-sql seed
+.PHONY: help check lint format types imports checks corrupt-fixtures adr-index test cover secrets audit up down logs ps config migrate migrate-down migrate-sql seed ingest data-coverage
 
 help:  ## Show the available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -152,3 +152,26 @@ migrate-sql:  ## Print the SQL for an upgrade without executing it
 
 seed:  ## Insert venues and instruments for local development; idempotent
 	$(UV) run python -m fking.platform.persistence
+
+# ---------------------------------------------------------------------------
+# Data. DATA_PIPELINE.md is the specification.
+# ---------------------------------------------------------------------------
+
+SYMBOLS  ?= BTCUSDT
+INTERVAL ?= 1m
+MARKET   ?= spot
+DATASET  ?= klines
+
+## Resumable: killing it and re-running produces identical Parquet digests and no
+## duplicate registry rows, because resume is derived from the registry and the corpus
+## rather than from a progress file. Stops at T-1 -- today's archive does not exist
+## until the day is over. Needs the database up (`make up`) for the coverage registry.
+ingest:  ## Backfill the archive into the Parquet corpus; SYMBOLS=... INTERVAL=...
+	$(UV) run python -m fking.data.backfill ingest \
+		--symbols $(SYMBOLS) --interval $(INTERVAL) --market $(MARKET) --dataset $(DATASET)
+
+## The report backtest reads before every run: first timestamp, last timestamp, gap count
+## and total gapped duration per series. A window containing a gap either narrows or the
+## run refuses -- BACKTEST_ENGINE.md owns that decision, this is the input to it.
+data-coverage:  ## Print the coverage and gap report per (market, dataset, symbol)
+	$(UV) run python -m fking.data.backfill coverage

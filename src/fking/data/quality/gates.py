@@ -169,7 +169,8 @@ class CadenceGap:
 
     Interior to the file: between the first and last bar it actually carries. A gap at
     either edge is a claim about the *corpus*, which spans files, and belongs to the
-    coverage registry (#26) -- a single-file gate that reported edge gaps would report one
+    coverage registry (`fking.data.backfill`) -- a single-file gate that reported edge gaps
+    would report one
     on every file whose day begins with an untraded minute.
 
     No interpolation, no forward fill, no synthesised bars, ever

@@ -133,7 +133,7 @@ Three differences from the sketch this section previously carried, each load-bea
 
 - **The format fields are one `ArchiveFormat`, not five loose ones.** A resolved format is refused at construction if it does not cover the coordinate's own date, or if its market and dataset disagree with the coordinate's. Loose fields make trap 1 constructible — you can hand last year's epoch unit to this year's file and nothing notices until a timestamp lands in 1970.
 - **`checksum_verified: bool` became `source_checksum_hex: str`.** A boolean is satisfied by writing `True`. The only way to hold the digest of a verified archive is to have verified one, so the digest is evidence where the flag was a claim.
-- **`date_range` and `destination` are absent.** They belong to the backfill (#26), not to a parse of one file: a pure function has no use for the range it was drawn from, and a destination a parser cannot write to is a field something that *can* write will eventually read.
+- **`date_range` and `destination` are absent.** They belong to the backfill (`fking.data.backfill`), not to a parse of one file: a pure function has no use for the range it was drawn from, and a destination a parser cannot write to is a field something that *can* write will eventually read.
 
 Records are `KlineRecord` and `TradeRecord` in `fking.data.loaders.records` — deliberately **not** `fking.domain.Bar` and `Tick`. A `Bar` holds an `Instrument` carrying `tick_size`, `lot_step` and `min_notional_quote`, and no archive file contains those, so a loader that built one would have to invent them; a backtest filling an invented lattice measures trades the venue would have refused. The canonical bar schema in §6 also carries `quote_volume` and the taker-buy columns, which a `Bar` correctly does not.
 
@@ -165,7 +165,23 @@ A run that reports only `rows_out` has hidden its rejections. Rejections are the
 
 `rejection_reasons` is keyed by a `RejectionReason` enum, not by free strings. A rejection counter becomes a Prometheus label the moment ingestion is instrumented, and a free string mints a new time series every time someone rephrases a message — which on a dashboard is indistinguishable from a new failure appearing while the old one stopped.
 
-`gaps_detected` is **not** on this record. Gap detection spans files — a gap can sit between the last bar of one archive and the first of the next — so it belongs to the coverage registry (#26) rather than to a pure function that has seen one file. Putting it here would make every single-file result claim there were no gaps.
+`gaps_detected` is **not** on this record. Gap detection spans files — a gap can sit between the last bar of one archive and the first of the next — so it belongs to the coverage registry rather than to a pure function that has seen one file. Putting it here would make every single-file result claim there were no gaps.
+
+### The bulk backfill
+
+`make ingest SYMBOLS=BTCUSDT,ETHUSDT INTERVAL=1m` walks each symbol's discovered range to T-1 and prints rows in / out / rejected with per-reason counts, gap count and total gapped duration. `fking.data.backfill` implements it; `make data-coverage` prints the coverage report below.
+
+Four properties are worth knowing before changing it, because each closes a failure that is silent without it.
+
+**An archive is not a Parquet file.** Bars are partitioned monthly (§6) and published daily for the current and previous month (§2), so a recent month arrives as up to thirty-one archives that all belong in one partition. `write_records` writes a partition whole, so writing each archive as it arrives leaves the month holding whichever one was written last — a file with a plausible name, a plausible schema, and one day in it. The partition is therefore the unit of work: `quality.ingest_partition` gates every archive, concatenates what survived, and writes once. This is also the only arrangement under which gate 8 can see a day that is missing entirely, because each surviving file is individually complete.
+
+**Resume is derived from the registry and the corpus, never from a progress file.** A partition is skipped only when `ingest_partition` says its coverage reaches the run's target date, its `absent_archive_count` is zero, *and* the Parquet file on disk still carries the `content_digest_hex` the registry recorded. A progress file is a third opinion that can disagree with both.
+
+**An absent archive is re-probed on every run.** Absence is a claim about upstream, and upstream does publish a missing day later. Caching a 404 makes that fix permanently invisible, so a partition that met one is never marked complete — one eighty-byte request per absent day, which is the only route by which a corrected archive is ever picked up.
+
+**A rewrite that would cover less than the corpus already holds is refused.** A partition is written whole, so re-deriving one from fewer archives than last time *deletes* the difference — and the only surviving evidence would be a row count nobody is comparing against last week's. The reachable path is not operator error: a partition that met an absent archive is deliberately re-derived, and a narrower `--through` or a tail day that stopped being published then truncates it. The run raises and names both ranges.
+
+**Per-symbol earliest dates are discovered by probing, never assumed** (§2). The probe is a binary search over `.CHECKSUM` siblings, so a hundred months costs seven requests. It assumes publication is contiguous from a symbol's listing; a hole after that date is not the search's problem — the backfill meets it as an absent archive and it becomes a gap. The run summary states the consequence explicitly, because it is the one a researcher forgets: **a hypothesis inherits the shortest history among its inputs**, which is usually far shorter than the BTC history that made the idea look testable.
 
 ### Gaps are data, not defects to be patched
 
@@ -174,6 +190,18 @@ A run that reports only `rows_out` has hidden its rejections. Rejections are the
 A gap is information about the world: an exchange outage, a maintenance window, a delisting, a genuine archive hole. Filling it manufactures a price path that never traded, and a strategy will find that path and trade it — a synthetic bar has zero realised volatility and perfect mean reversion, which is catnip to exactly the strategies this system is trying to reject.
 
 Gaps propagate to the availability declaration. A backtest whose window contains a gap either narrows its window or refuses to run. That decision belongs to `BACKTEST_ENGINE.md`, not to the loader.
+
+`coverage_gap` stores a gap as the half-open **missing region** `[gap_start_utc, gap_end_utc)` — not the observations bracketing it, which would overstate every gap by two bars and make `sum(gap_end - gap_start)` a number nobody could use. Three kinds, and the distinction follows from whether the dataset has a cadence at all:
+
+| Kind | Means | `missing_bar_count` |
+|---|---|---|
+| `cadence` | Bars missing inside one partition | exact |
+| `seam` | Bars missing between two partitions | exact |
+| `absent_archive` | The host does not publish this period, for a dataset with no declared cadence | `NULL` |
+
+`absent_archive` carries no count on purpose. A trades archive that was never published says nothing about how many prints are missing, and a zero there would read as "none" — a stronger claim than the evidence supports. For bars the absence needs no separate kind: a missing day between two present ones *is* a cadence or seam gap, with the exact bounds and the exact count.
+
+**Gaps are recorded as discovered and never merged.** Two adjacent absent days stay two rows. Merging means rewriting a row to widen its bounds, which destroys the earlier `discovered_at_utc` — and that column is the whole point of the table, because a gap found inside a range a completed backtest already consumed is what makes those results suspect (§11). The duration total is the same either way.
 
 ---
 
@@ -436,7 +464,7 @@ The corpus that proves each gate fires is `tests/fixtures/corrupt/`, derived fro
 ### Ongoing gates, not just ingestion
 
 - **Weekly re-verification** of a random sample of archived Parquet against a fresh checksum. Free archives are not guaranteed to remain available or unchanged; a silently revised upstream file invalidates every backtest that read the old one.
-- **Coverage report per `(market, symbol, dataset)`** showing first timestamp, last timestamp, gap count and total gapped duration. `backtest` reads this before every run.
+- **Coverage report per `(market, symbol, dataset)`** showing first timestamp, last timestamp, gap count and total gapped duration. `backtest` reads this before every run. It is the `data_coverage` view over `ingest_partition` and `coverage_gap`, printed by `make data-coverage`. The join is a `LEFT JOIN`: a series with no gaps must appear with `gap_count = 0`, and an inner join would drop exactly the series a reader hopes to see.
 - **Staleness monitor** on live streams: last closed bar age per symbol. Beyond 120 seconds the feature store marks the symbol stale and the risk engine treats its mark price as unusable rather than merely old.
 
 ---

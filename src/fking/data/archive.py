@@ -59,6 +59,8 @@ __all__ = [
     "ChecksumSibling",
     "FetchedArchive",
     "Granularity",
+    "archive_filename",
+    "archive_url",
     "parse_checksum_sibling",
     "resolve_granularity",
 ]
@@ -287,12 +289,25 @@ class ArchiveFetcher:
             archive_filename(coordinate, granularity),
         )
 
-    async def fetch(self, coordinate: ArchiveCoordinate, *, today_utc: date) -> FetchedArchive:
+    async def fetch(
+        self,
+        coordinate: ArchiveCoordinate,
+        *,
+        today_utc: date,
+        granularity: Granularity | None = None,
+    ) -> FetchedArchive:
         """Return a verified archive on disk, downloading it only if the cache misses.
 
         `today_utc` is a parameter rather than a `date.today()` call, so the daily/
         monthly choice is deterministic and a replayed backfill resolves the same URLs
         it resolved the first time.
+
+        `granularity` overrides that choice. It exists because the Parquet partition
+        grain, not the publication calendar, decides which file a caller can use: trades
+        are partitioned daily, so a monthly trades archive spans thirty partitions and
+        the writer refuses it. A backfill therefore states the granularity its partition
+        grain implies rather than accepting the one that costs the fewest requests.
+        Callers with no such constraint pass `None` and get the cheaper answer.
 
         Raises:
             DataIntegrityError: the checksum sibling is unparseable, names a different
@@ -301,7 +316,10 @@ class ArchiveFetcher:
                 beside it.
             ArchiveUnavailableError: the host answered with something other than 200.
         """
-        granularity = resolve_granularity(archive_date=coordinate.archive_date, today_utc=today_utc)
+        if granularity is None:
+            granularity = resolve_granularity(
+                archive_date=coordinate.archive_date, today_utc=today_utc
+            )
         url = archive_url(coordinate, granularity)
         destination = self.cache_path(coordinate, granularity)
         sibling_path = destination.with_name(f"{destination.name}.CHECKSUM")
@@ -393,7 +411,7 @@ class ArchiveFetcher:
         The digest is recomputed on every hit rather than trusted. That costs a full
         read of the file, and it buys the property that on-disk corruption is caught
         where it happened instead of surfacing as a parse anomaly weeks later. If a bulk
-        backfill measures this as the bottleneck, the fix is a verified manifest (#26),
+        backfill measures this as the bottleneck, the fix is a verified manifest,
         not a flag that turns the check off.
         """
         destination = self.cache_path(coordinate, granularity)
