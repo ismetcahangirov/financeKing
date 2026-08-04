@@ -330,24 +330,49 @@ Look-ahead is the most dangerous defect class in this project because it does no
 4. **Backfilling a changed feature definition into history.** Recomputing a feature under a new definition and overwriting old values makes every historical backtest a test of a definition that did not exist then. Definition changes create a **new feature version**; old values remain, tagged with the version that produced them.
 5. **Warm-up from the test side of a fold boundary.** Covered in `BACKTEST_ENGINE.md` §6, but it originates here: a feature that needs 2 hours of history to warm up must get those 2 hours from the training side of the purge boundary or the fold starts later.
 
+### Enforced by the storage layer, not by the caller
+
+`feature_values` carries both times: `event_time_utc` is when the thing happened, `available_at_utc` is the earliest instant this system could have known it. `available_at_utc >= event_time_utc` is a `CHECK`, and only `available_at_utc` governs visibility.
+
+**`fking_app` holds no privilege on that table — not even `SELECT`.** The role every strategy, backtest and risk process connects as reaches feature data only through `fking_feature_as_of(name, version, market, symbol, as_of, lookback)`, a `SECURITY DEFINER` function whose body carries the `available_at_utc <= as_of` predicate. A look-ahead defect is therefore `permission denied for table feature_values` rather than a review miss, and there is no parameter that relaxes the bound.
+
+`as_of` is keyword-only, non-optional and has no default on the Python side either. A default is a value somebody forgets to override, and the value they would forget is `now()`.
+
+Revisions are appended, never updated: a corrected value is a new row with a later `available_at_utc`, and `DISTINCT ON (event_time_utc) ... ORDER BY available_at_utc DESC` returns the value as it was *believed* at `as_of`. Both rows survive, which is what lets a disputed result be reconstructed rather than argued about.
+
 ### The mandatory proof
 
 Every `FeatureSpec` carries a `point_in_time_proof` string. It is a required schema field, not a docstring.
 
 ```python
 FeatureSpec(
-    name="order_flow_imbalance_1h",
+    name="trailing_return_fraction",
     version=1,
+    compute=trailing_return_fraction,
+    inputs=frozenset({"klines"}),
     lookback=timedelta(hours=1),
+    availability_lag=timedelta(0),
+    label_horizon=timedelta(hours=1),
     point_in_time_proof=(
-        "Window is half-open [t-1h, t), joined as-of on trade timestamp with "
-        "strict inequality; no trade at exactly t is included."
+        "Window is half-open (t-1h, t]; the base is the newest closed bar at or "
+        "before t-1h and the head is the bar closing at t, so both endpoints had "
+        "already closed at t. No partial window is emitted."
     ),
-    ...
+    uses_trailing_statistics_only=True,
 )
 ```
 
+Every field is required and none has a default, because the values somebody would forget to override are `lookback=0` and `availability_lag=0` — both of which are the permissive answer. `uses_trailing_statistics_only=False` is not a configuration, it is a refusal: there is no supported way to register a full-sample statistic.
+
 If the proof cannot be stated in one sentence, the feature is probably leaking. That is the point of requiring it — it converts an unverifiable intention into a checkable claim.
+
+`lookback` is also the window the computation actually uses: the spec hands it to `compute` rather than the function carrying its own constant, so the declared number and the computed number cannot drift apart.
+
+### A definition change is a new version, and the digest is what says so
+
+`fking.data.features._definition_digests` holds one frozen digest per `(name, version)`, taken over the parsed syntax tree of the `compute` function — so reformatting and comments do not move it and a changed constant does. Entries are never edited and never removed. A `compute` edited under an unchanged `version` fails `tests/data/features/test_feature_registry.py`, which names the version to bump.
+
+The reason a rename does not move the digest, while an edited body does: a digest that changes on cosmetics is a digest people learn to update without reading what changed, and the lock is worth exactly as much as the attention it gets.
 
 ### Declared lookback feeds validation
 
