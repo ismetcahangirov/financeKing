@@ -14,7 +14,7 @@ indistinguishable, on a dashboard, from a new failure appearing and the old one 
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -22,8 +22,9 @@ from enum import StrEnum
 from types import MappingProxyType
 
 from fking.data.format_resolver import EpochUnit
+from fking.platform.errors import DataIntegrityError
 
-__all__ = ["NormalizationResult", "RejectionReason"]
+__all__ = ["NormalizationResult", "RejectionReason", "refuse_above_ceiling"]
 
 
 class RejectionReason(StrEnum):
@@ -125,3 +126,52 @@ class NormalizationResult:
             return "none"
         ordered = sorted(self.rejection_reasons.items(), key=lambda pair: (-pair[1], pair[0]))
         return ", ".join(f"{reason.value}={tally}/{self.rows_in}" for reason, tally in ordered)
+
+
+def refuse_above_ceiling(
+    outcome: NormalizationResult,
+    *,
+    ceiling: Decimal,
+    source: str,
+    reasons: Collection[RejectionReason] | None = None,
+) -> None:
+    """Raise when the rejected share of a file exceeds `ceiling`. Nothing partial survives.
+
+    Lives here rather than in the parse driver because two callers need the same rule and
+    the same message: the driver, which adjudicates every parse, and the ingestion quality
+    gates, which adjudicate the reasons no numbered gate of their own owns
+    (`DATA_PIPELINE.md` section 10). Two implementations of one threshold drift, and the
+    one that drifts is the counter nobody watches.
+
+    Args:
+        outcome: The parse being adjudicated.
+        ceiling: Rejected fraction tolerated, in [0, 1]. Never a percent.
+        source: The file, for the message.
+        reasons: Restrict the count to these reasons; `None` counts every rejection. A
+            restricted call reports the *restricted* denominator honestly: it is a share of
+            the rows read, not of the rows that failed for this reason.
+
+    Raises:
+        DataIntegrityError: the counted rejections exceed `ceiling * rows_in`.
+    """
+    if reasons is None:
+        rejected = outcome.rows_rejected
+        scope = "rows"
+    else:
+        rejected = sum(outcome.rejection_reasons.get(reason, 0) for reason in reasons)
+        scope = f"rows failing {sorted(reason.value for reason in reasons)}"
+    if rejected == 0:
+        return
+    # Multiplication rather than division: `rejected <= ceiling * rows_in` is exact in
+    # Decimal, while `rejected / rows_in <= ceiling` rounds to context precision and can
+    # put a value sitting exactly on the boundary onto the wrong side of it.
+    if Decimal(rejected) <= ceiling * outcome.rows_in:
+        return
+    raise DataIntegrityError(
+        f"archive member {source} rejected {rejected} of {outcome.rows_in} {scope}, above "
+        f"the declared ceiling of {ceiling}: {outcome.describe_rejections()}. A rejection "
+        f"rate this high is a format that has drifted rather than a few bad rows -- a wrong epoch "
+        f"unit or a changed boolean encoding rejects every row identically. Nothing is "
+        f"returned, because a partially ingested file parses cleanly and changes every "
+        f"statistic computed from it"
+    )

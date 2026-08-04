@@ -18,7 +18,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from fking.platform.persistence.schema import METADATA
-from tests.platform.conftest import REPO_ROOT, alembic_config
+from tests.conftest import REPO_ROOT, alembic_config
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 

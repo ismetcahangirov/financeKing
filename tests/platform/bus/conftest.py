@@ -27,7 +27,7 @@ from fking.platform.bus import build_redis, unregister_all
 from fking.platform.config.settings import BusSettings
 from fking.platform.persistence import build_session_factory
 from fking.platform.telemetry import reset_instrument_cache
-from tests.platform.conftest import refuse_or_skip
+from tests.conftest import refuse_or_skip
 
 # The digest docker-compose.yml pins for the `redis` service, restated rather than parsed
 # out of the compose file: the compose contract test already asserts the file pins a

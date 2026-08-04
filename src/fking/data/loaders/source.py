@@ -36,7 +36,24 @@ from typing import Final
 
 from fking.platform.errors import DataIntegrityError
 
-__all__ = ["ARCHIVE_ENCODING", "extract_single_member", "split_rows"]
+__all__ = [
+    "ARCHIVE_ENCODING",
+    "HeaderExpectationError",
+    "extract_single_member",
+    "split_rows",
+]
+
+
+class HeaderExpectationError(DataIntegrityError):
+    """The file's first row contradicts `has_header_row`, in either direction.
+
+    Named separately from every other way `split_rows` can refuse -- undecodable bytes, a
+    zip holding two members -- because a caller adjudicating the quality gates
+    (`DATA_PIPELINE.md` section 10, gate 2) has to report *which* gate refused, and a
+    caller that catches `DataIntegrityError` to label it would file a decode failure under
+    the header gate. A subclass rather than a sibling: existing handlers keep catching it.
+    """
+
 
 # Binance archive CSVs are ASCII. `strict` rather than `replace`: a replacement character
 # in a numeric field would be caught by the decimal pattern, but one in a symbol or an id
@@ -91,9 +108,9 @@ def split_rows(
     because that is a genuine anomaly.
 
     Raises:
-        DataIntegrityError: the payload is not decodable, or the first row contradicts
-            `has_header_row` in either direction, or a declared header does not match
-            `columns`.
+        DataIntegrityError: the payload is not decodable.
+        HeaderExpectationError: the first row contradicts `has_header_row` in either
+            direction, or a declared header does not match `columns`.
     """
     try:
         text = payload.decode(ARCHIVE_ENCODING)
@@ -114,21 +131,21 @@ def split_rows(
     looks_like_header = _looks_like_header(first_row)
 
     if has_header_row and not looks_like_header:
-        raise DataIntegrityError(
+        raise HeaderExpectationError(
             f"archive member {source} declares has_header_row=True but its first field "
             f"{first_row[0]!r} is numeric, so the file has no header. Reading it as though "
             f"it did would silently discard the first real row of the day -- always 00:00 "
             f"UTC. Resolve the format for this (market, dataset, date) instead"
         )
     if not has_header_row and looks_like_header:
-        raise DataIntegrityError(
+        raise HeaderExpectationError(
             f"archive member {source} declares has_header_row=False but its first field "
             f"{first_row[0]!r} is not numeric, so the file has a header. Parsing it as data "
             f"would file a bar at the Unix epoch. Resolve the format for this "
             f"(market, dataset, date) instead"
         )
     if has_header_row and first_row != tuple(columns):
-        raise DataIntegrityError(
+        raise HeaderExpectationError(
             f"archive member {source} has header {list(first_row)!r} but the declared layout "
             f"is {list(columns)!r}; a reordered or renamed column parses cleanly and means "
             f"something else, so the layout is compared rather than assumed"

@@ -1,0 +1,11 @@
+{
+  "corrupt_archive_sha256": "51d3939e00fb33900ca6acd3f3044c2a28a74c2c471d15e016a34d49f0a2cd3a",
+  "gate": "1 - checksum",
+  "member_name": "BTCUSDT-1m-2025-01-02.csv",
+  "mutation": "truncate_to_half",
+  "name": "spot_klines_truncated_archive",
+  "pristine_archive_sha256": "413d58c6ef6ea664e3667c2cf008ad702cfb7af9974a6e60e1e47906168fd961",
+  "rationale": "A truncated archive parses cleanly for the rows it still holds and then ends, producing a day with a plausible row count, a plausible price range and hours missing that nobody notices until a backtest shows an implausibly clean edge in that window.",
+  "source_member_sha256": "d598bb132154bd1d60b75092a9e0482f1de184ec5b670a2da463b3061703ef28",
+  "source_recording": "spot/klines/BTCUSDT-1m"
+}

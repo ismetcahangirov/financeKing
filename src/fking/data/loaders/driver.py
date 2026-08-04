@@ -24,14 +24,16 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from decimal import Decimal
 
 from fking.data.loaders._fields import RowRejected
-from fking.data.loaders.outcome import NormalizationResult, RejectionReason
+from fking.data.loaders.outcome import (
+    NormalizationResult,
+    RejectionReason,
+    refuse_above_ceiling,
+)
 from fking.data.loaders.records import ArchiveRecord
 from fking.data.loaders.source import split_rows
 from fking.data.loaders.spec import IngestionSpec
-from fking.platform.errors import DataIntegrityError
 
 __all__ = ["DatasetParser", "parse_rows"]
 
@@ -94,29 +96,5 @@ def parse_rows[RecordT: ArchiveRecord](
         last_event_time_utc=accepted[-1].event_time_utc if accepted else None,
         source_checksum_hex=spec.source_checksum_hex,
     )
-    _refuse_if_too_many_rejections(outcome, spec, source=source)
+    refuse_above_ceiling(outcome, ceiling=spec.max_rejection_fraction, source=source)
     return tuple(accepted), outcome
-
-
-def _refuse_if_too_many_rejections(
-    outcome: NormalizationResult, spec: IngestionSpec, *, source: str
-) -> None:
-    """Raise when the rejection fraction exceeds the declared ceiling.
-
-    Compared by multiplication rather than division: `rejected <= ceiling * rows_in` is
-    exact in `Decimal`, while `rejected / rows_in <= ceiling` rounds to context precision
-    and can put a value sitting exactly on the boundary onto the wrong side of it.
-    """
-    if outcome.rows_rejected == 0:
-        return
-    if Decimal(outcome.rows_rejected) <= spec.max_rejection_fraction * outcome.rows_in:
-        return
-    raise DataIntegrityError(
-        f"archive member {source} rejected {outcome.rows_rejected} of {outcome.rows_in} rows "
-        f"({outcome.rejection_fraction:.6f}), above the declared ceiling of "
-        f"{spec.max_rejection_fraction}: {outcome.describe_rejections()}. A rejection rate "
-        f"this high is a format that has drifted rather than a few bad rows -- a wrong epoch "
-        f"unit or a changed boolean encoding rejects every row identically. Nothing is "
-        f"returned, because a partially ingested file parses cleanly and changes every "
-        f"statistic computed from it"
-    )

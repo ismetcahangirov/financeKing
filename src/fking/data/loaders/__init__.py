@@ -35,9 +35,13 @@ from typing import Final
 from fking.data.format_resolver import Dataset
 from fking.data.loaders.driver import DatasetParser, parse_rows
 from fking.data.loaders.klines import KLINE_COLUMNS, parse_kline_row
-from fking.data.loaders.outcome import NormalizationResult, RejectionReason
+from fking.data.loaders.outcome import (
+    NormalizationResult,
+    RejectionReason,
+    refuse_above_ceiling,
+)
 from fking.data.loaders.records import ArchiveRecord, KlineRecord, TradeRecord
-from fking.data.loaders.source import extract_single_member
+from fking.data.loaders.source import HeaderExpectationError, extract_single_member
 from fking.data.loaders.spec import DEFAULT_MAX_REJECTION_FRACTION, IngestionSpec
 from fking.data.loaders.trades import TRADE_COLUMNS, parse_trade_row
 from fking.platform.errors import DataIntegrityError
@@ -48,6 +52,7 @@ __all__ = [
     "KLINE_COLUMNS",
     "TRADE_COLUMNS",
     "ArchiveRecord",
+    "HeaderExpectationError",
     "IngestionSpec",
     "KlineRecord",
     "NormalizationResult",
@@ -57,6 +62,7 @@ __all__ = [
     "parse_archive",
     "parse_klines",
     "parse_trades",
+    "refuse_above_ceiling",
 ]
 
 KLINE_PARSER = DatasetParser(columns=KLINE_COLUMNS, parse_row=parse_kline_row)

@@ -1,0 +1,11 @@
+{
+  "corrupt_archive_sha256": "920c2a0d53485e2a5df163c5a9e5fd67113c3346193598fc61fa69c0e2b943e6",
+  "gate": "3 - first timestamp plausible",
+  "member_name": "BTCUSDT-1m-2025-01-02.csv",
+  "mutation": "zero_the_first_epoch",
+  "name": "spot_klines_first_epoch_zeroed",
+  "pristine_archive_sha256": "413d58c6ef6ea664e3667c2cf008ad702cfb7af9974a6e60e1e47906168fd961",
+  "rationale": "The magnitude a wrong epoch unit produces, in the direction that lands in 1970. Caught on row one rather than after every row has been rejected identically.",
+  "source_member_sha256": "d598bb132154bd1d60b75092a9e0482f1de184ec5b670a2da463b3061703ef28",
+  "source_recording": "spot/klines/BTCUSDT-1m"
+}

@@ -1,0 +1,11 @@
+{
+  "corrupt_archive_sha256": "e6e4627ffa3b0ce84b60d007f3a24265ea5a6e0247a94f85a430bf7afcb7ca2d",
+  "gate": "5 - boolean tokens",
+  "member_name": "BTCUSDT-trades-2025-01-02.csv",
+  "mutation": "lowercase_the_booleans",
+  "name": "spot_trades_booleans_lowercased",
+  "pristine_archive_sha256": "3f43398403b8eca86dccb7c1bcaf31b97abc1605dc1ea39d0d08f976b17c22cf",
+  "rationale": "Trap 3 recurring. Read under a lowercase-only comparison the aggressor side would be False on every row, with counts, prices and volumes all correct.",
+  "source_member_sha256": "43de916f80334b54c07abf1770703e31cdb2112fd77893158707fb7c9fabd5e1",
+  "source_recording": "spot/trades/BTCUSDT-trades"
+}

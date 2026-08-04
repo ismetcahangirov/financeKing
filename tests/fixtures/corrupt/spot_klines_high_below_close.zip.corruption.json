@@ -1,0 +1,11 @@
+{
+  "corrupt_archive_sha256": "e9a2a37c82582bbf3036932c16258c05b90cd87d6cd825010174711cc2c936e3",
+  "gate": "6 - OHLC coherence",
+  "member_name": "BTCUSDT-1m-2025-01-02.csv",
+  "mutation": "high_below_close",
+  "name": "spot_klines_high_below_close",
+  "pristine_archive_sha256": "413d58c6ef6ea664e3667c2cf008ad702cfb7af9974a6e60e1e47906168fd961",
+  "rationale": "A bar describing a price path that did not happen. The range computed from it is wrong in the direction that makes a strategy look better.",
+  "source_member_sha256": "d598bb132154bd1d60b75092a9e0482f1de184ec5b670a2da463b3061703ef28",
+  "source_recording": "spot/klines/BTCUSDT-1m"
+}

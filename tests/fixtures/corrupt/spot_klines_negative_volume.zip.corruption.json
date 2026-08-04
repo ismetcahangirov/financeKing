@@ -1,0 +1,11 @@
+{
+  "corrupt_archive_sha256": "bbfb53af04d9ce20ea404ebdf55c4eaa11d8a08339d5cefc5c57236f561619a1",
+  "gate": "7 - non-negative volume",
+  "member_name": "BTCUSDT-1m-2025-01-02.csv",
+  "mutation": "negative_volume",
+  "name": "spot_klines_negative_volume",
+  "pristine_archive_sha256": "413d58c6ef6ea664e3667c2cf008ad702cfb7af9974a6e60e1e47906168fd961",
+  "rationale": "A corrupt byte or a column that moved. A moved column means the neighbouring values are also being read as something they are not.",
+  "source_member_sha256": "d598bb132154bd1d60b75092a9e0482f1de184ec5b670a2da463b3061703ef28",
+  "source_recording": "spot/klines/BTCUSDT-1m"
+}

@@ -183,6 +183,48 @@ jobs:
           if-no-files-found: error
 
   # --------------------------------------------------------------------------
+  # Corruption corpus.
+  #
+  # Its own job rather than a step inside `test`, per issue #25, because "the data
+  # quality gates refuse corrupt archives" is a claim about the guarantee this
+  # pipeline makes rather than about a module, and a failure buried among 1,800
+  # unit tests is a failure somebody re-runs rather than reads. Its failure blocks
+  # the merge exactly as `test`'s does.
+  #
+  # Two halves, and both matter. The corpus is *derived* from the recorded
+  # archives by a declared mutation, so `--check` proves the committed bytes still
+  # match that derivation -- a corrupt fixture edited by hand to make a gate pass
+  # would otherwise be indistinguishable from one the generator wrote. Then the
+  # gate suite runs against it and requires each gate to refuse with its own named
+  # reason code.
+  # --------------------------------------------------------------------------
+  corruption:
+    name: Corruption corpus (every gate refuses)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: fast
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen
+
+      - name: The committed corpus still matches its declared derivation
+        run: uv run python tools/corrupt_archive_fixture.py --check
+
+      - name: Every gate refuses its fixture
+        # --no-cov: the coverage floors are the `test` job's business, and running
+        # them twice on a subset reports a floor breach that is an artefact of the
+        # subset rather than of the code.
+        env:
+          FKING_REQUIRE_DB: "1"
+        run: |
+          uv run python -m pytest             tests/data/test_quality_gates.py             tests/data/test_quality_gates_against_postgres.py             tests/data/test_corrupt_fixture_integrity.py             --no-cov -v
+
+  # --------------------------------------------------------------------------
   # Safety gate.
   #
   # Separate from `test` so its failure is unmistakable in the checks list rather

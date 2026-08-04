@@ -54,7 +54,7 @@ from fking.platform.persistence.privileges import (
 )
 from fking.platform.persistence.roles import UnknownLoginRoleError, provision_login_passwords
 from fking.platform.persistence.schema import APPEND_ONLY_TABLES, METADATA
-from tests.platform.conftest import alembic_config
+from tests.conftest import alembic_config
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
