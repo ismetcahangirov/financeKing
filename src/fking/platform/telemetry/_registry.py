@@ -225,6 +225,29 @@ LOG_ORPHAN_RECORDS: Final = MetricSpec(
     ),
 )
 
+SCHEDULER_JOB_RUNS: Final = MetricSpec(
+    name="fking_platform_scheduler_job_runs_total",
+    kind="counter",
+    labels=("job_id", "outcome"),
+    description=(
+        "Scheduled job executions that reached a terminal state, by job and outcome. "
+        "`outcome` is a closed set: succeeded, failed or abandoned. Labelled by job_id, "
+        "which is bounded by the registered job catalogue rather than by traffic."
+    ),
+)
+
+SCHEDULER_OVERLAPS_REFUSED: Final = MetricSpec(
+    name="fking_platform_scheduler_overlaps_refused_total",
+    kind="counter",
+    labels=("job_id",),
+    description=(
+        "Runs refused because the previous run of the same job was still in flight. "
+        "Sustained non-zero means the job is slower than its cadence, and the refusal -- "
+        "rather than a queued run against a window that has since moved -- is what keeps "
+        "two writers off one partition."
+    ),
+)
+
 TELEMETRY_SPANS_DROPPED: Final = MetricSpec(
     name="fking_telemetry_spans_dropped_total",
     kind="counter",
@@ -242,6 +265,8 @@ REGISTERED_METRICS: Final[tuple[MetricSpec, ...]] = (
     BUS_MESSAGES_RECLAIMED,
     LOG_FIELDS_DROPPED,
     LOG_ORPHAN_RECORDS,
+    SCHEDULER_JOB_RUNS,
+    SCHEDULER_OVERLAPS_REFUSED,
     TELEMETRY_SPANS_DROPPED,
 )
 

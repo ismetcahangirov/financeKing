@@ -64,6 +64,7 @@ Do not edit it by hand. The generator owns everything between the sentinel comme
 | [0016](0016-closed-container-network.md) | Close the container network entirely rather than filter egress, and open it per service when a caller exists | 2026-08-03 | accepted |
 | [0017](0017-separate-archive-egress-path.md) | The archive host gets a second egress path, not a wider trading allowlist | 2026-08-03 | accepted |
 | [0018](0018-gap-resolution-marks-and-narrows.md) | A filled gap is marked resolved and a partial fill narrows by insertion, never by rewrite or delete | 2026-08-04 | accepted |
+| [0019](0019-the-system-beat-is-built-here-not-on-apscheduler.md) | The system beat is built here, on an anchored fire-time lattice and a Postgres run ledger, rather than on APScheduler | 2026-08-05 | accepted |
 <!-- adr-index:end -->
 
 0013 is reserved for [#21](https://github.com/ismetcahangirov/financeKing/issues/21) — timestamp normalization keyed on `(market, dataset, date)`. 0014 was written ahead of the 0001–0012 sequence because it resolves a contradiction between two documents already in the tree ([#111](https://github.com/ismetcahangirov/financeKing/issues/111)), and leaving a safety-critical default ambiguous until the ADR backlog cleared was not an option.

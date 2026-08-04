@@ -372,7 +372,7 @@ async def test_chain_detects_a_superuser_rewrite(conn, superuser_conn) -> None:
     assert report.first_broken_seq == seqs[1]
 ```
 
-**The chain-verification job** runs on the APScheduler hourly beat and on every deploy, and re-derives each digest rather than only comparing links — a rewrite that also recomputed the chain forward would pass a link check:
+**The chain-verification job** runs hourly on the system beat (`fking.platform.scheduler`) and on every deploy, and re-derives each digest rather than only comparing links — a rewrite that also recomputed the chain forward would pass a link check:
 
 ```python
 # src/fking/platform/persistence/audit_verify.py

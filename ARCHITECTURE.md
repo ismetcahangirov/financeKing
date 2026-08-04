@@ -203,7 +203,7 @@ That is a design constraint on every module, which is why correlation IDs and ap
 | Event bus | Redis Streams | Kafka semantics at near-zero ops cost |
 | Exchange client | ccxt | Only library correct on current Binance reality |
 | Orchestration | Docker Compose | K8s unjustified for single-node, zero-budget |
-| Scheduling | APScheduler + GH Actions cron | Temporal needs its own server and DB |
+| Scheduling | In-process beat (`fking.platform.scheduler`) + GH Actions cron | Temporal needs its own server and DB; APScheduler was the original choice and was rejected once real jobs existed — ADR-0019 |
 | Telemetry | OpenTelemetry stack | Vendor-neutral, self-hosted, free |
 | LLM | Gemini free + Groq fallback | Most generous free tiers; abstracted for swap |
 | Dashboard | Next.js 15, TS, Tailwind, shadcn/ui | Standard, fast to build, free to host locally |
