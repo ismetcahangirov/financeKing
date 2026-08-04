@@ -27,13 +27,11 @@ an accounting figure. In the rare case where both rows carry byte-identical boun
 registry's `ON CONFLICT DO NOTHING` keeps the first and the series is still reported as
 gapped.
 
-The `aggTrade` tape is parsed into `TradeRecord` and used for sequence detection, and it
+The `aggTrade` tape is parsed into `TradeRecord` and returned alongside the bars, and it
 is **not persisted here**. There is no operational trade table -- `DATA_PIPELINE.md`
-section 6 puts the tape in Parquet, written whole partitions at a time -- so a live
-print has nowhere to land until a live corpus writer exists. #28 built the kline half of
-the REST seam; the trade half waits on that writer (#146), because a repair that fetched the
-missing prints and discarded them would mark a range recovered while holding none of it.
-Parsing the tape anyway is what makes the sequence detector possible at all.
+section 6 puts the tape in Parquet, written whole partitions at a time -- so a print is
+spooled by `fking.data.live.tape` and becomes a Parquet row a day later, on the same
+split as everything else in this package: the router decides, the writer persists.
 """
 
 from __future__ import annotations

@@ -17,9 +17,15 @@ latency and the failure modes this package exists to make visible:
 - **The read loop never defends itself.** `session.read_frames` holds no `except` at
   all; `supervisor` owns the reconnect decision.
 
+- **The trade tape is spooled, not buffered.** A day of prints does not fit in the
+  process, and `DATA_PIPELINE.md` section 6 will only take it as a whole daily Parquet
+  partition -- so `tape` appends each print to a line-buffered file and seals the day
+  once it has ended. The memory bound is one file handle per symbol.
+
 The layering is deliberate and is what makes all of the above testable without a socket:
-`frames` parses, `detectors` and `router` decide, `writer` persists, `supervisor`
-connects. Everything except `writer` and `supervisor` is pure over injected time.
+`frames` parses, `detectors` and `router` decide, `writer` and `tape` persist,
+`supervisor` connects. Everything except `writer`, `tape` and `supervisor` is pure over
+injected time.
 
 Everything not in `__all__` is private and may change without notice.
 """
@@ -48,6 +54,7 @@ from fking.data.live.streams import (
     stream_names_for,
 )
 from fking.data.live.supervisor import LiveIngestSupervisor, SessionOutcome
+from fking.data.live.tape import SEAL_GRACE, SealedPartition, TapeCorpusWriter, spool_path
 from fking.data.live.writer import BAR_SOURCE_STREAM, LiveMarketDataWriter
 
 __all__ = [
@@ -57,6 +64,7 @@ __all__ = [
     "LIVE_STREAM_PROFILES",
     "RECONNECT_BASE_SECONDS",
     "RECONNECT_CAP_SECONDS",
+    "SEAL_GRACE",
     "AggTradeFrame",
     "BookTickerFrame",
     "CadenceGapDetector",
@@ -71,12 +79,15 @@ __all__ = [
     "LiveTrade",
     "MarkPriceFrame",
     "RoutedFrame",
+    "SealedPartition",
     "SequenceGapDetector",
     "SessionOutcome",
+    "TapeCorpusWriter",
     "WebSocketConnection",
     "combined_stream_url",
     "parse_frame",
     "read_frames",
     "reconnect_delay_seconds",
+    "spool_path",
     "stream_names_for",
 ]

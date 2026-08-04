@@ -6,10 +6,11 @@ The walk is deliberately boring, and every interesting decision in it is a refus
 interval says how many should be there and they are not, so filling them makes the claim
 false. A `disconnect` gap is a claim about *observation* -- "nothing was being watched
 between these two instants" -- and fetching the bars does not make that untrue, nor does
-it recover the trade prints from the same window, which have nowhere to land until the
-tape gets a corpus writer (`fking.data.live.router`). Marking a disconnect gap resolved
+it recover the trade prints from the same window. Marking a disconnect gap resolved
 because its bars arrived would be the reassuring answer to a question nobody asked.
-`sequence` and `absent_archive` gaps are not kline claims at all.
+`sequence` and `absent_archive` gaps are not kline claims at all -- a `sequence` gap is a
+claim about the tape, which now has a corpus (`fking.data.live.tape`) but no REST repair
+paging on `fromId` to fill it, so it stays out of `BACKFILLABLE_GAP_KINDS` until there is.
 
 **The fetch window is wider than the gap, on purpose.** One interval on each side is
 requested so that the response overlaps bars the corpus already holds -- and that overlap
