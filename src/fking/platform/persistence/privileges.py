@@ -189,6 +189,13 @@ CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
         # rows it has pruned, which is why the retention window is a decision rather
         # than a cleanup job.
         "processed_events": PrivilegeClass.APP_MUTABLE,
+        # The same open-then-close shape as `agent_run`, and classified with it rather
+        # than given a seventh class: a run is claimed, then finished exactly once. The
+        # narrowing that matters -- only the completion columns may ever change, and only
+        # from NULL -- is a `BEFORE UPDATE` trigger in 0013, because a privilege class
+        # cannot express "these three columns". DELETE is granted and unused; retention
+        # on this table is a decision nobody has had to take yet (ADR-0019).
+        "scheduler_job_run": PrivilegeClass.APP_MUTABLE,
         # Append-only: the 12 tables in schema.APPEND_ONLY_TABLES, repeated here rather
         # than derived, so that the two lists disagreeing is a test failure instead of
         # one list silently defining the other.
