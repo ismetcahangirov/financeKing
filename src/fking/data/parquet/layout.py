@@ -61,6 +61,13 @@ class PartitionGrain(StrEnum):
 DATASET_PARTITION_GRAIN: Final[Mapping[Dataset, PartitionGrain]] = {
     Dataset.KLINES: PartitionGrain.MONTHLY,
     Dataset.TRADES: PartitionGrain.DAILY,
+    # Daily, matching `TRADES`, and for the same reason rather than for symmetry: an
+    # aggregate print is one row per aggregated range and a busy symbol still files
+    # millions of them a day, so a monthly file would be the multi-gigabyte one that
+    # defeats pruning. It is also the grain the live corpus writer seals on (#146) --
+    # a partition is written whole, so the grain decides how long a spool has to live
+    # before it can become a file.
+    Dataset.AGG_TRADES: PartitionGrain.DAILY,
 }
 """Grain per dataset. Deliberately a table rather than a rule with an exception.
 

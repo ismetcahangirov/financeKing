@@ -49,7 +49,7 @@ from fking.data.parquet.schema import (
     RecordSource,
     schema_for,
 )
-from fking.data.parquet.writer import WriteOutcome, write_records
+from fking.data.parquet.writer import WriteOutcome, partition_row_count, write_records
 
 __all__ = [
     "CONTENT_DIGEST_KEY",
@@ -63,6 +63,7 @@ __all__ = [
     "WriteOutcome",
     "market_dataset_glob",
     "partition_path",
+    "partition_row_count",
     "read_connection",
     "scanned_file_count",
     "schema_for",

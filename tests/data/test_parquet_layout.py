@@ -30,6 +30,7 @@ import pytest
 
 from fking.data.archive import ArchiveCoordinate
 from fking.data.format_resolver import Dataset, Market
+from fking.data.live.streams import LIVE_STREAM_PROFILES
 from fking.data.loaders import IMPLEMENTED_DATASETS, ArchiveRecord, KlineRecord, TradeRecord
 from fking.data.parquet import (
     DATASET_PARTITION_GRAIN,
@@ -846,15 +847,26 @@ def test_no_staging_file_is_left_behind(root: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_every_dataset_with_a_parser_has_a_schema_and_a_grain() -> None:
-    """Four tables describe the same set of datasets and are maintained separately.
+def test_every_dataset_that_can_be_produced_has_a_schema_and_a_grain() -> None:
+    """The tables describing what can be stored are maintained separately, so they drift.
 
-    `DECLARED_FORMATS` says a file's format is known, `_PARSERS` says its layout can be
-    read, `DATASET_SCHEMAS` says its records can be stored, and `DATASET_PARTITION_GRAIN`
-    says where. A dataset present in one and absent from another fails at a different
-    point in the pipeline each time, so the drift is asserted rather than hoped for.
+    `_PARSERS` says an archive's layout can be read, `persisted_datasets` says a live
+    stream produces the same records from a socket, `DATASET_SCHEMAS` says those records
+    can be stored, and `DATASET_PARTITION_GRAIN` says where. A dataset present in one and
+    absent from another fails at a different point in the pipeline each time.
+
+    The relation between the first two and the third is containment, not equality, and
+    the direction matters. Every producible dataset must be storable -- a producer with
+    nowhere to write is the state the `aggTrade` tape was in before #146 -- while a schema
+    with no producer would be a column layout nobody has read, which is the failure
+    `parse_archive` refuses. So the union of the producers is exactly the schema set.
     """
-    assert set(DATASET_SCHEMAS) == set(IMPLEMENTED_DATASETS)
+    live_datasets = {
+        dataset
+        for profile in LIVE_STREAM_PROFILES.values()
+        for dataset in profile.persisted_datasets
+    }
+    assert set(DATASET_SCHEMAS) == set(IMPLEMENTED_DATASETS) | live_datasets
     assert set(DATASET_PARTITION_GRAIN) == set(DATASET_SCHEMAS)
 
 

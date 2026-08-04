@@ -182,8 +182,11 @@ class TestRefusals:
             )
 
     def test_a_dataset_with_no_declared_grain_is_refused(self) -> None:
+        # bookDepth rather than aggTrades: the tape gained a grain with the live corpus
+        # writer (#146), and a dataset nothing in this system produces records for is the
+        # case this refusal is actually about.
         undeclared = ArchiveSeries(
-            market=Market.SPOT, dataset=Dataset.AGG_TRADES, symbol="BTCUSDT", interval=None
+            market=Market.SPOT, dataset=Dataset.BOOK_DEPTH, symbol="BTCUSDT", interval=None
         )
         with pytest.raises(DataIntegrityError, match="no declared partition grain"):
             plan_partitions(
