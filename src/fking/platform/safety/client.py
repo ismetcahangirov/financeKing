@@ -34,6 +34,23 @@ _LOG: Final = structlog.get_logger(__name__)
 # are two and why they must never be merged.
 _ALLOWLIST_NAME: Final[str] = "the permitted host set (PERMITTED_HOSTS)"
 
+# The failure vocabulary of a transport this kernel constructed, named here because
+# this is the only module allowed to know what that transport is. A supervisor that
+# reconnects has to say which exceptions mean "the socket died" and which mean "stop",
+# and without this it would either import `websockets` -- which an import-linter
+# contract forbids outside the kernel -- or fall back to `except Exception`, which is
+# the blanket handler `.claude/rules/error-handling.md` exists to prevent.
+#
+# `OSError` covers the connect-time failures websockets does not wrap (DNS, refused,
+# reset); `TimeoutError` covers `open_timeout` and any deadline a caller imposes.
+# Deliberately no `Exception`: a `DataIntegrityError` from a malformed frame is not a
+# transport failure and must not be retried into.
+TRANSPORT_ERRORS: Final[tuple[type[Exception], ...]] = (
+    websockets.exceptions.WebSocketException,
+    OSError,
+    TimeoutError,
+)
+
 
 def _inspect(url: str) -> tuple[str | None, str | None]:
     """Return `(normalised_host, rejection_reason)` against the trading allowlist.

@@ -15,6 +15,7 @@ Everything not listed in `__all__` is private and may change without notice.
 from fking.platform.safety._allowlist import PERMITTED_HOSTS
 from fking.platform.safety._errors import SafetyViolation
 from fking.platform.safety.client import (
+    TRANSPORT_ERRORS,
     assert_host_permitted,
     guarded_client,
     guarded_ws_connect,
@@ -23,6 +24,7 @@ from fking.platform.safety.client import (
 
 __all__ = [
     "PERMITTED_HOSTS",
+    "TRANSPORT_ERRORS",
     "SafetyViolation",
     "assert_host_permitted",
     "guarded_client",
