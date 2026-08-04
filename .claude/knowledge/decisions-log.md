@@ -57,6 +57,7 @@ Status: **active** · **SUPERSEDED by D-NNN** · **open to revisit** (a decision
 | D-033 | Promotion-gating statistics implemented in-project against worked examples | `mlfinlab` — which no longer has an installable release | active | `docs/research/free-tier-landscape.md` §4 · VF-025 |
 | D-034 | Archive format resolved per `(market, dataset, date)`; an undeclared combination raises | Sniffing the format from the file; a per-market constant with a date branch in the loader | active | ADR 0013 · `DATA_PIPELINE.md` §3 |
 | D-035 | `data.binance.vision` reached through a second allowlist and a credential-free client, never through `PERMITTED_HOSTS` | Adding the host to `PERMITTED_HOSTS` and reusing `guarded_client()`; fetching out of band with `curl` | active | ADR 0017 · `.claude/rules/safety-kernel.md` |
+| D-036 | A filled gap is marked resolved and a partial fill narrows by inserting residual rows that inherit the original discovery instant | Updating the gap's bounds in place; deleting the row once the range is recovered | active | ADR 0018 · `DATA_PIPELINE.md` §5 |
 
 ---
 

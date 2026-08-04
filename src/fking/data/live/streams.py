@@ -55,6 +55,15 @@ class LiveStreamProfile:
     venue_id: str
     market: Market
     stream_base_url: str
+    # The REST origin the gap backfill repairs an outage from (#28), and the path it asks
+    # on. Two fields rather than one URL because spot and futures differ in the path
+    # (`/api/v3/klines` against `/fapi/v1/klines`) as well as the host, and a single
+    # concatenated string is one that gets built correctly in the profile and incorrectly
+    # at the one call site that forgets the leading slash. Both hosts are in
+    # `PERMITTED_HOSTS`; the backfill goes through `guarded_client` regardless, so a
+    # profile edit cannot reach a production endpoint.
+    rest_base_url: str
+    klines_path: str
     stream_suffixes: tuple[str, ...]
     persisted_datasets: tuple[Dataset, ...]
 
@@ -63,6 +72,8 @@ SPOT_TESTNET: Final[LiveStreamProfile] = LiveStreamProfile(
     venue_id="binance-spot-testnet",
     market=Market.SPOT,
     stream_base_url="wss://stream.testnet.binance.vision",
+    rest_base_url="https://testnet.binance.vision",
+    klines_path="/api/v3/klines",
     stream_suffixes=(f"kline_{LIVE_BAR_INTERVAL}", "aggTrade"),
     persisted_datasets=(Dataset.KLINES, Dataset.AGG_TRADES),
 )
@@ -71,6 +82,8 @@ FUTURES_TESTNET: Final[LiveStreamProfile] = LiveStreamProfile(
     venue_id="binance-futures-testnet",
     market=Market.FUTURES_UM,
     stream_base_url="wss://stream.binancefuture.com",
+    rest_base_url="https://testnet.binancefuture.com",
+    klines_path="/fapi/v1/klines",
     # markPrice@1s rather than the default 3s cadence: the mark price is what a
     # liquidation is computed against, and a three-second-old mark is three seconds of
     # unmeasured distance to it.

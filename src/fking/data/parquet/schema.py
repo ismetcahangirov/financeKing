@@ -81,6 +81,17 @@ class RecordSource(StrEnum):
 
     ARCHIVE = "archive"
     STREAM = "stream"
+    REST_BACKFILL = "rest_backfill"
+    """Recovered from the venue's REST kline endpoint after a gap was detected (#28).
+
+    A third member rather than a reuse of `STREAM`, because the difference is exactly the
+    question provenance exists to answer: a bar the socket delivered on time and a bar
+    fetched hours later to repair an outage have different latency, different reconcilers
+    behind them and different reasons to be doubted. It is still a real venue response, so
+    the standing no-synthesised-rows gate admits it -- what that gate refuses is a `source`
+    outside this enum, which is why widening the enum and widening the table's `CHECK`
+    happen in the same change (`migrations/versions/0012_gap_resolution.py`).
+    """
 
 
 # The two provenance columns every dataset carries, appended in this order so that a
