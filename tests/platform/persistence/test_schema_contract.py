@@ -29,10 +29,12 @@ from fking.platform.persistence.schema import (
     MONEY_COLUMN_SUFFIXES,
     ORDER_TYPES,
     RISK_VERDICTS,
+    SCHEDULER_JOB_OUTCOMES,
     SIDES,
     TIME_IN_FORCES,
     VENUE_IDS,
 )
+from fking.platform.scheduler import JobOutcome
 
 pytestmark = pytest.mark.unit
 
@@ -159,6 +161,9 @@ def test_identifiers_fit_postgres(table: sa.Table) -> None:
         (ORDER_TYPES, OrderType),
         (TIME_IN_FORCES, TimeInForce),
         (RISK_VERDICTS, RiskVerdict),
+        # Not a domain enum: the scheduler is platform mechanism, and its outcomes live
+        # with it. The duplication is checked for the same reason as the rest.
+        (SCHEDULER_JOB_OUTCOMES, JobOutcome),
     ],
     ids=lambda argument: getattr(argument, "__name__", "literals"),
 )

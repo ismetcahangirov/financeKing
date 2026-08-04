@@ -612,6 +612,15 @@ class TelemetrySettings(BaseModel):
         "reclaimed_count",
         "schema_version",
         "stream",
+        # The system beat. `fire_time_utc` is what a run is *for* and is the field an
+        # investigation joins on; `is_catch_up` is what separates "ingested on time" from
+        # "replayed six hours late", which is invisible from the other fields.
+        "abandoned_run_count",
+        "duration_seconds",
+        "fire_time_utc",
+        "is_catch_up",
+        "job_id",
+        "misfire_policy",
     )
 
     trace_sample_ratio: Decimal = Field(default=Decimal("0.10"), ge=0, le=1)
@@ -743,7 +752,7 @@ class ApiSettings(BaseModel):
 
 
 class SchedulerSettings(BaseModel):
-    """APScheduler configuration."""
+    """The system beat (`fking.platform.scheduler`, ADR-0019)."""
 
     model_config = _FROZEN
 
@@ -751,7 +760,13 @@ class SchedulerSettings(BaseModel):
     # reintroduces DST into a market with no session boundary to make the error obvious.
     timezone: Literal["UTC"] = "UTC"
     max_concurrent_jobs: int = Field(default=4, ge=1)
-    misfire_grace_seconds: int = Field(default=60, ge=0)
+    # The beat's resolution, not any job's cadence: a job fires within one tick of its
+    # scheduled fire time. There is no `misfire_grace_seconds` here, and its absence is
+    # the point -- a grace *window* is the setting that decides missed-run behaviour
+    # globally, and this system decides it per job, in the job's declared
+    # `MisfirePolicy`, because the correct answer differs for gap detection, ingestion
+    # and reconciliation (ADR-0019).
+    tick_interval_seconds: int = Field(default=15, ge=1, le=300)
 
 
 # ---------------------------------------------------------------------------

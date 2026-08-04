@@ -501,10 +501,14 @@ class ApiSettings(BaseSettings):
 class SchedulerSettings(BaseSettings):
     timezone: Literal["UTC"] = "UTC"
     max_concurrent_jobs: int = 4
-    misfire_grace_seconds: int = 60
+    tick_interval_seconds: int = 15
 ```
 
 `ApiSettings.host` is `Literal["127.0.0.1"]`. This stack holds exchange credentials and a Grafana on `0.0.0.0` is exposed to every device on the local network. `SchedulerSettings.timezone` is `Literal["UTC"]` — every datetime in this system is tz-aware UTC (`CLAUDE.md` §2), and a scheduler in a local timezone reintroduces DST into a market that has no session boundary to make the error obvious.
+
+**There is no `misfire_grace_seconds` here, and its absence is the point.** A grace window is a single global answer to "what happens to a run that was missed", and this system has three answers: gap detection runs once, hourly ingestion replays every missed window in order, and reconciliation runs once stamped now. So the decision lives on the job, as a required `MisfirePolicy` with no default (`fking.platform.scheduler`, ADR-0019), and there is no configuration value that could override it — which is deliberate, because the value somebody would reach for during an incident is the one that turns six distinct windows into one.
+
+`tick_interval_seconds` is the beat's *resolution*, not any job's cadence: a job fires within one tick of its scheduled fire time. Lowering it costs one `max(scheduled_fire_utc)` query per registered job per tick and buys precision no job currently needs.
 
 `pool_max_size` deserves a note: raising it is not a fix for connection exhaustion. Each connection carries `work_mem`, so raising `max_connections` converts a connection problem into a memory problem, and the memory problem manifests as an OOM kill on Postgres.
 

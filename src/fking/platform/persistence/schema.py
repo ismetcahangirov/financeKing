@@ -101,6 +101,11 @@ RETIREMENT_REASONS: Final[tuple[str, ...]] = (
 LIMIT_UNITS: Final[tuple[str, ...]] = ("usd", "ratio", "count", "per_minute")
 KILL_SWITCH_EVENTS: Final[tuple[str, ...]] = ("tripped", "cleared")
 AGENT_OUTCOMES: Final[tuple[str, ...]] = ("succeeded", "failed", "degraded")
+# Mirrors `fking.platform.scheduler.JobOutcome`, and asserted equal to it in
+# `test_schema_contract.py`. `abandoned` is not a third flavour of failure: a job that
+# failed told us something about the world, and a run claimed by a process that then died
+# tells us only that the process died, which is a different investigation.
+SCHEDULER_JOB_OUTCOMES: Final[tuple[str, ...]] = ("succeeded", "failed", "abandoned")
 
 
 def _one_of(column_name: str, permitted: tuple[str, ...]) -> sa.CheckConstraint:
@@ -1157,6 +1162,60 @@ processed_events = sa.Table(
 )
 
 # ---------------------------------------------------------------------------
+# Scheduler
+# ---------------------------------------------------------------------------
+
+scheduler_job_run = sa.Table(
+    "scheduler_job_run",
+    METADATA,
+    sa.Column("job_id", identifier(), nullable=False),
+    # What the run is *for*, never the instant it started. An hourly ingestion replaying
+    # the 04:00 window is a run of 04:00 whenever it happens, which is what makes this
+    # column half of a durable idempotency key rather than a timing observation.
+    sa.Column("scheduled_fire_utc", utc_timestamp(), nullable=False),
+    sa.Column("correlation_id", postgresql.UUID(as_uuid=True), nullable=False),
+    sa.Column("is_catch_up", sa.Boolean(), nullable=False),
+    sa.Column("finished_at_utc", utc_timestamp(), nullable=True),
+    sa.Column("outcome", identifier(), nullable=True),
+    sa.Column("failure_reason", sa.Text(), nullable=True),
+    _recorded_at_utc(),
+    # The composite primary key is the mechanism rather than an index choice, exactly as
+    # in `processed_events`: it is the arbiter that `INSERT ... ON CONFLICT DO NOTHING`
+    # needs, and it is what makes "a restart does not re-fire a window that already ran"
+    # a property of a unique index instead of of a code path.
+    sa.PrimaryKeyConstraint("job_id", "scheduled_fire_utc", name="pk_scheduler_job_run"),
+    # Partial, on the predicate the boot sweep and the overlap check both use. A beat
+    # with years of history has a handful of unfinished rows at most, and a full index
+    # over every run ever recorded would be almost entirely rows neither query can match.
+    sa.Index(
+        "ix_scheduler_job_run_unfinished",
+        "job_id",
+        "scheduled_fire_utc",
+        postgresql_where=sa.text("finished_at_utc IS NULL"),
+    ),
+    # Not `_one_of`: the column is NULL while a run is in flight, and a bare
+    # `outcome IN (...)` would reject the NULL that means "still running".
+    sa.CheckConstraint(
+        "outcome IS NULL OR outcome IN ({})".format(
+            ", ".join(f"'{member}'" for member in SCHEDULER_JOB_OUTCOMES)
+        ),
+        name="outcome_is_known",
+    ),
+    sa.CheckConstraint(
+        "(finished_at_utc IS NULL) = (outcome IS NULL)", name="completion_carries_an_outcome"
+    ),
+    # A reason belongs to a run that ended, and a run that succeeded has none to give.
+    # Without the second clause a green run could carry an explanation, which is exactly
+    # the row a later investigation would misread.
+    sa.CheckConstraint(
+        "failure_reason IS NULL OR outcome IS NOT NULL", name="reason_needs_an_outcome"
+    ),
+    sa.CheckConstraint(
+        "outcome <> 'succeeded' OR failure_reason IS NULL", name="success_carries_no_reason"
+    ),
+)
+
+# ---------------------------------------------------------------------------
 # Append-only classification
 # ---------------------------------------------------------------------------
 
@@ -1213,4 +1272,5 @@ __all__: tuple[str, ...] = (
     "MONEY_COLUMN_SUFFIXES",
     "NAMING_CONVENTION",
     "PARTITION_GRAINS",
+    "SCHEDULER_JOB_OUTCOMES",
 )

@@ -182,7 +182,11 @@ def test_a_record_emitted_inside_a_span_carries_the_trace_and_span_ids() -> None
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    previous = trace.get_tracer_provider()
+    # The raw global, not `get_tracer_provider()`: with no provider installed the
+    # accessor materialises a ProxyTracerProvider without storing it, and restoring
+    # that object as the global makes the proxy delegate to itself -- every later
+    # span in the suite then dies with RecursionError inside get_tracer.
+    previous = trace._TRACER_PROVIDER
     trace._TRACER_PROVIDER = provider  # the SDK has no public replacement
     try:
         with correlation_scope(CORRELATION_ID), traced("risk.evaluate"):
@@ -300,7 +304,11 @@ def test_a_rendered_line_matches_grafana_s_trace_id_derived_field() -> None:
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    previous = trace.get_tracer_provider()
+    # The raw global, not `get_tracer_provider()`: with no provider installed the
+    # accessor materialises a ProxyTracerProvider without storing it, and restoring
+    # that object as the global makes the proxy delegate to itself -- every later
+    # span in the suite then dies with RecursionError inside get_tracer.
+    previous = trace._TRACER_PROVIDER
     trace._TRACER_PROVIDER = provider  # the SDK has no public replacement
     try:
         with correlation_scope(CORRELATION_ID), traced("risk.evaluate"):

@@ -233,7 +233,11 @@ Metrics may carry a float approximation for graphing. The authoritative value go
 | `fking_platform_bus_lag_messages` | gauge | stream, consumer_group |
 | `fking_platform_bus_dlq_depth` | gauge | stream |
 | `fking_platform_audit_write_failures_total` | counter | table |
+| `fking_platform_scheduler_job_runs_total` | counter | job_id, outcome |
+| `fking_platform_scheduler_overlaps_refused_total` | counter | job_id |
 | `fking_telemetry_spans_dropped_total` | counter | — |
+
+`fking_platform_scheduler_overlaps_refused_total` deserves a note because a zero reading and a missing series look identical on a panel. A run is refused when the previous run of the same job is still in flight, and it is **refused rather than queued**: a queued run fires at a time nobody scheduled, against a window that has since moved, and two of them write the same Parquet partition. So a sustained non-zero value is not a transient — it says the job is slower than its cadence, and either the cadence or the job has to change. `job_id` is bounded by the registered job catalogue rather than by traffic, which is why it is a permitted label here (`fking.platform.scheduler`, ADR-0019).
 
 `fking_platform_allowlist_rejections_total` is labelled by host, which looks like it violates the cardinality rule. It does not: the label is the *rejected* host, and in correct operation the metric is always zero. A non-zero value is a critical incident, and knowing which host was attempted is the entire value of the metric. If it ever becomes high-cardinality, the system is being probed and the cardinality is the least of the problems.
 

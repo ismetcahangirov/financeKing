@@ -193,6 +193,11 @@ ignore = [
 # that away. The suite asserts the schedule, not the entropy.
 "tests/data/test_live_backoff.py" = ["S101", "S311"]
 "tests/data/test_live_ingestion.py" = ["S101", "S311"]
+# DTZ001: two naive datetimes on purpose. One is the anchor the schedule must refuse; the
+# others are Hypothesis's `st.datetimes` bounds, which the strategy requires to be naive
+# whenever `timezones=` is supplied -- an aware bound there is a TypeError from Hypothesis,
+# so the DTZ-clean spelling is the one that cannot run.
+"tests/platform/scheduler/test_schedule.py" = ["S101", "DTZ001"]
 # DTZ001: the same, one file over -- the naive `as_of` the feature store must refuse.
 # The rule exists so that a naive datetime never reaches the system by accident; a test
 # that constructs one on purpose, to prove it is rejected, is the one place it must.

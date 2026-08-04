@@ -30,12 +30,19 @@ def span_exporter() -> Iterator[InMemorySpanExporter]:
     the first -- so the previous one is swapped back through the private attribute rather
     than through `set_tracer_provider`. Test-support only, and the alternative is a suite
     in which exactly one test can install a provider.
+
+    The previous value is read from the raw global rather than from
+    `get_tracer_provider()`, and that distinction is load-bearing. With no provider
+    installed the accessor *materialises* a `ProxyTracerProvider` without storing it, and
+    restoring that object as the global makes the proxy delegate to itself: the next test
+    anywhere in the suite that opens a span dies with `RecursionError` inside
+    `get_tracer`, attributed to whichever test happened to run next.
     """
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
 
-    previous = trace.get_tracer_provider()
+    previous = trace._TRACER_PROVIDER  # may be None, and restoring None is the point
     trace._TRACER_PROVIDER = provider  # the SDK has no public replacement
     reset_instrument_cache()
     try:
