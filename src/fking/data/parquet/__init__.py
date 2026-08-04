@@ -40,6 +40,7 @@ from fking.data.parquet.layout import (
     partition_path,
 )
 from fking.data.parquet.reader import read_connection, scanned_file_count
+from fking.data.parquet.records import read_partition_trades
 from fking.data.parquet.schema import (
     CONTENT_DIGEST_KEY,
     DATASET_SCHEMAS,
@@ -49,7 +50,13 @@ from fking.data.parquet.schema import (
     RecordSource,
     schema_for,
 )
-from fking.data.parquet.writer import WriteOutcome, partition_row_count, write_records
+from fking.data.parquet.writer import (
+    SourcedRecord,
+    WriteOutcome,
+    partition_row_count,
+    write_records,
+    write_sourced_records,
+)
 
 __all__ = [
     "CONTENT_DIGEST_KEY",
@@ -60,12 +67,15 @@ __all__ = [
     "TIMESTAMP_TYPE",
     "PartitionGrain",
     "RecordSource",
+    "SourcedRecord",
     "WriteOutcome",
     "market_dataset_glob",
     "partition_path",
     "partition_row_count",
     "read_connection",
+    "read_partition_trades",
     "scanned_file_count",
     "schema_for",
     "write_records",
+    "write_sourced_records",
 ]

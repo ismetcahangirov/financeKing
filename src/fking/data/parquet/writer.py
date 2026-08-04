@@ -22,6 +22,23 @@ is not part of what the file said -- and a matching digest declines the rewrite.
 is inside the digest because a stream-written month later re-fetched from the archive is
 the one rewrite that must happen.
 
+**The digest normalises a decimal's scale; the file does not.** `str(Decimal("1.50"))` and
+`str(Decimal("1.5"))` differ, and hashing them as different facts is what
+`.claude/rules/idempotency.md` already refuses for an idempotency key, for the reason that
+applies exactly here: they are one economic quantity spelled two ways. The distinction is
+not academic once a partition is read back and merged into -- a `decimal128(38, 18)` column
+returns every value at eighteen places, so a record that goes in as `1.50` comes out as
+`1.500000000000000000`, and a scale-sensitive digest would report a rewrite on every repair
+pass over a range that had already been repaired. What lands in the column is unchanged: it
+is the venue's value at the schema's scale either way.
+
+**Provenance is per row, not per batch.** `write_records` takes one `source` because the
+archive path writes one; `write_sourced_records` takes one per record because a partition
+that has been repaired holds prints the socket delivered *and* prints REST returned
+afterwards, and those are the two things `source` exists to tell apart
+(`DATA_PIPELINE.md` section 6, gate 11). Collapsing them to whichever arrived last would
+answer "which rows came from a live stream" with a guess.
+
 The clock is a parameter. A writer that called `datetime.now(UTC)` would make "writing
 the same batch twice" untestable, and every `ingested_at_utc` in the corpus would be
 unreproducible from the audit trail.
@@ -53,7 +70,13 @@ from fking.data.parquet.layout import (
 from fking.data.parquet.schema import CONTENT_DIGEST_KEY, RecordSource, schema_for
 from fking.platform.errors import DataIntegrityError
 
-__all__ = ["WriteOutcome", "partition_row_count", "write_records"]
+__all__ = [
+    "SourcedRecord",
+    "WriteOutcome",
+    "partition_row_count",
+    "write_records",
+    "write_sourced_records",
+]
 
 # ZSTD level 3 (DATA_PIPELINE.md section 6). Level 3 rather than the maximum because the
 # corpus is scanned far more often than it is written: past 3 the decompression cost
@@ -95,6 +118,25 @@ class WriteOutcome:
     was_rewritten: bool
 
 
+@dataclass(frozen=True, slots=True)
+class SourcedRecord[RecordT: ArchiveRecord]:
+    """One record and where it came from.
+
+    A pair rather than a field on the record, because provenance is a fact about how a
+    row reached the corpus and not about the bar or the print itself: `KlineRecord` and
+    `TradeRecord` are what the venue said, and a `source` inside them would be the first
+    field of a canonical record that no source could ever fill in.
+
+    Generic over the record so a reader that returns prints returns
+    `SourcedRecord[TradeRecord]` and its caller can reach `venue_trade_id` without a cast.
+    The parameter is inferred covariant -- the field is read-only on a frozen dataclass --
+    so a sequence of prints is still a sequence this module can write.
+    """
+
+    record: RecordT
+    source: RecordSource
+
+
 def write_records(
     records: Sequence[ArchiveRecord],
     *,
@@ -103,13 +145,16 @@ def write_records(
     ingested_at_utc: datetime,
     root: Path,
 ) -> WriteOutcome:
-    """Write `records` to the one Parquet file `coordinate` names.
+    """Write `records`, all from one source, to the one Parquet file `coordinate` names.
+
+    The uniform case, which is every archive read and every live tape seal. A partition
+    that mixes provenance goes through `write_sourced_records`.
 
     Args:
         records: Accepted records from one parse. Order is irrelevant -- they are sorted
             here -- but every one must fall inside `coordinate`'s partition.
         coordinate: Which market, dataset, symbol, interval and date this batch is.
-        source: `archive` or `stream`. Part of the content digest.
+        source: `archive`, `stream` or `rest_backfill`. Part of the content digest.
         ingested_at_utc: Wall time of the write, injected. Aware UTC.
         root: The corpus root, typically `data/parquet`.
 
@@ -118,8 +163,36 @@ def write_records(
             dataset, `ingested_at_utc` is not aware UTC, or a record falls outside the
             partition `coordinate` names.
     """
+    return write_sourced_records(
+        tuple(SourcedRecord(record, source) for record in records),
+        coordinate=coordinate,
+        ingested_at_utc=ingested_at_utc,
+        root=root,
+    )
+
+
+def write_sourced_records(
+    sourced: Sequence[SourcedRecord[ArchiveRecord]],
+    *,
+    coordinate: ArchiveCoordinate,
+    ingested_at_utc: datetime,
+    root: Path,
+) -> WriteOutcome:
+    """Write records carrying their own provenance to the file `coordinate` names.
+
+    The order `sourced` arrives in is preserved within one instant, because the sort is
+    stable and event time is not a total order over a trade tape. A caller that has
+    already reconciled a merge -- `fking.data.backfill.seam.reconcile_trades` orders by
+    `(instant, aggregate id)` -- gets that order on disk, which is what makes the content
+    digest a function of the content rather than of the merge.
+
+    Raises:
+        DataIntegrityError: the batch is empty, a record's type does not match the
+            dataset, `ingested_at_utc` is not aware UTC, or a record falls outside the
+            partition `coordinate` names.
+    """
     _require_aware_utc(ingested_at_utc)
-    if not records:
+    if not sourced:
         raise DataIntegrityError(
             f"refusing to write an empty batch for {coordinate.dataset.value} "
             f"{coordinate.symbol} {coordinate.archive_date.isoformat()}. Once on disk a "
@@ -129,11 +202,12 @@ def write_records(
         )
 
     schema = schema_for(coordinate.dataset)
+    records = tuple(entry.record for entry in sourced)
     _require_matching_record_type(records, coordinate)
-    ordered = sorted(records, key=_event_time_of)
-    _require_inside_partition(ordered, coordinate)
+    ordered = sorted(sourced, key=lambda entry: _event_time_of(entry.record))
+    _require_inside_partition(tuple(entry.record for entry in ordered), coordinate)
 
-    digest_hex = _content_digest(ordered, source=source)
+    digest_hex = _content_digest(ordered)
     path = partition_path(coordinate, root=root)
     if _already_holds(path, digest_hex):
         return WriteOutcome(
@@ -145,11 +219,7 @@ def write_records(
         )
 
     table = _to_table(
-        ordered,
-        schema=schema,
-        source=source,
-        ingested_at_utc=ingested_at_utc,
-        digest_hex=digest_hex,
+        ordered, schema=schema, ingested_at_utc=ingested_at_utc, digest_hex=digest_hex
     )
     _write_atomically(table, path)
     return WriteOutcome(
@@ -273,21 +343,38 @@ def _event_time_of(record: ArchiveRecord) -> datetime:
     return record.event_time_utc
 
 
-def _content_digest(records: Sequence[ArchiveRecord], *, source: RecordSource) -> str:
+def _canonical_decimal(quantity: Decimal) -> str:
+    """A decimal as one string per quantity, whatever scale it arrived at.
+
+    `normalize()` strips trailing zeros, so `Decimal("1.50")` and `Decimal("1.5")` hash
+    alike -- the same normalisation, for the same reason, as the idempotency key in
+    `.claude/rules/idempotency.md`. Formatted with `f` rather than `str` because
+    `normalize()` produces scientific notation above the context's precision
+    (`Decimal("1E+3")`), and two spellings of one thousand would put the problem back.
+
+    The file is unaffected: the column is `decimal128(38, 18)` and stores the venue's
+    value at the schema's scale either way. What changes is that a partition read back out
+    of Parquet -- where every value returns at eighteen places -- digests to the same
+    string as the batch that was written, so a repair pass over an already-repaired range
+    is a genuine no-op rather than a rewrite of identical data.
+    """
+    return format(quantity.normalize(), "f")
+
+
+def _content_digest(sourced: Sequence[SourcedRecord[ArchiveRecord]]) -> str:
     """SHA-256 over the sorted records and their provenance, excluding the write clock.
 
     Fields are joined with a separator that cannot occur in any of them, so that two
     different field splits cannot produce the same byte string -- `"1|23"` and `"12|3"`
-    hash differently, which they would not under bare concatenation. `Decimal` is
-    formatted with `str`, preserving scale: `Decimal("1.50")` and `Decimal("1.5")` are the
-    same quantity but not the same thing the archive filed, and a corrected trailing digit
-    upstream is a rewrite we want.
+    hash differently, which they would not under bare concatenation. Each record's
+    `source` is hashed with the record rather than once for the batch, because a repaired
+    partition holds rows from two of them and a batch-level digest could not tell a
+    stream-only file from a repaired one with the same rows.
     """
     hasher = hashlib.sha256()
-    hasher.update(source.value.encode("utf-8"))
-    for record in records:
+    for entry in sourced:
         hasher.update(b"\x1e")  # record separator
-        for value in _digest_fields(record):
+        for value in (*_digest_fields(entry.record), entry.source.value):
             hasher.update(b"\x1f")  # unit separator
             hasher.update(value.encode("utf-8"))
     return hasher.hexdigest()
@@ -298,40 +385,39 @@ def _digest_fields(record: ArchiveRecord) -> tuple[str, ...]:
         return (
             record.open_time_utc.isoformat(),
             record.close_time_utc.isoformat(),
-            str(record.open_quote_price),
-            str(record.high_quote_price),
-            str(record.low_quote_price),
-            str(record.close_quote_price),
-            str(record.base_volume),
-            str(record.quote_volume),
+            _canonical_decimal(record.open_quote_price),
+            _canonical_decimal(record.high_quote_price),
+            _canonical_decimal(record.low_quote_price),
+            _canonical_decimal(record.close_quote_price),
+            _canonical_decimal(record.base_volume),
+            _canonical_decimal(record.quote_volume),
             str(record.trade_count),
-            str(record.taker_buy_base_volume),
-            str(record.taker_buy_quote_volume),
+            _canonical_decimal(record.taker_buy_base_volume),
+            _canonical_decimal(record.taker_buy_quote_volume),
         )
     return (
         record.venue_trade_id,
         record.event_time_utc.isoformat(),
-        str(record.quote_price),
-        str(record.base_quantity),
-        str(record.quote_quantity),
+        _canonical_decimal(record.quote_price),
+        _canonical_decimal(record.base_quantity),
+        _canonical_decimal(record.quote_quantity),
         str(record.is_buyer_maker),
         str(record.is_best_match),
     )
 
 
 def _to_table(
-    records: Sequence[ArchiveRecord],
+    sourced: Sequence[SourcedRecord[ArchiveRecord]],
     *,
     schema: pa.Schema,
-    source: RecordSource,
     ingested_at_utc: datetime,
     digest_hex: str,
 ) -> pa.Table:
     columns: dict[str, list[object]] = {name: [] for name in schema.names}
-    for record in records:
-        for name, value in _row_of(record).items():
+    for entry in sourced:
+        for name, value in _row_of(entry.record).items():
             columns[name].append(value)
-        columns["source"].append(source.value)
+        columns["source"].append(entry.source.value)
         columns["ingested_at_utc"].append(ingested_at_utc)
     stamped = schema.with_metadata({CONTENT_DIGEST_KEY: digest_hex.encode("utf-8")})
     return pa.table(columns, schema=stamped)

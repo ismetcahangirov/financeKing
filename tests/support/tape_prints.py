@@ -19,6 +19,20 @@ so the records under test have been through the production parser and nothing el
 `shift_to` re-bases the recorded milliseconds onto a test's own instant and touches
 nothing else: prices, quantities, sides and aggregate trade ids stay exactly as recorded,
 which is what makes a seam comparison in a test a comparison of real venue values.
+
+`tiled` repeats the recording end to end with its instants and its aggregate ids advanced
+each time, which is how a fixture longer than the recording is built without inventing a
+print: every price, quantity and side is still the venue's, and only the two fields
+`shift_to` already re-bases are moved. It exists because the endpoint's page maximum is a
+thousand prints, so the paging walk cannot be exercised at all by a ninety-four-frame
+capture.
+
+`rest_page` renders the same payloads as `/api/v3/aggTrades` returns them. That is a
+transcription rather than an invention: the REST row and the stream payload carry the same
+keys with the same encoding -- `a`, `p`, `q`, `f`, `l`, `T`, `m` -- and the REST row simply
+lacks the three the stream envelope adds (`e`, `E`, `s`). Dropping those three is the whole
+conversion, so a page built this way encodes the venue's spelling of every field a parser
+reads rather than this module's.
 """
 
 from __future__ import annotations
@@ -32,7 +46,16 @@ from fking.data.live.frames import AggTradeFrame, parse_frame
 from fking.data.loaders.records import TradeRecord
 from tests.support.stream_fixtures import recorded_streams
 
-__all__ = ["SPOT_VENUE_ID", "StreamPayload", "prints", "recorded_payloads", "shift_to"]
+__all__ = [
+    "SPOT_VENUE_ID",
+    "StreamPayload",
+    "prints",
+    "recorded_payloads",
+    "rest_page",
+    "rest_rows",
+    "shift_to",
+    "tiled",
+]
 
 StreamPayload = dict[str, object]
 """One decoded `aggTrade` frame payload, as `json.loads` hands it over.
@@ -133,3 +156,44 @@ def _record(payload: StreamPayload, *, now_utc: datetime) -> TradeRecord:
 
 def _epoch_ms(moment: datetime) -> int:
     return (int(moment.timestamp()) * 1000) + (moment.microsecond // 1000)
+
+
+# The three keys the combined-stream envelope adds and the REST row does not carry. `M` is
+# present on spot and absent on USDⓈ-M futures, and the parser reads neither, so it is left
+# exactly as recorded rather than removed here.
+_STREAM_ONLY_KEYS: Final[tuple[str, ...]] = ("e", "E", "s")
+
+
+def rest_rows(payloads: Sequence[StreamPayload]) -> tuple[StreamPayload, ...]:
+    """The recorded payloads as `/aggTrades` rows: the same keys, minus the envelope's."""
+    return tuple(
+        {key: value for key, value in payload.items() if key not in _STREAM_ONLY_KEYS}
+        for payload in payloads
+    )
+
+
+def rest_page(payloads: Sequence[StreamPayload]) -> str:
+    """One `/aggTrades` response body, byte-for-byte the shape the endpoint returns."""
+    return json.dumps(list(rest_rows(payloads)))
+
+
+def tiled(payloads: Sequence[StreamPayload], *, repeats: int) -> tuple[StreamPayload, ...]:
+    """`repeats` copies of `payloads`, each starting where the previous one ended.
+
+    Aggregate ids stay contiguous across the join and instants keep advancing, so the
+    result is a tape the sequence detector and the paging walk both read as one run. Only
+    `a`, `E` and `T` move; prices, quantities and sides are the recording's.
+    """
+    if not payloads:
+        return ()
+    span_ms = _recorded_epoch(payloads[-1], "T") - _recorded_epoch(payloads[0], "T")
+    id_span = _recorded_epoch(payloads[-1], "a") - _recorded_epoch(payloads[0], "a") + 1
+    stretched: list[StreamPayload] = []
+    for repeat in range(repeats):
+        for payload in payloads:
+            moved = dict(payload)
+            for field_name in _EPOCH_FIELDS:
+                moved[field_name] = _recorded_epoch(payload, field_name) + repeat * (span_ms + 1)
+            moved["a"] = _recorded_epoch(payload, "a") + repeat * id_span
+            stretched.append(moved)
+    return tuple(stretched)

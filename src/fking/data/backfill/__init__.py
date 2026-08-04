@@ -18,7 +18,9 @@ after four hours resumes without re-deriving what it already holds.
 | `report` | What the run says it did, including what it rejected |
 | `rest` | The venue's public kline endpoint, for gap repair and nothing else |
 | `seam` | Merging a fetched page into what the corpus holds, refusing disagreement |
-| `gaps` | The repair pass: fetch wide, reconcile, write, narrow the gap by what arrived |
+| `gaps` | The kline repair: fetch wide, reconcile, write, narrow the gap by what arrived |
+| `agg_trades` | The venue's public `aggTrades` endpoint, paged on `fromId` |
+| `trade_gaps` | The tape repair: derive the missing id range, fetch it, rewrite the day |
 
 Four properties are load-bearing, and each closes a failure that is silent without it.
 
@@ -48,12 +50,25 @@ narrows it rather than closing it.** The row keeps its bounds and its discovery 
 because the range was still holed for every backtest that ran before the repair; and a
 partially backfilled gap recorded as closed is worse than an open one, because the
 coverage report then tells `backtest` it may run (#28).
+
+**The two repairs page on different things, and that is not a style difference.** A bar is
+a time window, so `gaps` walks one. A trade tape is not: a `sequence` gap between two prints
+that share a millisecond has one-millisecond bounds, and no time window can address the
+prints inside it. `trade_gaps` derives the missing aggregate-id range from the venue's own
+monotone counter and pages on `fromId` (#149).
 """
 
 from __future__ import annotations
 
+from typing import Final
+
+from fking.data.backfill.agg_trades import (
+    AggTradeRestSource,
+    GuardedAggTradeRest,
+    parse_agg_trade_page,
+)
 from fking.data.backfill.gaps import (
-    BACKFILLABLE_GAP_KINDS,
+    KLINE_BACKFILLABLE_GAP_KINDS,
     BackfillOutcome,
     KlineGapBackfiller,
 )
@@ -66,6 +81,7 @@ from fking.data.backfill.plan import (
 )
 from fking.data.backfill.registry import (
     NO_INTERVAL,
+    STREAM_TIMESTAMP_RESOLUTION,
     CoverageRow,
     GapKind,
     GapResolution,
@@ -79,11 +95,28 @@ from fking.data.backfill.registry import (
 from fking.data.backfill.report import BackfillReport, SymbolReport
 from fking.data.backfill.rest import GuardedKlineRest, KlineRestSource, parse_kline_page
 from fking.data.backfill.runner import BackfillRequest, run_backfill
-from fking.data.backfill.seam import KlineSeam, reconcile_klines
+from fking.data.backfill.seam import KlineSeam, TradeSeam, reconcile_klines, reconcile_trades
+from fking.data.backfill.trade_gaps import (
+    TRADE_BACKFILLABLE_GAP_KINDS,
+    TradeBackfillOutcome,
+    TradeGapBackfiller,
+)
+
+# Every gap kind some repair in this package can close. The union lives here rather than in
+# either repair module, because each of those legitimately knows only its own dataset and
+# neither can import the other -- while a reader asking "is this gap repairable at all",
+# which is what a coverage report and the availability contract ask, needs both answers.
+BACKFILLABLE_GAP_KINDS: Final[frozenset[GapKind]] = (
+    KLINE_BACKFILLABLE_GAP_KINDS | TRADE_BACKFILLABLE_GAP_KINDS
+)
 
 __all__ = [
     "BACKFILLABLE_GAP_KINDS",
+    "KLINE_BACKFILLABLE_GAP_KINDS",
     "NO_INTERVAL",
+    "STREAM_TIMESTAMP_RESOLUTION",
+    "TRADE_BACKFILLABLE_GAP_KINDS",
+    "AggTradeRestSource",
     "ArchiveSeries",
     "BackfillOutcome",
     "BackfillReport",
@@ -91,6 +124,7 @@ __all__ = [
     "CoverageRow",
     "GapKind",
     "GapResolution",
+    "GuardedAggTradeRest",
     "GuardedKlineRest",
     "IngestRegistry",
     "IngestedFile",
@@ -104,9 +138,14 @@ __all__ = [
     "PlannedArchive",
     "RecordedGap",
     "SymbolReport",
+    "TradeBackfillOutcome",
+    "TradeGapBackfiller",
+    "TradeSeam",
     "discover_earliest_archive_date",
+    "parse_agg_trade_page",
     "parse_kline_page",
     "plan_partitions",
     "reconcile_klines",
+    "reconcile_trades",
     "run_backfill",
 ]

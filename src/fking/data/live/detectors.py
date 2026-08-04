@@ -29,7 +29,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-from fking.data.backfill.registry import GapKind, RecordedGap
+from fking.data.backfill.registry import STREAM_TIMESTAMP_RESOLUTION, GapKind, RecordedGap
 from fking.platform.errors import DataIntegrityError
 
 __all__ = [
@@ -47,10 +47,9 @@ __all__ = [
 # connected and silent is noticed inside two minutes rather than at the next restart.
 CADENCE_GRACE: Final[timedelta] = timedelta(seconds=90)
 
-# Binance stream event times are milliseconds, so two prints can legitimately share an
-# instant. This is the smallest region a gap between them can occupy; see
-# `SequenceGapDetector.observe`.
-STREAM_TIMESTAMP_RESOLUTION: Final[timedelta] = timedelta(milliseconds=1)
+# Re-exported rather than declared, because the tape repair's residual bounds have to be
+# the same width as the gaps this detector opens and neither module can import the other
+# (`fking.data.backfill.registry` carries the constant and the argument).
 
 
 class SequenceGapDetector:
