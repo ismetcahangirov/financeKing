@@ -50,7 +50,14 @@ from fking.data.quality.gates import (
     detect_cadence_gaps,
     flag_price_discontinuities,
 )
-from fking.data.quality.ingest import IngestionOutcome, gate_archive, ingest_archive
+from fking.data.quality.ingest import (
+    ArchiveMember,
+    IngestionOutcome,
+    PartitionIngestion,
+    gate_archive,
+    ingest_archive,
+    ingest_partition,
+)
 from fking.data.quality.standing import (
     SynthesisedRowReport,
     assert_no_synthesised_rows,
@@ -62,9 +69,11 @@ __all__ = [
     "CONTINUITY_LOWER_RATIO",
     "CONTINUITY_UPPER_RATIO",
     "OHLC_REJECTION_CEILING",
+    "ArchiveMember",
     "CadenceGap",
     "Gate",
     "IngestionOutcome",
+    "PartitionIngestion",
     "PriceContinuityFlag",
     "QualityGateError",
     "SynthesisedRowReport",
@@ -82,4 +91,5 @@ __all__ = [
     "flag_price_discontinuities",
     "gate_archive",
     "ingest_archive",
+    "ingest_partition",
 ]

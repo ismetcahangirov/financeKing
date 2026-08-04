@@ -757,7 +757,7 @@ def test_an_empty_batch_is_refused(root: Path) -> None:
     """An empty file is indistinguishable from a gap once it is on disk.
 
     A day with no prints is a real observation and it is recorded by the coverage
-    registry (#26), not by a zero-row Parquet file that a later scan reads as "we have
+    registry, not by a zero-row Parquet file that a later scan reads as "we have
     this month" (`DATA_PIPELINE.md` section 4).
     """
     with pytest.raises(DataIntegrityError, match="empty"):

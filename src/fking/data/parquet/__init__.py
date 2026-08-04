@@ -26,8 +26,9 @@ The module is named for what it holds. `import pyarrow.parquet` inside it is an 
 import and resolves to the library, not to this package.
 
 This package writes and reads; it does not decide *what* to write. The backfill that
-iterates coordinates is #26 and the quality gate that can block a write is #25 -- gate 11
-of that gate queries the `source` column, which is why provenance is written here.
+iterates coordinates is `fking.data.backfill`, and the gate that can block a write is
+`fking.data.quality` -- gate 11 of which queries the `source` column, which is why
+provenance is written here.
 """
 
 from __future__ import annotations
