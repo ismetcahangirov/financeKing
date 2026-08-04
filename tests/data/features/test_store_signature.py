@@ -124,9 +124,6 @@ async def test_a_zero_lookback_is_refused() -> None:
 async def test_appending_nothing_opens_no_transaction() -> None:
     """An empty recomputation is a no-op, not an empty transaction against a database
     this fixture is not even connected to -- which is what proves it short-circuits."""
-    assert (
-        await FeatureValueWriter(create_async_engine("postgresql+asyncpg://unused/unused")).append(
-            _REF, ()
-        )
-        == 0
-    )
+    writer = FeatureValueWriter(create_async_engine("postgresql+asyncpg://unused/unused"))
+    written = await writer.append(_REF, ())
+    assert written == 0

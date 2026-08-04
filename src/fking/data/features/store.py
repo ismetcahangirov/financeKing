@@ -104,8 +104,11 @@ class FeatureStore(Protocol):
     async def load(
         self, feature: FeatureRef, *, as_of: datetime, lookback: timedelta
     ) -> FeatureSeries:
-        """Values as they were knowable at `as_of`, over `(as_of - lookback, as_of]`."""
-        ...
+        """Values as they were knowable at `as_of`, over `(as_of - lookback, as_of]`.
+
+        The docstring is the whole body. A trailing `...` after it is a statement with
+        no effect, and CodeQL is right to say so.
+        """
 
 
 class PostgresFeatureStore:

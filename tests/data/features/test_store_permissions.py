@@ -275,8 +275,11 @@ async def test_writing_the_same_point_twice_is_idempotent(ingest_engine: AsyncEn
     points = (
         FeaturePoint(event_time_utc=_EVENT, available_at_utc=_EVENT, feature_value=Decimal("0.25")),
     )
-    assert await writer.append(_REF, points) == 1
-    assert await writer.append(_REF, points) == 0
+    # The write is not inside the assert: `python -O` strips assert statements and would
+    # take the INSERT with them, leaving a test that passes having written nothing.
+    first_pass = await writer.append(_REF, points)
+    second_pass = await writer.append(_REF, points)
+    assert (first_pass, second_pass) == (1, 0)
 
 
 @pytest.mark.asyncio
@@ -293,7 +296,8 @@ async def test_a_written_series_reads_back_through_the_as_of_path(
         )
         for step in range(_STEP_COUNT)
     )
-    assert await writer.append(_REF, points) == _STEP_COUNT
+    written = await writer.append(_REF, points)
+    assert written == _STEP_COUNT
 
     series = await PostgresFeatureStore(app_engine).load(_REF, as_of=_EVENT, lookback=_LOOKBACK)
     assert series.as_of == _EVENT
