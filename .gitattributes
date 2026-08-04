@@ -21,3 +21,10 @@ uv.lock linguist-generated=true
 # to invalidate the corpus silently.
 tests/fixtures/archives/**/*.csv text eol=lf
 tests/fixtures/archives/**/*.zip binary
+
+# The corrupted corpus is derived from those recordings and asserted byte for byte against
+# a re-run of its generator. It needs the same protection and needs it more: the members
+# are STORED rather than deflated, so a corrupt .zip is mostly ASCII CSV and git's text
+# heuristic classifies it as text. Any end-of-line translation then rewrites the archive,
+# and the re-derivation fails on the platform that did the translating.
+tests/fixtures/corrupt/**/*.zip binary

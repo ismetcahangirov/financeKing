@@ -1,10 +1,10 @@
 {
-  "corrupt_archive_sha256": "bfaa4da133eb7ba4b2a552e266d00597cf2df4ba610839b7c16cf61130e0bf47",
+  "corrupt_archive_sha256": "a0e6614c7079340eb0844d8e18403b9ab52197c6856e558eb2aff183cdd5eb39",
   "gate": "8 - bar cadence (reported, never refused)",
   "member_name": "BTCUSDT-1m-2025-01-02.csv",
   "mutation": "remove_a_bar_block",
   "name": "spot_klines_gapped_bar_block",
-  "pristine_archive_sha256": "5a973faa79550ccedd81724523d526da8812ea87a06a0fa0711e0a2938b6de78",
+  "pristine_archive_sha256": "413d58c6ef6ea664e3667c2cf008ad702cfb7af9974a6e60e1e47906168fd961",
   "rationale": "A gap is information about the world -- an outage, a maintenance window, a delisting -- and filling it manufactures a price path that never traded. A synthesised bar has zero realised volatility and perfect mean reversion, which is catnip to exactly the strategies this system is trying to reject.",
   "source_member_sha256": "d598bb132154bd1d60b75092a9e0482f1de184ec5b670a2da463b3061703ef28",
   "source_recording": "spot/klines/BTCUSDT-1m"

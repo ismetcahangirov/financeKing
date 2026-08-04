@@ -1,10 +1,10 @@
 {
-  "corrupt_archive_sha256": "25684963ab7f903c3b0419f11b7647d702b54ac8b0e7f04ada034e6cfb22c854",
+  "corrupt_archive_sha256": "7e7f3bd872ab7a18a084602a56ac93a3b094e379eca2c497f23a14ec3d1bc572",
   "gate": "2 - header expectation",
   "member_name": "BTCUSDT-1m-2025-01-02.csv",
   "mutation": "strip_the_header",
   "name": "futures_klines_header_stripped",
-  "pristine_archive_sha256": "6b5c6792262fa6601f41c0ebbed685b2f470bae588a776079a35f00f7faf4a56",
+  "pristine_archive_sha256": "48b5f94869834258d06afa98f46501aee7d1dea19e38b63de398071ea11549b5",
   "rationale": "Futures kline archives carry a header. Reading one as though it did not parses the string 'open_time' as a timestamp, which a lenient parser coerces to a bar at the Unix epoch.",
   "source_member_sha256": "b0876224fe1b3e1c6629edc962b42e6229f7c7d639d8b8ad0e13936cd9f78fe8",
   "source_recording": "futures_um/klines/BTCUSDT-1m"

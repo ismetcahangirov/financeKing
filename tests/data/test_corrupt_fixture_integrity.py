@@ -11,10 +11,19 @@ pins the pristine bytes, and this pins everything downstream of them.
 
 from __future__ import annotations
 
+import zipfile
+from io import BytesIO
+
 import pytest
 
 from tests.support import corrupt_fixtures
 from tests.support.corrupt_fixtures import CorruptArchive
+from tools.corrupt_archive_fixture import (
+    _ZIP_CREATE_SYSTEM_UNIX as ZIP_CREATE_SYSTEM_UNIX,
+)
+from tools.corrupt_archive_fixture import (
+    _ZIP_MEMBER_TIME as ZIP_MEMBER_TIME,
+)
 from tools.corrupt_archive_fixture import CORRUPTIONS, Corruption, build
 
 pytestmark = pytest.mark.unit
@@ -50,6 +59,31 @@ def test_rederiving_the_mutation_reproduces_the_committed_bytes(corruption: Corr
     assert committed.read() == corrupted
     assert committed.corrupt_archive_sha256 == sidecar["corrupt_archive_sha256"]
     assert committed.pristine_archive_sha256 == sidecar["pristine_archive_sha256"]
+
+
+@pytest.mark.parametrize("corrupt", ALL_CORRUPT, ids=lambda corrupt: corrupt.name)
+def test_every_member_declares_a_platform_independent_zip_header(
+    corrupt: CorruptArchive,
+) -> None:
+    """The derivation must not depend on the OS that ran it.
+
+    `zipfile.ZipInfo.__init__` sets `create_system` to 0 on Windows and 3 elsewhere, and
+    the field sits in the central directory at the *end* of the archive. Left at its
+    default, a corpus generated on Windows and re-derived on Linux differs in one byte per
+    member -- which presents as every fixture being stale at once while the archive bytes
+    look correct right up to the footer. Asserted here so a regeneration that reintroduces
+    the drift fails on the property rather than as nineteen unexplained mismatches.
+
+    The truncated fixture is excluded: it has no readable central directory, which is the
+    whole point of it.
+    """
+    if corrupt.name in corrupt_fixtures.VERIFIED_BEFORE_CORRUPTION:
+        pytest.skip("a truncated archive has no central directory to declare anything in")
+    with zipfile.ZipFile(BytesIO(corrupt.read())) as bundle:
+        for member in bundle.infolist():
+            assert member.create_system == ZIP_CREATE_SYSTEM_UNIX
+            assert member.date_time == ZIP_MEMBER_TIME
+            assert member.compress_type == zipfile.ZIP_STORED
 
 
 @pytest.mark.parametrize("corrupt", ALL_CORRUPT, ids=lambda corrupt: corrupt.name)

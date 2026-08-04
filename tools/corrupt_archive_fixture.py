@@ -56,6 +56,18 @@ CORRUPT_ROOT: Final[Path] = REPO_ROOT / "tests" / "fixtures" / "corrupt"
 # default clock would make the integrity test fail one second after it was written.
 _ZIP_MEMBER_TIME: Final[tuple[int, int, int, int, int, int]] = (2026, 1, 1, 0, 0, 0)
 
+# `zipfile.ZipInfo.__init__` sets `create_system` to 0 on Windows and 3 everywhere else,
+# and the field lands in the central directory at the *end* of the archive. Left at its
+# default, a corpus generated on Windows and re-derived on Linux differs in one byte per
+# member -- which presents as every fixture being stale at once, with the archive bytes
+# looking fine right up to the footer. Pinned to Unix, arbitrarily but permanently.
+_ZIP_CREATE_SYSTEM_UNIX: Final[int] = 3
+
+# 0o644, shifted into the high half of external_attr where the zip format keeps Unix mode
+# bits. `ZipInfo` leaves this at 0, which is already deterministic; it is set explicitly so
+# that the archive is a normal readable file rather than one with no permissions at all.
+_ZIP_EXTERNAL_ATTR: Final[int] = 0o644 << 16
+
 _LINE_SEPARATOR: Final[str] = "\n"
 _FIELD_SEPARATOR: Final[str] = ","
 _ENCODING: Final[str] = "utf-8"
@@ -453,6 +465,8 @@ def _zip(member_name: str, member: bytes) -> bytes:
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_STORED) as bundle:
         info = zipfile.ZipInfo(filename=member_name, date_time=_ZIP_MEMBER_TIME)
+        info.create_system = _ZIP_CREATE_SYSTEM_UNIX
+        info.external_attr = _ZIP_EXTERNAL_ATTR
         bundle.writestr(info, member)
     return buffer.getvalue()
 
