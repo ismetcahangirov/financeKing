@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: github/codeql-action/init@v4
+      - uses: github/codeql-action/init@v4.37.4
         with:
           languages: python
           # security-and-quality over the default `security`: the extra queries
@@ -38,6 +38,6 @@ jobs:
           # are correctness rules here rather than style ones.
           queries: security-and-quality
 
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@v4.37.4
         with:
           category: "/language:python"
