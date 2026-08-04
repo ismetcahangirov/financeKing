@@ -58,6 +58,12 @@ def _lint_imports(cwd: Path, package_parent: Path) -> subprocess.CompletedProces
         env=environment,
         capture_output=True,
         text=True,
+        # Explicit UTF-8, not the locale codec `text=True` would otherwise pick. The
+        # subprocess is `lint-imports`, whose rich banner contains box-drawing glyphs;
+        # on a Windows console that defaults to cp1252 the decode raises and the test
+        # fails while the contracts it is checking all passed. Same trap as the one
+        # documented on the Makefile's `imports` target (#141), one layer out.
+        encoding="utf-8",
         check=False,
     )
 

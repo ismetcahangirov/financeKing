@@ -26,7 +26,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(list(command), cwd=cwd, capture_output=True, text=True, check=False)
+    # encoding="utf-8" rather than the locale codec `text=True` would pick: these
+    # subprocesses print non-ASCII (ruff's arrows, import-linter's banner), and on a
+    # Windows console defaulting to cp1252 the decode raises before the assertion runs
+    # -- so the gate reports a failure the gate itself caused (#141).
+    return subprocess.run(
+        list(command), cwd=cwd, capture_output=True, text=True, encoding="utf-8", check=False
+    )
 
 
 @pytest.fixture
