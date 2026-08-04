@@ -83,7 +83,7 @@ dev = [
     # that the default rather than something a developer has to remember to start.
     # It also binds a random host port, which matters on Windows where 5432 is
     # frequently already taken or reserved.
-    "testcontainers[postgres,redis]>=4.9",
+    "testcontainers[postgres,redis]>=4.15.0",
     # pyarrow ships no py.typed marker, so mypy --strict treats every `pa.*` call as a
     # source of Any and that Any propagates across the whole Parquet write path -- one
     # untyped import silently disabling type checking on the module that decides a

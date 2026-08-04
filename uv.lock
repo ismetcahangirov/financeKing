@@ -275,7 +275,7 @@ dev = [
     { name = "pytest-randomly", specifier = ">=3.16" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "ruff", specifier = ">=0.14.0" },
-    { name = "testcontainers", extras = ["postgres", "redis"], specifier = ">=4.9" },
+    { name = "testcontainers", extras = ["postgres", "redis"], specifier = ">=4.15.0" },
     { name = "types-pytz", specifier = ">=2025.2" },
     { name = "types-pyyaml", specifier = ">=6.0.12" },
 ]
