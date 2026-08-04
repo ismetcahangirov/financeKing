@@ -30,8 +30,10 @@ gapped.
 The `aggTrade` tape is parsed into `TradeRecord` and used for sequence detection, and it
 is **not persisted here**. There is no operational trade table -- `DATA_PIPELINE.md`
 section 6 puts the tape in Parquet, written whole partitions at a time -- so a live
-print has nowhere to land until the REST backfill and the corpus writer meet at the seam
-in #28. Parsing it anyway is what makes the sequence detector possible at all.
+print has nowhere to land until a live corpus writer exists. #28 built the kline half of
+the REST seam; the trade half waits on that writer (#146), because a repair that fetched the
+missing prints and discarded them would mark a range recovered while holding none of it.
+Parsing the tape anyway is what makes the sequence detector possible at all.
 """
 
 from __future__ import annotations

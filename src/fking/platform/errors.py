@@ -31,6 +31,7 @@ __all__ = [
     "FeatureContractError",
     "FkingError",
     "SafetyViolation",
+    "SeamDisagreementError",
 ]
 
 
@@ -69,6 +70,23 @@ class FeatureContractError(FkingError):
     Deliberately not a subclass of `DataIntegrityError`: that one means the *bytes* were
     wrong, and re-reading them will not help. This one means the *declaration* is wrong,
     and the data may be fine.
+    """
+
+
+class SeamDisagreementError(FkingError):
+    """Two sources describe the same closed bar differently, and neither one wins.
+
+    Raised where a REST backfill overlaps records the corpus already holds
+    (`fking.data.backfill.seam`). Deliberately not a subclass of `DataIntegrityError`:
+    that one says a source's bytes are malformed, and re-reading them will not help.
+    This one says both sources are well-formed and they disagree, which is a fact about
+    the venue rather than about a parser.
+
+    It escalates rather than resolving, and that is the whole point. A closed bar is
+    immutable, so a disagreement means one of the two views is wrong about a period that
+    is already final -- and picking a winner by source preference records one view as
+    fact while destroying the only evidence that they ever differed. Nothing is written
+    on this path, including the records that did agree.
     """
 
 

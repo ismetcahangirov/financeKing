@@ -248,7 +248,7 @@ An outage therefore produces two rows rather than one: a `disconnect` gap over t
 
 `missing_bar_count` on a `disconnect` gap is **NULL, never zero**. A 400ms reconnect inside one minute loses no bar at all, and a zero would claim we checked and found nothing absent when in fact nothing was being checked.
 
-**The live `aggTrade` tape is parsed but not yet persisted.** It is consumed for sequence detection and for the live risk path; there is no operational trade table, because §6 puts the tape in Parquet written whole partitions at a time, and a live print has nowhere to land until the REST backfill and the corpus writer meet at the seam below.
+**The live `aggTrade` tape is parsed but not yet persisted.** It is consumed for sequence detection and for the live risk path; there is no operational trade table, because §6 puts the tape in Parquet written whole partitions at a time, and a live print has nowhere to land until a live corpus writer exists. #28 built the kline half of the seam below; the trade half waits on that writer (#146), since a repair that fetched prints and discarded them would close a gap over a range it does not hold.
 
 ### Backfill, and the seam
 
@@ -258,7 +258,15 @@ After a gap is closed, backfill from public REST (`/api/v3/klines`, `/fapi/v1/kl
 
 This is the non-obvious constraint in this section. Timestamps at a reconnect seam are the least reliable field in the record: the live stream carries the exchange's event time, REST backfill carries the archive's time, clocks differ, and a microsecond/millisecond boundary can sit inside the window. Deduplicating on `(symbol, timestamp)` at a seam either drops a real trade or admits a duplicate, and both are invisible. `aggTrade.a` and `trade.id` are monotone integers assigned by the exchange and are the only join key that is actually authoritative.
 
-For klines, which have no id, the seam key is `open_time` **plus** a full-field equality check on the overlapping bars. A mismatch in the overlap means the stream and the REST view disagree about a closed bar, which is an escalation, not a merge conflict to resolve by preference.
+For klines, which have no id, the seam key is `open_time` **plus** a full-field equality check on the overlapping bars. A mismatch in the overlap means the stream and the REST view disagree about a closed bar, which is an escalation, not a merge conflict to resolve by preference. Two fields are outside that comparison and each for a stated reason: `close_time` is a derived boundary whose representation differs by epoch unit (`.999` against `.999999`, the trap above), and `ignored_field` is the archive's trailing filler column, which is `"0"` from a CSV, `""` from the stream, and absent from the `bar` table. Everything that describes the market is compared exactly, as `Decimal`, with no tolerance — a tolerance would be a threshold below which two sources are allowed to disagree, and nobody can name that number for a volume field spanning eight orders of magnitude across symbols.
+
+The fetch window is deliberately **wider than the gap** — one interval on each side — because that overlap *is* the seam. A fetch that covered only the missing minutes would give the reconciler nothing to compare, and a disagreement between the two views of a closed bar would go undetected forever.
+
+**A gap narrows; it does not disappear.** If REST returns forty of sixty missing minutes, the original row is marked `superseded`, narrower rows are inserted for the twenty that remain — each carrying the *original* `discovered_at_utc`, because those minutes were found missing then and are missing still — and only a fully recovered range is marked `backfilled`. Nothing is deleted and no row's bounds are ever rewritten: a repaired range is still the answer to "which completed backtests consumed this range while it was holed", which is a more interesting question after a repair, not a less interesting one. `data_coverage` and every registry read count only unresolved rows. ADR-0018 carries the argument, including why narrowing in place was rejected.
+
+**A `disconnect` gap is not repaired by fetching its bars.** It is a claim about *observation* — nothing was being watched between these two instants — and recovering the klines does not make that false, nor does it recover the trade prints from the same window. Only `cadence` and `seam` gaps, which are claims about bars, are backfillable.
+
+**The `aggTrade` half of this is not built yet.** The trade-id seam rule above is the specification; the tape still has nowhere to land, because §6 puts it in Parquet written whole partitions at a time and there is no live corpus writer (#146). A REST fetch of missing prints that discarded them and then closed the gap would be a repair that recorded a range as held while holding nothing.
 
 ---
 
