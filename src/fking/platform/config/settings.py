@@ -120,6 +120,11 @@ class DataSettings(BaseModel):
     history_start: date = date(2023, 1, 1)
 
     parquet_root: Path = Path("data/parquet")
+    # Verified archives, cached under a tree mirroring the host's URL path so that a file
+    # on disk maps back to the URL it came from by inspection. Separate from parquet_root
+    # because the two have opposite lifetimes: the corpus is the asset, and this is a
+    # cache that can be deleted to reclaim disk and re-fetched from a public host.
+    archive_cache_root: Path = Path("data/archive")
     parquet_compression: Literal["zstd", "snappy"] = "zstd"
     parquet_compression_level: int = Field(default=3, ge=1, le=22)
     parquet_target_file_mb: int = Field(default=256, ge=1)

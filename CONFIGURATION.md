@@ -187,6 +187,7 @@ class DataSettings(BaseSettings):
 
     # Storage
     parquet_root: Path = Path("data/parquet")
+    archive_cache_root: Path = Path("data/archive")   # verified .zip cache; deletable
     parquet_compression: Literal["zstd", "snappy"] = "zstd"
     parquet_compression_level: int = 3
     parquet_target_file_mb: int = 256
