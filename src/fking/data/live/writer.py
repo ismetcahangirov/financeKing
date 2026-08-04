@@ -12,7 +12,7 @@ of the same `(instrument_id, timeframe, open_time_utc)` is a duplicate delivery,
 correction. Updating would let a later frame silently rewrite a bar a backtest has
 already consumed, which is the mutation of a time series that section 5 forbids in its
 first paragraph. If the venue ever does send a *different* bar for a minute we already
-hold, that is an escalation for the seam reconciler in #28, not something a write path
+hold, that is an escalation for `fking.data.backfill.seam`, not something a write path
 resolves by preference.
 
 **An unknown symbol is refused, never dropped.** Bars are keyed by `instrument_id`, and
@@ -20,10 +20,10 @@ a symbol with no `instrument` row cannot be written. Skipping it would mean a se
 that looks healthy while one symbol's data goes nowhere; refusing means the mistake is
 found at the first frame.
 
-The engine is the ingest role's. `bar` and `coverage_gap` are both `INGEST_OWNED`
-(`fking.platform.persistence.privileges`), so `fking_app` can read them and cannot
-write them -- an application role that could write a coverage row could declare a gap
-closed that the corpus does not hold.
+The engine is the ingest role's. `bar` is `INGEST_OWNED` and `coverage_gap` is
+`INGEST_RESOLVABLE` (`fking.platform.persistence.privileges`), so `fking_app` can read
+both and write neither -- an application role that could write a coverage row could
+declare a gap closed that the corpus does not hold.
 """
 
 from __future__ import annotations
@@ -33,46 +33,21 @@ from datetime import datetime
 from typing import Final
 from uuid import UUID
 
-import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from fking.data.backfill.registry import IngestRegistry, SeriesKey
+from fking.data.bars import INSERT_BAR, bar_parameters, resolve_instrument_ids
 from fking.data.live.router import LiveBar, LiveGap
+from fking.data.parquet.schema import RecordSource
 from fking.platform.errors import DataUnavailableError
 
 __all__ = ["BAR_SOURCE_STREAM", "LiveMarketDataWriter"]
 
 # The `bar.source` value the table's own CHECK admits for live data. The archive path
-# writes 'archive'; keeping them distinct is what lets the standing no-synthesised-rows
-# gate (`fking.data.quality.standing`) ask which writer produced a row.
-BAR_SOURCE_STREAM: Final[str] = "stream"
-
-_INSERT_BAR: Final[sa.TextClause] = sa.text(
-    """
-    INSERT INTO bar (
-        instrument_id, timeframe, open_time_utc, close_time_utc,
-        open_quote_price, high_quote_price, low_quote_price, close_quote_price,
-        base_volume, quote_volume, taker_buy_base_volume, taker_buy_quote_volume,
-        trade_count, source
-    )
-    VALUES (
-        :instrument_id, :timeframe, :open_time_utc, :close_time_utc,
-        :open_quote_price, :high_quote_price, :low_quote_price, :close_quote_price,
-        :base_volume, :quote_volume, :taker_buy_base_volume, :taker_buy_quote_volume,
-        :trade_count, :source
-    )
-    ON CONFLICT (instrument_id, timeframe, open_time_utc) DO NOTHING
-    RETURNING 1
-    """
-)
-
-_SELECT_INSTRUMENT: Final[sa.TextClause] = sa.text(
-    """
-    SELECT instrument_id
-      FROM instrument
-     WHERE venue_id = :venue_id AND symbol = :symbol
-    """
-)
+# writes 'archive' and the REST gap backfill writes 'rest_backfill'; keeping the three
+# distinct is what lets the standing no-synthesised-rows gate
+# (`fking.data.quality.standing`) ask which writer produced a row.
+BAR_SOURCE_STREAM: Final[str] = RecordSource.STREAM.value
 
 
 class LiveMarketDataWriter:
@@ -99,27 +74,9 @@ class LiveMarketDataWriter:
         fifty-nine seconds later, when the first minute closes and the write fails with
         a partially consumed stream behind it.
         """
-        missing: list[str] = []
-        async with self._engine.connect() as connection:
-            for symbol in symbols:
-                row = (
-                    await connection.execute(
-                        _SELECT_INSTRUMENT, {"venue_id": self._venue_id, "symbol": symbol}
-                    )
-                ).first()
-                if row is None:
-                    missing.append(symbol)
-                else:
-                    self._instrument_ids[symbol] = UUID(str(row.instrument_id))
-        if missing:
-            known = sorted(self._instrument_ids)
-            raise DataUnavailableError(
-                f"{sorted(missing)} have no instrument row on {self._venue_id}; this "
-                f"venue holds {known or '(none)'}. Seed the instrument before "
-                f"subscribing to it -- a bar with no instrument id cannot be written, "
-                f"and dropping it would be a session that looks healthy while one "
-                f"symbol's data goes nowhere"
-            )
+        self._instrument_ids.update(
+            await resolve_instrument_ids(self._engine, venue_id=self._venue_id, symbols=symbols)
+        )
 
     async def write_bars(self, bars: Sequence[LiveBar]) -> int:
         """Insert closed bars, returning how many were new.
@@ -133,7 +90,7 @@ class LiveMarketDataWriter:
         inserted = 0
         async with self._engine.begin() as connection:
             for bar in bars:
-                row = (await connection.execute(_INSERT_BAR, self._bar_parameters(bar))).first()
+                row = (await connection.execute(INSERT_BAR, self._bar_parameters(bar))).first()
                 if row is not None:
                     inserted += 1
         return inserted
@@ -166,20 +123,9 @@ class LiveMarketDataWriter:
                 f"{bar.series.symbol} was never resolved to an instrument id; call "
                 f"resolve_instruments() before writing"
             )
-        record = bar.record
-        return {
-            "instrument_id": instrument_id,
-            "timeframe": bar.series.bar_interval,
-            "open_time_utc": record.open_time_utc,
-            "close_time_utc": record.close_time_utc,
-            "open_quote_price": record.open_quote_price,
-            "high_quote_price": record.high_quote_price,
-            "low_quote_price": record.low_quote_price,
-            "close_quote_price": record.close_quote_price,
-            "base_volume": record.base_volume,
-            "quote_volume": record.quote_volume,
-            "taker_buy_base_volume": record.taker_buy_base_volume,
-            "taker_buy_quote_volume": record.taker_buy_quote_volume,
-            "trade_count": record.trade_count,
-            "source": BAR_SOURCE_STREAM,
-        }
+        return bar_parameters(
+            bar.record,
+            instrument_id=instrument_id,
+            timeframe=bar.series.bar_interval,
+            source=RecordSource.STREAM,
+        )
