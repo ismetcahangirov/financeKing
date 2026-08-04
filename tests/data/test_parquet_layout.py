@@ -38,11 +38,13 @@ from fking.data.parquet import (
     MONEY_COLUMN_SUFFIXES,
     MONEY_TYPE,
     RecordSource,
+    SourcedRecord,
     market_dataset_glob,
     partition_path,
     read_connection,
     scanned_file_count,
     write_records,
+    write_sourced_records,
 )
 from fking.platform.errors import DataIntegrityError
 
@@ -655,6 +657,113 @@ def test_changed_content_does_rewrite_the_file(root: Path) -> None:
     assert second.was_rewritten is True
     assert second.content_digest_hex != first.content_digest_hex
     assert second.rows_written == len(extended)
+
+
+def test_the_same_quantity_spelled_two_ways_is_one_digest(root: Path) -> None:
+    """`Decimal("1.50")` and `Decimal("1.5")` are one economic quantity, and the digest
+    treats them as one fact -- the same normalisation `.claude/rules/idempotency.md`
+    requires of an idempotency key.
+
+    Not academic. A `decimal128(38, 18)` column returns every value at eighteen places, so
+    a partition read back and merged into digests differently from the batch it was
+    written from, and a scale-sensitive digest would rewrite an identical file on every
+    repair pass.
+    """
+    padded = write_records(
+        (kline_at(0, open_quote_price=Decimal("94000.50")),),
+        coordinate=SPOT_KLINES,
+        source=RecordSource.ARCHIVE,
+        ingested_at_utc=INGESTED_AT,
+        root=root,
+    )
+    trimmed = write_records(
+        (kline_at(0, open_quote_price=Decimal("94000.5000000000")),),
+        coordinate=SPOT_KLINES,
+        source=RecordSource.ARCHIVE,
+        ingested_at_utc=LATER,
+        root=root,
+    )
+
+    assert trimmed.content_digest_hex == padded.content_digest_hex
+    assert trimmed.was_rewritten is False
+
+
+def test_a_different_quantity_still_rewrites(root: Path) -> None:
+    """The counterpart. Normalising scale must not normalise value."""
+    first = write_records(
+        (kline_at(0, open_quote_price=Decimal("94000.50")),),
+        coordinate=SPOT_KLINES,
+        source=RecordSource.ARCHIVE,
+        ingested_at_utc=INGESTED_AT,
+        root=root,
+    )
+    second = write_records(
+        (kline_at(0, open_quote_price=Decimal("94000.51")),),
+        coordinate=SPOT_KLINES,
+        source=RecordSource.ARCHIVE,
+        ingested_at_utc=INGESTED_AT,
+        root=root,
+    )
+
+    assert second.content_digest_hex != first.content_digest_hex
+    assert second.was_rewritten is True
+
+
+def test_a_partition_can_hold_two_provenances_at_once(root: Path) -> None:
+    """What a repaired partition is: prints the socket delivered and prints REST returned
+    afterwards. Stamping the rewritten file with one value would answer gate 11's
+    question -- which rows came from a live stream -- with a guess."""
+    streamed, recovered = trade_at(0), trade_at(1)
+
+    outcome = write_sourced_records(
+        (
+            SourcedRecord(streamed, RecordSource.STREAM),
+            SourcedRecord(recovered, RecordSource.REST_BACKFILL),
+        ),
+        coordinate=SPOT_TRADES,
+        ingested_at_utc=INGESTED_AT,
+        root=root,
+    )
+
+    sources = dict(
+        zip(
+            pq.read_table(outcome.path).column("venue_trade_id").to_pylist(),
+            pq.read_table(outcome.path).column("source").to_pylist(),
+            strict=True,
+        )
+    )
+    assert sources == {
+        streamed.venue_trade_id: RecordSource.STREAM.value,
+        recovered.venue_trade_id: RecordSource.REST_BACKFILL.value,
+    }
+
+
+def test_the_digest_distinguishes_which_row_came_from_where(root: Path) -> None:
+    """Per row, not per batch: two files holding the same prints but attributing them to
+    different sources are not the same file, and a batch-level digest could not say so."""
+    first, second = trade_at(0), trade_at(1)
+
+    one_way = write_sourced_records(
+        (
+            SourcedRecord(first, RecordSource.STREAM),
+            SourcedRecord(second, RecordSource.REST_BACKFILL),
+        ),
+        coordinate=SPOT_TRADES,
+        ingested_at_utc=INGESTED_AT,
+        root=root,
+    )
+    the_other = write_sourced_records(
+        (
+            SourcedRecord(first, RecordSource.REST_BACKFILL),
+            SourcedRecord(second, RecordSource.STREAM),
+        ),
+        coordinate=SPOT_TRADES,
+        ingested_at_utc=INGESTED_AT,
+        root=root,
+    )
+
+    assert the_other.content_digest_hex != one_way.content_digest_hex
+    assert the_other.was_rewritten is True
 
 
 def test_the_content_digest_is_stored_in_the_files_own_metadata(root: Path) -> None:
