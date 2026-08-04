@@ -66,6 +66,7 @@ from fking.platform.errors import DataIntegrityError, DataUnavailableError
 
 __all__ = [
     "NO_INTERVAL",
+    "STREAM_TIMESTAMP_RESOLUTION",
     "CoverageRow",
     "GapKind",
     "GapResolution",
@@ -82,6 +83,15 @@ __all__ = [
 # The sentinel meaning "this dataset is not keyed by an interval". Declared once, here,
 # because it appears in every key and in the CHECK constraint that gives it meaning.
 NO_INTERVAL: Final[str] = ""
+
+# The narrowest region a gap row can describe, and it is one fact stated from two sides.
+# Binance stream and REST event times are milliseconds, so two prints can legitimately
+# share an instant and a loss between them is known no more precisely than that; and
+# `coverage_gap` refuses a zero-width row by its own CHECK, so one millisecond is also the
+# floor the table admits. It lives here rather than beside either of its two users --
+# the live sequence detector and the tape repair's residual bounds -- because those two
+# must agree about it and neither can import the other (`fking.data.backfill.gaps`).
+STREAM_TIMESTAMP_RESOLUTION: Final[timedelta] = timedelta(milliseconds=1)
 
 
 class GapKind(StrEnum):

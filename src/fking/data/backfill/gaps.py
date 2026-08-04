@@ -9,8 +9,8 @@ between these two instants" -- and fetching the bars does not make that untrue, 
 it recover the trade prints from the same window. Marking a disconnect gap resolved
 because its bars arrived would be the reassuring answer to a question nobody asked.
 `sequence` and `absent_archive` gaps are not kline claims at all -- a `sequence` gap is a
-claim about the tape, which now has a corpus (`fking.data.live.tape`) but no REST repair
-paging on `fromId` to fill it, so it stays out of `BACKFILLABLE_GAP_KINDS` until there is.
+claim about the tape, and it is repaired by `fking.data.backfill.trade_gaps`, which pages
+the venue on `fromId` because a one-millisecond gap has no time window to ask for.
 
 **The fetch window is wider than the gap, on purpose.** One interval on each side is
 requested so that the response overlaps bars the corpus already holds -- and that overlap
@@ -63,13 +63,19 @@ from fking.platform.correlation import correlation_scope
 from fking.platform.errors import DataIntegrityError
 from fking.platform.logging import get_logger
 
-__all__ = ["BACKFILLABLE_GAP_KINDS", "BackfillOutcome", "KlineGapBackfiller"]
+__all__ = ["KLINE_BACKFILLABLE_GAP_KINDS", "BackfillOutcome", "KlineGapBackfiller"]
 
 _LOG: Final = get_logger(__name__)
 
-# The two kinds that assert a bar is missing. See the module docstring for why
-# `disconnect` is not among them even on a kline series.
-BACKFILLABLE_GAP_KINDS: Final[frozenset[GapKind]] = frozenset({GapKind.CADENCE, GapKind.SEAM})
+# The two kinds that assert a *bar* is missing. See the module docstring for why
+# `disconnect` is not among them even on a kline series, and why `sequence` -- a claim
+# about the tape rather than about bars -- belongs to `trade_gaps` instead.
+#
+# Per dataset rather than one set for the package: "can this gap be repaired at all",
+# which the coverage report asks, is a different question from "does *this* backfiller
+# repair it", and collapsing them is how a sequence gap ends up offered to a walk over a
+# minute lattice. `fking.data.backfill.BACKFILLABLE_GAP_KINDS` is the union.
+KLINE_BACKFILLABLE_GAP_KINDS: Final[frozenset[GapKind]] = frozenset({GapKind.CADENCE, GapKind.SEAM})
 
 _BAR_INTERVALS: Final[dict[str, timedelta]] = {"1m": timedelta(minutes=1)}
 
@@ -148,7 +154,7 @@ class KlineGapBackfiller:
                     bar_interval=bar_interval,
                 )
                 for open_gap in await self._registry.open_gaps(series):
-                    if open_gap.gap.gap_kind not in BACKFILLABLE_GAP_KINDS:
+                    if open_gap.gap.gap_kind not in KLINE_BACKFILLABLE_GAP_KINDS:
                         continue
                     examined += 1
                     repaired = await self._repair(
