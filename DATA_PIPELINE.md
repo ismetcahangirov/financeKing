@@ -423,6 +423,16 @@ Gate 9 is deliberately a flag, not a rejection. A 50% single-minute move on a th
 
 Gate 10 is the one that finds problems nobody predicted. Where an archive and a live stream cover the same minute, every field must match. They usually do. When they do not, something upstream changed — a schema revision, a new epoch unit, a symbol renaming — and this gate is the earliest possible warning.
 
+`fking.data.quality` implements all eleven. `gates` holds one function per gate 1–9 and a `Gate` enum whose members are the reason codes a refusal carries; `ingest.ingest_archive` is the ordering, and it is the only path from archive bytes to the Parquet corpus — the write is its last statement, so a gate that raises leaves no file behind. `cross_source` holds gate 10, which needs two sources and therefore cannot live inside one file's parse, and `standing` holds gate 11, which is a question about the whole store.
+
+Three details of that implementation are worth knowing before changing it:
+
+- **The parser reports and the gates adjudicate.** `ingest_archive` hands `parse_archive` a rejection ceiling of 1 and then applies the declared ceiling itself, split across gates 5, 6, 7 and a residual rule covering every `RejectionReason` no numbered gate owns. The refusals are identical; the messages are not. "0.4% of rows were rejected" cannot distinguish a drifted boolean encoding from a wrong epoch unit, and `boolean_unrecognised=1440/1440` can.
+- **Gate 3 reads a declared column, not column 0.** A kline row opens with `open_time`; a trade row opens with `trade_id` and carries its epoch fifth. A gate 3 that assumed column 0 would normalise a nine-digit trade id as a timestamp, land in 1970, and refuse every genuine trades archive — a gate that rejects only correct files.
+- **Gate 9 compares a `Decimal` price ratio against exp(±0.5)** rather than taking a logarithm. `|log(p₁/p₀)| < 0.5` and `exp(-0.5) < p₁/p₀ < exp(0.5)` are the same statement, and the second one is exact.
+
+The corpus that proves each gate fires is `tests/fixtures/corrupt/`, derived from the recorded archives by `tools/corrupt_archive_fixture.py`. Every file there is a declared, deterministic mutation of a real recording with a `.corruption.json` sidecar naming its source, its mutation and both digests, and CI re-derives all of them: a corrupt fixture edited by hand to make a gate pass would otherwise be indistinguishable from one the generator wrote. `make check` runs the derivation check, and the corruption corpus is its own CI job so that its failure is not buried among eighteen hundred unit tests.
+
 ### Ongoing gates, not just ingestion
 
 - **Weekly re-verification** of a random sample of archived Parquet against a fresh checksum. Free archives are not guaranteed to remain available or unchanged; a silently revised upstream file invalidates every backtest that read the old one.

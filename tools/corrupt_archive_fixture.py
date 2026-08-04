@@ -17,6 +17,14 @@ Outputs are `.zip`, including the ones derived from the CSV-prefix recordings, b
 `.zip` is what ingestion actually receives -- gate 1 hashes the archive and gate 2 reads
 the member out of it, and a corpus of loose CSVs could not exercise either.
 
+Members are **stored, not deflated**, which makes each whole-day fixture roughly 220 KB
+rather than 70 KB. That is deliberate: deflate output depends on the zlib build, and a
+corpus whose committed bytes are only reproducible on the machine that wrote them turns the
+integrity test into a source of cross-platform failures. Git packs the stored CSV back down,
+so the repository pays little for it. The whole-day source is itself deliberate for gates 6
+and 7 -- one bad row in 1,440 is 0.069%, which passes the file-wide 0.1% ceiling and fails
+gate 6's 0.01% one, and a 32-row fragment could not demonstrate that the thresholds differ.
+
 Run by hand when a mutation is added or a source recording is re-recorded:
 
     uv run python tools/corrupt_archive_fixture.py            # write the corpus

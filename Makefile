@@ -11,7 +11,7 @@ ARGS ?=
 COMPOSE ?= docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help check lint format types imports checks adr-index test cover secrets audit up down logs ps config migrate migrate-down migrate-sql seed
+.PHONY: help check lint format types imports checks corrupt-fixtures adr-index test cover secrets audit up down logs ps config migrate migrate-down migrate-sql seed
 
 help:  ## Show the available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -61,6 +61,14 @@ checks:  ## Project-specific AST and documentation checks
 	$(UV) run python tools/checks/no_catch_safety.py $(SRC) tests
 	$(UV) run python tools/checks/naming.py $(SRC)
 	$(UV) run python tools/checks/adr_index.py docs/adr
+	$(UV) run python tools/corrupt_archive_fixture.py --check
+
+## The corrupt corpus is derived, not authored: every file under tests/fixtures/corrupt/
+## is a declared mutation of a real recording. --check proves the committed bytes still
+## match the derivation, which is what makes a hand-edit to a corrupt fixture visible.
+## Run without --check to regenerate after adding a mutation.
+corrupt-fixtures:  ## Regenerate the corrupted-archive corpus from the recordings
+	$(UV) run python tools/corrupt_archive_fixture.py
 
 adr-index:  ## Regenerate the ADR index in docs/adr/README.md
 	$(UV) run python tools/checks/adr_index.py --write docs/adr

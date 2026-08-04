@@ -319,11 +319,36 @@ Four properties make this corpus trustworthy, and each one closes a specific way
 - **Recorded through the production fetcher.** `tools/record_archive_fragment.py` downloads via `GuardedArchiveEgress` and `ArchiveFetcher`, so every byte kept was checksum-verified against the archive's `.CHECKSUM` sibling before it was written. A fixture recorded from a truncated transfer would teach a parser that a short day is normal, which is indistinguishable from a real short day.
 - **A provenance sidecar per file**, carrying the source URL, the archive digest, the member digest, and the member's line count. A fixture whose upstream cannot be named is a fixture nobody can re-record.
 - **A digest gate.** `tests/data/test_archive_fixture_integrity.py` recomputes every digest, and additionally asserts the corpus still spans both epoch units, both header conventions, and still contains a Python-style boolean. If a fixture is ever "cleaned up", the traps in `DATA_PIPELINE.md` §3 lose their test data and every parser assertion becomes decoration — so the corpus's *coverage* is asserted, not just its integrity.
-- **Mutations happen in the test, never on disk.** Trap-triggering inputs — a lowercase `true`, a dropped column, a header that reordered — are produced by transforming recorded bytes inside the test that asserts on them. A committed mutated file looks recorded, and six months later nobody remembers which of the two it is. This is a deliberate departure from the `# SYNTHETIC:` convention used for provoked exchange errors, where the mutation cannot be expressed as a transformation of a real response.
+- **A mutation is either performed in the test or derived on disk with its recipe beside it — never authored.** Most trap-triggering inputs — a lowercase `true`, a dropped column, a header that reordered — are produced by transforming recorded bytes inside the test that asserts on them, because the transformation is then visible in the same diff as the assertion. The exception is §5.5's corrupted corpus, and its condition is exact: the file is committed only when a *generator* can re-derive it byte for byte from a pristine recording, and CI re-derives all of them. What is never acceptable in either place is a hand-authored file, because a hand-authored corrupt fixture looks recorded and six months later nobody remembers which of the two it is.
 
 Whole archives are committed only where they are small (a daily 1m kline zip is ~70 KB) and only where a fragment cannot prove the assertion: 1,440 bars in a day, and a first bar at exactly 00:00 UTC, are the two facts a 32-row prefix cannot establish. Trades archives are 30 MB and stay fragments.
 
-### 5.4 Also assert on malformed input
+### 5.5 The corrupted corpus is derived, and CI re-derives it
+
+`tests/fixtures/corrupt/` holds one archive per data-quality gate that a single file can trip (`DATA_PIPELINE.md` §10). Each is a `.zip`, because a `.zip` is what ingestion receives — gate 1 hashes the archive and gate 2 reads the member out of it, so a corpus of loose CSVs could exercise neither.
+
+```
+tests/fixtures/corrupt/
+  spot_klines_truncated_archive.zip                 # gate 1
+  spot_klines_truncated_archive.zip.corruption.json
+  spot_klines_header_prepended.zip                  # gate 2, the direction that eats 00:00
+  futures_klines_header_stripped.zip                # gate 2, the direction that files 1970
+  spot_klines_first_epoch_zeroed.zip                # gate 3
+  spot_klines_rows_out_of_order.zip                 # gate 4
+  spot_trades_booleans_lowercased.zip               # gate 5
+  spot_klines_high_below_close.zip                  # gate 6
+  spot_klines_negative_volume.zip                   # gate 7
+  spot_klines_gapped_bar_block.zip                  # gate 8 — reported, never refused
+  spot_klines_08_log_return.zip                     # gate 9 — flagged, never refused
+```
+
+Why this corpus is committed rather than mutated per test, when §5.4's rule says the opposite: these mutations are not assertions about one parser call. They are assertions about **ordering** — that a gate refuses *before* a write, and that the file it would have written does not exist. That needs a whole archive travelling the real ingestion path, and it needs the same bytes to be reachable from a CI job, from `make check` and from a developer reproducing a failure. A transformation performed inside one test is none of those things.
+
+What makes it safe is that nothing there is authored. `tools/corrupt_archive_fixture.py` declares each mutation as a named pure function of a pristine recording's bytes, writes a `.corruption.json` sidecar carrying the source recording, the mutation's name, the rationale, the gate, and both digests — and `tests/data/test_corrupt_fixture_integrity.py` re-runs every derivation and requires byte equality. An edit to a corrupt fixture fails, and so does an edit to *both* the fixture and its sidecar, because the derivation is what is checked rather than the record of it. The zip is built with a fixed member timestamp and stored rather than deflated, so the derivation is reproducible across machines and Python versions.
+
+Two fixtures in that list are not corruptions at all in the refusal sense, and they are the most useful ones: `spot_klines_gapped_bar_block` and `spot_klines_08_log_return` must be **ingested successfully**, with the gap recorded and the move flagged. A corpus of only-refusals passes just as well against a pipeline that refuses everything.
+
+### 5.6 Also assert on malformed input
 
 For every recorded endpoint, one test mutates the payload — drops a field, changes a type, inserts a `NaN` — and asserts the parser raises `ExchangeProtocolError`. Exchange responses are hostile input and must never be indexed into optimistically.
 
