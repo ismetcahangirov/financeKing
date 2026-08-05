@@ -71,7 +71,7 @@ Exists first because every later phase writes code touching money-shaped objects
 ### P1 — Data Platform
 *Epic [#2](https://github.com/ismetcahangirov/financeKing/issues/2) · depends on P0*
 
-**13 task issues** — [P1 milestone](https://github.com/ismetcahangirov/financeKing/milestone/2)
+**18 task issues** — [P1 milestone](https://github.com/ismetcahangirov/financeKing/milestone/2)
 
 Bulk historical ingestion, live streaming, normalization, feature store with point-in-time semantics, data-quality gates, alternative data.
 
