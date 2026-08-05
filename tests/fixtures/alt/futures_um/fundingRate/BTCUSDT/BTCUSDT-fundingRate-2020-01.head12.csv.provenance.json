@@ -1,0 +1,17 @@
+{
+  "archive_date": "2020-01-01",
+  "archive_filename": "BTCUSDT-fundingRate-2020-01.zip",
+  "archive_sha256": "7f81b2f3694d13779e7e896b69d60cd61e9444d7b9f9e90df761935e1c1b76e2",
+  "dataset": "fundingRate",
+  "fragment_line_count": 12,
+  "fragment_sha256": "1ef8679bd70dc77cc5e128e8e5ec083990096d73e1cc247a1082dad12812c007",
+  "interval": null,
+  "market": "futures_um",
+  "member_filename": "BTCUSDT-fundingRate-2020-01.csv",
+  "member_line_count": 94,
+  "member_sha256": "b566eea750ede01486360de242ce63a727ebbbc81fb46fcfdf2fb68188b48835",
+  "recorded_at_utc": "2026-08-05T06:31:45.462794+00:00",
+  "source_url": "https://data.binance.vision/data/futures/um/monthly/fundingRate/BTCUSDT/BTCUSDT-fundingRate-2020-01.zip",
+  "symbol": "BTCUSDT",
+  "whole_archive_committed": true
+}

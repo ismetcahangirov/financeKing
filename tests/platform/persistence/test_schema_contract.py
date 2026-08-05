@@ -22,6 +22,7 @@ from sqlalchemy.dialects import postgresql
 from fking.domain.enums import Direction, OrderType, RiskVerdict, Side, TimeInForce, Venue
 from fking.platform.persistence._types import MONEY_PRECISION, MONEY_SCALE
 from fking.platform.persistence.schema import (
+    ALT_SOURCE_IDS,
     APPEND_ONLY_TABLES,
     DIRECTIONS,
     HASH_CHAINED_TABLES,
@@ -171,6 +172,19 @@ def test_check_vocabularies_match_the_domain_enums(
     literals: tuple[str, ...], enum_type: type[StrEnum]
 ) -> None:
     assert set(literals) == {member.value for member in enum_type}
+
+
+def test_alt_source_ids_match_the_registered_alternative_sources() -> None:
+    """The same duplication argument as the enum vocabularies, one layer out.
+
+    `platform` may not import `fking.data`, so the `CHECK` on `alt_observations.source_id`
+    is a literal tuple. A test may import both and does: a source id that reaches the
+    table without a registered declaration is a row whose availability lag nobody stated,
+    which is the one property the alternative-source contract exists to guarantee.
+    """
+    from fking.data.alt.registry import ALT_SOURCES  # noqa: PLC0415 -- the boundary is the point
+
+    assert set(ALT_SOURCE_IDS) == set(ALT_SOURCES)
 
 
 def test_append_only_tables_all_exist() -> None:

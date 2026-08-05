@@ -90,9 +90,10 @@ class PrivilegeClass(StrEnum):
     # TRUNCATE fires no row trigger, so only the grant reaches it.
     INGEST_RESOLVABLE = "ingest_resolvable"
     # The application cannot see it at all and reaches it only through a
-    # SECURITY DEFINER function. This is the class the feature store lands in (#29):
-    # `no-lookahead.md` requires that `fking_app` hold no SELECT on `feature_values`, so
-    # that a look-ahead bug is `permission denied` rather than a review miss.
+    # SECURITY DEFINER function. This is the class the feature store lands in (#29) and
+    # the alternative series with it (#32): `no-lookahead.md` requires that `fking_app`
+    # hold no SELECT on either, so that a look-ahead bug is `permission denied` rather
+    # than a review miss.
     APP_INVISIBLE = "app_invisible"
     # Reference data: the application maintains it, ingestion reads it and cannot touch
     # it. Split out of APP_MUTABLE for live ingestion (#27), which keys every `bar` row
@@ -170,11 +171,16 @@ CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
         # "nobody remembers this range was ever missing" are different claims and only
         # the first one is true.
         "coverage_gap": PrivilegeClass.INGEST_RESOLVABLE,
-        # The feature store, and the only member of APP_INVISIBLE. `fking_app` holds
-        # nothing on it -- not even SELECT -- because the read it is allowed to perform
-        # is "as of this instant", and a role that can also read the table can perform
-        # the read that has no such bound.
+        # The feature store. `fking_app` holds nothing on it -- not even SELECT --
+        # because the read it is allowed to perform is "as of this instant", and a role
+        # that can also read the table can perform the read that has no such bound.
         "feature_values": PrivilegeClass.APP_INVISIBLE,
+        # Raw third-party series -- funding rates, open interest, an index, a macro
+        # release -- under the same rule and for the same reason (#32). The gap between
+        # `event_time` and `available_at` is larger here than anywhere else in the corpus
+        # because a publisher chose it, so an unbounded read of this table is a bigger
+        # look-ahead than an unbounded read of `feature_values` would be.
+        "alt_observations": PrivilegeClass.APP_INVISIBLE,
         # Strategy and evolution state the application advances.
         "strategy": PrivilegeClass.APP_MUTABLE,
         "strategy_version": PrivilegeClass.APP_MUTABLE,
@@ -236,6 +242,7 @@ VIEW_PRIVILEGES: Final[Mapping[str, Mapping[str, frozenset[str]]]] = MappingProx
 # The signature is spelled with its argument types because a function name is not unique
 # in PostgreSQL, and `has_function_privilege` needs the identity rather than the name.
 FEATURE_READER: Final[str] = "fking_feature_as_of(text, integer, text, text, timestamptz, interval)"
+ALT_READER: Final[str] = "fking_alt_as_of(text, text, timestamptz, interval)"
 
 FUNCTION_PRIVILEGES: Final[Mapping[str, Mapping[str, frozenset[str]]]] = MappingProxyType(
     {
@@ -243,6 +250,8 @@ FUNCTION_PRIVILEGES: Final[Mapping[str, Mapping[str, frozenset[str]]]] = Mapping
         # `feature_values` itself is APP_INVISIBLE. The ingest role writes values and has
         # no use for an as-of read.
         FEATURE_READER: MappingProxyType({APP_ROLE: frozenset({"EXECUTE"}), INGEST_ROLE: _NONE}),
+        # The same pairing for the alternative series (#32).
+        ALT_READER: MappingProxyType({APP_ROLE: frozenset({"EXECUTE"}), INGEST_ROLE: _NONE}),
     }
 )
 

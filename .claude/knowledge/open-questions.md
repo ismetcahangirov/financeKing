@@ -25,7 +25,7 @@ Status values: **open** · **blocked** · **in-progress** · **ANSWERED -> VF-NN
 | OQ-003 | Lifetime and renewal semantics of the spot Ed25519 `session.logon` session | open | none | — |
 | OQ-004 | Exact cadence and trigger of the spot testnet wipe | open | requires ~90 days of observation | — |
 | OQ-005 | Earliest clean date per symbol on `data.binance.vision`, beyond BTCUSDT | open | none — mechanical work | — |
-| OQ-006 | Whether funding-rate history is available back to each perpetual's listing | open | none | — |
+| OQ-006 | Whether funding-rate history is available back to each perpetual's listing | **resolved** | — | VF-028 |
 | OQ-007 | Whether passive fill probability can be estimated at all without L2 | **blocked** | VF-017 — data does not exist | — |
 | OQ-008 | Whether the evolution engine's overfitting defences are sufficient | open | needs forward outcomes; months of data | — |
 | OQ-009 | Bybit testnet's equivalent limits, wipe policy and user-data model | open | not urgent until Binance fails | — |
@@ -90,7 +90,9 @@ Status values: **open** · **blocked** · **in-progress** · **ANSWERED -> VF-NN
 
 ## OQ-006 — Is funding-rate history available back to each perpetual's listing date?
 
-- **Status**: open · **Opened**: 2026-08-01
+- **Status**: **resolved by VF-028** on 2026-08-05 · **Opened**: 2026-08-01
+- **Answer**: no, and the shortfall is larger than the question assumed. BTCUSDT's perpetual listed 2019-09-08; its funding archive begins **2020-01** and its open-interest archive begins **2020-09-01**. ETHUSDT's funding begins on the same 2020-01 boundary. The two datasets have different start dates, so neither can be derived from the other, and neither can be derived from the listing. The settlement interval question is answered too, from the other side: `funding_interval_hours` is a column in every row, and `fking.data.alt.funding` refuses a file whose interval is not the declared cadence rather than assuming the 8-hour convention held for a contract's whole life.
+- **What follows**: the start date is probed per `(source, symbol)` and recorded in an `AltAvailability`; a window opening before it is refused. Only BTCUSDT and ETHUSDT have been measured, so the *mechanism* is settled and the per-symbol dates are not — which is the state the probe exists for.
 - **Why it matters**: funding is a P&L line item, not a decoration ([`../contexts/crypto-perpetuals.md`](../contexts/crypto-perpetuals.md)). A backtest over a window where funding history is absent is not a backtest of a perpetuals strategy; it is a backtest of a strategy that pays no carry. And funding-based hypotheses are among the most plausible mechanisms available to this project, so the answer bounds a whole category of research.
 - **What would answer it**: for the intended symbol universe, fetch funding history and compare its first timestamp to the symbol's first kline timestamp. Note whether early history uses a different settlement interval — the 8-hour convention is not universal across a contract's life.
 - **What the code assumes meanwhile**: funding is a declared feature with its own earliest clean date, and a strategy that uses it inherits that date. No window is extended on the assumption that funding was zero before the data starts.

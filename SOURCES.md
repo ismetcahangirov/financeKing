@@ -35,11 +35,14 @@ Access requires only GitHub OAuth, no KYC and no payment (VF-001). Spot testnet 
 
 ## 2. Historical market data
 
-| Source | Auth | Cost | Limit | `availability_lag` | Terms | Checked |
-|---|---|---|---|---|---|---|
-| `data.binance.vision` | none | free | `not published` | ~1 day (daily archives publish after the UTC day closes) | public archive, automated download expected | 2026-08-01 |
+| Source | Auth | Cost | Limit | Earliest data | Cadence | `availability_lag` | Terms | Checked |
+|---|---|---|---|---|---|---|---|---|
+| `data.binance.vision` — spot klines | none | free | `not published` | 2017-08-17 (BTCUSDT 1m; VF-013), per symbol otherwise (OQ-005) | daily and monthly archives per interval | > 6 h and ≤ 30 h after the UTC day closes — **measured** 2026-08-05T06:05Z: the 08-04 daily archive was not yet published while 08-03 was | public archive, automated download expected | 2026-08-05 |
+| `data.binance.vision` — USDⓈ-M futures klines, trades, aggTrades | none | free | `not published` | 2019-09-08 corpus genesis; per symbol later | daily and monthly | as above | as above | 2026-08-05 |
 
 Every archive has a `.zip.CHECKSUM` sibling and it is verified before the file is trusted (VF-014). BTCUSDT 1m runs from 2017-08-17 (VF-013); every other symbol starts later and is enumerated rather than assumed (OQ-005).
+
+**The archive lag is an operational property, not the availability lag of the values inside it.** A daily archive publishes hours after the day it covers, but a live system reading the same market data over the WebSocket knew it at the bar close. `available_at` is *the earliest instant this system could have known the value*, so it is the live path that sets it and the archive is only how history is stored. Confusing the two would push every backtest feature a day into the past and make a real edge look like none — the conservative direction, but wrong, and wrong in a way that is invisible.
 
 Two format traps are recorded in [`DATA_PIPELINE.md`](DATA_PIPELINE.md) and belong to the resolver in #21, not to this table: spot timestamps became microseconds from 2025-01-01 while futures stayed milliseconds (VF-015), and futures kline CSVs carry a header row while spot ones do not (VF-016).
 
@@ -92,9 +95,47 @@ The zero-re-ask rule in [`.claude/rules/llm-output-handling.md`](.claude/rules/l
 
 ---
 
-## 4. News, macro, sentiment and on-chain
+## 4. Alternative series
 
-All rows **measured** on 2026-08-03 by issuing the request without credentials and recording the status code. Measurement is used here in preference to documentation because these services change access policy more often than they update their docs.
+The five sources `fking.data.alt.registry` declares. Every one of them is registered in code with the same `availability_lag`, `cadence` and terms position stated here, and `tests/data/test_alt_sources.py` fails if a registered source is missing from this file.
+
+**Two of the five are reachable and three are not**, and the split is a decision rather than a sequencing accident — see §4.2.
+
+### 4.1 The register
+
+| Source | Endpoint | Auth | Observed limit | Earliest data | Cadence | `availability_lag` | Terms on automated use | Checked |
+|---|---|---|---|---|---|---|---|---|
+| `binance.fundingRate` | `data.binance.vision/data/futures/um/**monthly**/fundingRate/<SYM>/` | none | `not published` | **2020-01** for BTCUSDT and ETHUSDT — four months after the corpus genesis (VF-028) | 8 h, and checked per row against `funding_interval_hours` | **1 min** — the realised rate is broadcast at settlement over `<symbol>@markPrice@1s`; one minute is the stream-delivery and reconnect envelope | public archive, automated download expected | 2026-08-05 |
+| `binance.openInterest` | `data.binance.vision/data/futures/um/**daily**/metrics/<SYM>/` | none | `not published` | **2020-09-01** for BTCUSDT — almost a year after the corpus genesis (VF-028) | 5 min | **5 min** — the archived series is the five-minute aggregate, so the value stamped at T is in the series once T's period closes | public archive, automated download expected | 2026-08-05 |
+| `alternative.me.fearGreed` | `api.alternative.me/fng/` | none | `not published`, no headers | `not established` | 24 h | **24 h** — the value stamped for day D carries `time_until_update` ≈ 18 h at 06:05Z on D, so it is refreshed at the *end* of D and is not knowable at its own timestamp (VF-030) | public API, no stated restriction on automated use | 2026-08-05 |
+| `cryptopanic.posts` | `cryptopanic.com/api/` | **API key** | key-tier dependent | `not established` | polling; the source is continuous | **5 min** polling envelope — and this is *not* an information lag: the timestamp is the republication instant, not the first print | key required and the free-tier terms **have not been read**. Unusable until they are | 2026-08-03 |
+| `stlouisfed.fredReleases` | `api.stlouisfed.org/fred/release/dates` | **API key** | per-key, **not obtained** (OQ-001) | series-dependent | series-dependent | **published, not inferred** — the release calendar is a first-class resource and gives the exact release instant per print. The declared 1-day lag is only a floor that refuses a release predating its own observation period | free key by registration, attribution required, automated use permitted | 2026-08-03 |
+
+Three notes that change how the code is written:
+
+**Granularity is a property of the dataset, not of the calendar.** `fundingRate` is published monthly only and `metrics` daily only (VF-029), so the daily-versus-monthly rule that picks by distance from today is wrong for both, in opposite directions, on every date. Every alternative fetch states its granularity explicitly.
+
+**`metrics` carries no epoch.** Its first column is `create_time,2024-01-02 00:00:00` — a naive datetime string with no offset. `ArchiveFormat.epoch_unit` has no member for that, so open interest is fetchable and probeable today and **not parseable**; `PARSED_SOURCES` records the asymmetry rather than hiding it.
+
+**Neither start date reaches the contract's listing, and they differ from each other.** That is why the start is probed per `(source, symbol)` and a window opening before it is refused rather than answered short.
+
+### 4.2 Why three of them are not reachable from this system
+
+None of these three is blocked on effort. Each is blocked on a decision that does not belong inside a data pull request.
+
+- **`api.alternative.me` and `cryptopanic.com` are in no allowlist.** Reaching either means adding it to `ARCHIVE_HOSTS`, which [`docs/adr/0017`](docs/adr/0017-separate-archive-egress-path.md) sanctions for a public data host and which is a pull request labelled `safety:critical`. That is one decision, made on its own, not bundled with an ingestion change.
+- **FRED cannot go in `ARCHIVE_HOSTS` at all.** ADR-0017's verification block states the decision is *refuted if* "`ARCHIVE_HOSTS` acquires a host with an authenticated endpoint", and FRED requires an API key. Making it reachable needs a superseding ADR introducing a third egress class for credentialed data sources — which is exactly the revisit trigger that ADR already names.
+- **CryptoPanic additionally has unread terms.** The row above says so, and a source whose terms have not been read is not a source this project calls on a schedule.
+
+Their measurements are kept regardless. The measurement is the expensive part, and `Delivery.EGRESS_NOT_PROVISIONED` states what is missing without pretending the source is fetchable.
+
+---
+
+## 5. News, macro, sentiment and on-chain
+
+**The reachability survey.** All rows **measured** on 2026-08-03 by issuing the request without credentials and recording the status code. Measurement is used here in preference to documentation because these services change access policy more often than they update their docs.
+
+Three of these — Fear & Greed, CryptoPanic and FRED — are now registered sources and **§4.1 is authoritative for them**. This table is kept because it is the wider survey, including the candidates that were probed and not adopted, and because a source that was refused is worth recording once rather than re-probing. Where the two disagree, §4.1 is the newer measurement.
 
 | Source | Auth | Cost | Observed | Limit | `availability_lag` | Terms | Checked |
 |---|---|---|---|---|---|---|---|
@@ -112,7 +153,7 @@ All rows **measured** on 2026-08-03 by issuing the request without credentials a
 
 ---
 
-## 5. Adding a source
+## 6. Adding a source
 
 Add the row in the same pull request as the code that calls it, and state all seven columns. If you cannot state `availability_lag`, you cannot register a feature that uses the source — that is not a formality, it is what sizes the purge and embargo in cross-validation ([`.claude/rules/no-lookahead.md`](.claude/rules/no-lookahead.md)).
 
