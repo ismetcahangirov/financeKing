@@ -52,11 +52,15 @@ from fking.data.archive import (
     archive_filename,
     resolve_granularity,
 )
-from fking.data.format_resolver import Dataset, Market
+from fking.data.format_resolver import Dataset, Market, resolve_archive_format
+from fking.platform.errors import DataIntegrityError
 from fking.platform.safety.archive import GuardedArchiveEgress
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT: Final[Path] = REPO_ROOT / "tests" / "fixtures" / "archives"
+# Alternative series (#32) -- funding rates, open interest. They never become bars or
+# prints, so they are kept apart from the corpus fixtures; see `_fixture_directory`.
+ALT_FIXTURE_ROOT: Final[Path] = REPO_ROOT / "tests" / "fixtures" / "alt"
 
 # Enough rows that a fragment exercises real variety -- a zero-volume minute, a price
 # that moves, an eight-decimal quantity -- and few enough that a reviewer can read the
@@ -93,19 +97,40 @@ def _fragment_of(member_bytes: bytes, *, rows: int) -> tuple[bytes, int, int]:
     return b"".join(kept), len(lines), len(kept)
 
 
-async def _download(coordinate: ArchiveCoordinate, cache_root: Path) -> tuple[bytes, str, str]:
+async def _download(
+    coordinate: ArchiveCoordinate, cache_root: Path, granularity: Granularity
+) -> tuple[bytes, str, str]:
     async with GuardedArchiveEgress() as egress:
         fetcher = ArchiveFetcher(egress=egress, cache_root=cache_root)
-        # today_utc = the archive's own date, so the production rule resolves DAILY.
-        fetched = await fetcher.fetch(coordinate, today_utc=coordinate.archive_date)
+        fetched = await fetcher.fetch(
+            coordinate, today_utc=coordinate.archive_date, granularity=granularity
+        )
     return fetched.path.read_bytes(), fetched.sha256_hex, fetched.url
 
 
 def _fixture_directory(coordinate: ArchiveCoordinate) -> Path:
+    """Where this recording belongs: the corpus fixtures, or the alternative ones.
+
+    Decided by asking `resolve_archive_format` rather than by a list of dataset names. A
+    dataset with a declared corpus format becomes bars or prints and its fixtures are read
+    by `tests/support/archive_fixtures.py`, which resolves that format for every file it
+    finds -- so a `fundingRate` recording under that root would make the whole corpus
+    suite raise. A dataset without one is an alternative series
+    (`fking.data.alt`), and it gets its own root and its own integrity test.
+    """
+    try:
+        resolve_archive_format(
+            market=coordinate.market,
+            dataset=coordinate.dataset,
+            archive_date=coordinate.archive_date,
+        )
+        root = FIXTURE_ROOT
+    except DataIntegrityError:
+        root = ALT_FIXTURE_ROOT
     parts = [coordinate.market.value, coordinate.dataset.value, coordinate.symbol]
     if coordinate.interval is not None:
         parts.append(coordinate.interval)
-    return FIXTURE_ROOT.joinpath(*parts)
+    return root.joinpath(*parts)
 
 
 def record(
@@ -117,6 +142,7 @@ def record(
     interval: str | None,
     rows: int,
     keep_archive: bool,
+    granularity: Granularity | None = None,
 ) -> None:
     coordinate = ArchiveCoordinate(
         market=market,
@@ -125,12 +151,16 @@ def record(
         archive_date=archive_date,
         interval=interval,
     )
-    granularity = resolve_granularity(archive_date=archive_date, today_utc=archive_date)
-    if granularity is not Granularity.DAILY:  # pragma: no cover - the rule cannot say else
-        raise SystemExit(f"expected a daily archive, resolved {granularity}")
+    if granularity is None:
+        # today_utc = the archive's own date, so the production rule resolves DAILY.
+        granularity = resolve_granularity(archive_date=archive_date, today_utc=archive_date)
+        if granularity is not Granularity.DAILY:  # pragma: no cover - the rule cannot say else
+            raise SystemExit(f"expected a daily archive, resolved {granularity}")
 
     with tempfile.TemporaryDirectory(prefix="fking-record-") as scratch:
-        archive_bytes, archive_sha256, url = asyncio.run(_download(coordinate, Path(scratch)))
+        archive_bytes, archive_sha256, url = asyncio.run(
+            _download(coordinate, Path(scratch), granularity)
+        )
 
     member = _single_member_name(archive_bytes)
     member_bytes = _read_member(archive_bytes, member)
@@ -195,6 +225,16 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--interval", default=None, help="klines only, e.g. 1m")
     parser.add_argument("--rows", type=int, default=DEFAULT_FRAGMENT_ROWS)
     parser.add_argument(
+        "--granularity",
+        default=None,
+        choices=[member.value for member in Granularity],
+        help=(
+            "override the daily/monthly choice. Required for the alternative datasets, "
+            "whose granularity is a property of the dataset rather than of the calendar: "
+            "fundingRate is published monthly only and metrics daily only"
+        ),
+    )
+    parser.add_argument(
         "--keep-archive",
         action="store_true",
         help="also commit the whole verified .zip; only for archives of a few tens of KB",
@@ -215,6 +255,7 @@ def main(argv: Sequence[str]) -> int:
         interval=parsed.interval,
         rows=parsed.rows,
         keep_archive=parsed.keep_archive,
+        granularity=None if parsed.granularity is None else Granularity(parsed.granularity),
     )
     return 0
 
