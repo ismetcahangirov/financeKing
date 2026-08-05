@@ -1,6 +1,6 @@
-"""Enforce the two pull-request metadata rules from GIT_WORKFLOW.md.
+"""Enforce the three pull-request metadata rules from GIT_WORKFLOW.md.
 
-Both catch something a diff view cannot show you.
+All three catch something a diff view cannot show you.
 
 **A `docs` pull request may not touch `src/`.** GIT_WORKFLOW.md section 4: "a docs
 branch that quietly changed code is the one nobody reads carefully". A reviewer opening
@@ -12,7 +12,17 @@ tests, the import-linter contracts, even a reformat. "It especially includes cha
 that look like cleanups. A frozenset reformatted into a multi-line literal is exactly
 the diff in which one entry changes and nobody notices."
 
-Both rules fail closed. An unparseable title is a violation rather than a skipped
+**A diff touching `migrations/versions/` must carry `merge:commit`.** GIT_WORKFLOW.md
+section 7's merge-method exception says such a pull request is merged with a merge
+commit rather than squashed, and #147 was squashed anyway despite `gh pr merge --merge`
+being the command run. The label is here because **the merge method is not checkable
+before the merge and a label is**: nothing in a status check can observe which button
+gets pressed afterwards, so the enforceable thing is a marker that makes the requirement
+visible on the pull request, in the merge dialog, to whoever presses it. The check
+output states the invocation rather than only the rule, because "merged with a merge
+commit" turned out to be a statement about an outcome whose command was not obvious.
+
+All three fail closed. An unparseable title is a violation rather than a skipped
 check, because a rule that switches itself off when its input is unrecognised is a rule
 that can be disabled by retitling a pull request.
 """
@@ -41,6 +51,20 @@ SAFETY_PATH_PREFIXES: Final[tuple[str, ...]] = (
     "tests/platform/safety/",
 )
 SAFETY_LABEL: Final[str] = "safety:critical"
+
+# Only `versions/`, not `migrations/` whole. `migrations/env.py` and the Alembic config
+# carry no revision id, so squashing a change to either leaves nothing in
+# `alembic_version` pointing at a file that no longer exists -- which is the entire
+# failure the exception exists for.
+MIGRATION_PATH_PREFIX: Final[str] = "migrations/versions/"
+MERGE_COMMIT_LABEL: Final[str] = "merge:commit"
+
+# The invocation, not the intent. `gh pr merge --merge` was run on #147 and the result
+# was squashed anyway; the REST endpoint takes the method as data rather than as a flag
+# whose interpretation depends on the client version and the repository's defaults.
+MERGE_COMMIT_INVOCATION: Final[str] = (
+    "gh api -X PUT repos/{owner}/{repo}/pulls/{number}/merge -f merge_method=merge"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +112,17 @@ def violations(facts: PullRequestFacts) -> list[str]:
             f"{sorted(safety_changes)} touches the safety kernel but the pull request "
             f"is not labelled {SAFETY_LABEL}; this path changes the demo-only "
             f"guarantee and needs a human decision, not a review rubber-stamp"
+        )
+
+    migrations = [path for path in paths if path.startswith(MIGRATION_PATH_PREFIX)]
+    if migrations and MERGE_COMMIT_LABEL not in facts.labels:
+        found.append(
+            f"{sorted(migrations)} adds or changes an Alembic migration, so this pull "
+            f"request must NOT be squashed and must carry {MERGE_COMMIT_LABEL}. Squashing "
+            f"a migration together with the code that uses it makes `git revert` delete "
+            f"the migration file while its revision id is still in alembic_version, and "
+            f"Alembic then refuses to upgrade, downgrade or explain itself. Merge with: "
+            f"{MERGE_COMMIT_INVOCATION}"
         )
     return found
 

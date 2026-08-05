@@ -324,6 +324,19 @@ The reason is specific and bites hard. If a migration is squashed together with 
 
 With the migration preserved as its own commit, you revert the code commit and leave the migration in place. A migration that adds an unused column is harmless. A missing migration file is not.
 
+**The invocation, because "merged with a merge commit" is a statement about an outcome and the command that produces it turned out not to be obvious.** #147 contained `migrations/versions/0012_gap_resolution.py`, was merged with `gh pr merge 147 --merge --delete-branch`, and was **squashed anyway** — `da9c42b` has a single parent and a squash-format body. Nothing in the repository settings explains it: `allow_merge_commit` is true, `required_linear_history` is false, and there are no rulesets. The cause was never established, so the rule is stated as the invocation that *has* been verified rather than as the flag that was believed to work:
+
+```bash
+gh api -X PUT "repos/{owner}/{repo}/pulls/<number>/merge" -f merge_method=merge
+git fetch origin main && git log --format='%h parents=[%p]' -1 origin/main   # two parents, or it squashed
+```
+
+The REST endpoint takes the method as data rather than as a client-side flag, and the second line is not optional: **verify the parent count, because the failure is silent and only visible in the shape of the commit.** The web UI's explicit "Create a merge commit" option is equivalent; the dropdown remembers its last selection, which is one plausible explanation for #147 and is reason enough to check afterwards either way.
+
+A pull request touching `migrations/versions/` must carry the **`merge:commit`** label, enforced by the `PR metadata` check. The label is a proxy and is admitted as one — no pre-merge check can observe which button gets pressed afterwards. What it buys is that the requirement is visible on the pull request and in the merge dialog, to the person about to press it, and the check's failure message carries the invocation above. `migrations/env.py` and `alembic.ini` are excluded: neither carries a revision id, so squashing them strands nothing in `alembic_version`, and requiring the label there would train people to add it by reflex.
+
+If a migration does get squashed, the tree on `main` is still correct and the migration still applies — it is a revertability defect, not a correctness one, and it is not repaired by rewriting `main`. `ERROR_RECOVERY.md` carries the procedure for reverting one.
+
 Corollary: **migrations are forward-only.** Write the `downgrade()` because Alembic requires it, but the rollback path is a new forward migration, never a downgrade run against a database holding real audit history.
 
 ---

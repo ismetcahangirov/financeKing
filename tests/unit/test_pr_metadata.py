@@ -1,9 +1,10 @@
-"""The two pull-request metadata rules GIT_WORKFLOW.md already documents.
+"""The three pull-request metadata rules GIT_WORKFLOW.md documents.
 
-Both exist because the thing they catch is invisible in a diff view. A `docs` branch
-that quietly changed code is the one nobody reads carefully, and a safety-path change
-without its label is a change to the demo-only guarantee that reached review looking
-like an ordinary chore.
+All three exist because the thing they catch is invisible in a diff view. A `docs`
+branch that quietly changed code is the one nobody reads carefully; a safety-path change
+without its label is a change to the demo-only guarantee that reached review looking like
+an ordinary chore; and a migration is squashed by whoever presses the button, minutes
+after the diff was approved, which no status check can observe.
 """
 
 from __future__ import annotations
@@ -91,6 +92,40 @@ class TestSafetyKernelLabel:
         reported = " | ".join(violations(facts(title="docs(x): tidy", files=self.SAFETY_FILE)))
         assert "changed source files" in reported
         assert "safety:critical" in reported
+
+
+class TestMigrationMergeCommitLabel:
+    """#148. A migration squashed into its caller is unrevertable in the way that matters.
+
+    The label is a proxy and is admitted as one: nothing in a pre-merge check can observe
+    which merge button gets pressed afterwards. What it buys is that the requirement is
+    visible on the pull request and in the merge dialog, to the person about to press it.
+    """
+
+    MIGRATION = "migrations/versions/0013_something.py"
+
+    def test_a_migration_without_the_label_is_rejected(self) -> None:
+        found = violations(facts(files=f"{self.MIGRATION},src/fking/data/x.py"))
+        assert len(found) == 1
+        assert "merge:commit" in found[0]
+
+    def test_the_rejection_states_the_invocation_and_not_only_the_rule(self) -> None:
+        """#147 was merged with `gh pr merge --merge` and squashed anyway, so "use a merge
+        commit" is a statement about an outcome whose command was not obvious."""
+        found = violations(facts(files=self.MIGRATION))
+        assert "merge_method=merge" in found[0]
+
+    def test_a_migration_with_the_label_is_accepted(self) -> None:
+        assert violations(facts(labels="merge:commit", files=self.MIGRATION)) == []
+
+    def test_alembic_plumbing_outside_versions_needs_no_label(self) -> None:
+        """`migrations/env.py` carries no revision id, so squashing it strands nothing in
+        `alembic_version`. Requiring the label there would train people to add it by
+        reflex, which is how a marker stops carrying information."""
+        assert violations(facts(files="migrations/env.py,alembic.ini")) == []
+
+    def test_an_unrelated_change_needs_no_label(self) -> None:
+        assert violations(facts(files="src/fking/data/x.py")) == []
 
 
 class TestCommandLineInterface:

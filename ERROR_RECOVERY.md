@@ -231,3 +231,44 @@ Absolute balance is discontinuous at an epoch boundary; returns are not. Trade h
 ### What does not need recovering
 
 API keys and Ed25519 keys survive the wipe. Do not re-register, do not rotate, do not treat the wipe as an authentication problem — the first symptom people react to is "everything returns nothing", and re-issuing credentials is the instinctive response. It changes nothing, invalidates the audit trail's key fingerprints, and costs an afternoon.
+
+---
+
+## 9. Reverting a commit that squashed a migration
+
+`GIT_WORKFLOW.md` §7 requires a pull request containing an Alembic migration to be merged with a merge commit, so that the migration survives as its own revertable commit. That rule has been violated once, silently: **`da9c42b` (#147) was merged with `gh pr merge --merge` and squashed anyway**, so `migrations/versions/0012_gap_resolution.py` lives inside a commit that also carries the code using it. The same is true of `de44c17` (#145). The tree is correct and both migrations apply cleanly; what is broken is revertability.
+
+`main` is not rewritten to fix this. Force-push is blocked and would be wrong: `main`'s history is what the release tags point into. The defect is repaired at the moment somebody tries to revert, and this is the procedure.
+
+### What goes wrong if you revert it plainly
+
+```bash
+git revert da9c42b     # deletes migrations/versions/0012_gap_resolution.py from the tree
+```
+
+Every database that has been upgraded still holds `0012_gap_resolution` in `alembic_version`. Alembic resolves the current revision by looking up that id in the migration directory, finds nothing, and refuses **every** operation — `upgrade`, `downgrade`, and `current` — with an error about a revision it cannot locate rather than about a file you deleted. The application will not start. Recovery from there is hand-editing `alembic_version` on a live database under time pressure, which is precisely what the rule exists to prevent.
+
+### The procedure
+
+1. **Revert, then restore the migration file in the same commit.** The revert is of the *code*, never of the schema.
+
+   ```bash
+   git revert --no-commit da9c42b
+   git checkout da9c42b -- migrations/versions/0012_gap_resolution.py
+   git commit -m "revert(data): back out the REST gap backfill, keeping migration 0012"
+   ```
+
+2. **Confirm the revision chain is intact.** `0013`'s `down_revision` points at `0012`; if the file were gone, the chain would have a hole rather than an obvious error.
+
+   ```bash
+   uv run alembic heads          # exactly one head
+   uv run alembic current        # matches what the database holds
+   ```
+
+3. **Leave the schema alone.** A migration whose code is reverted leaves tables and columns nothing reads. That is harmless and is the intended end state — migrations are forward-only (`GIT_WORKFLOW.md` §7), and dropping the objects means writing a *new* forward migration, reviewed on its own, never a `downgrade()` run against a database holding audit history.
+
+4. **State it in the revert's body**, naming the commit and the migration kept. The next reader's question is "why does this revert restore a file?", and the answer has to be in the commit rather than in this document.
+
+### Why this is not automated
+
+A check could detect that a `main` commit both touches `migrations/versions/` and has one parent. It would fire on two historical commits, forever, with no action available — `main` is not being rewritten — which is how a check becomes noise that people learn to ignore. The enforceable point is *before* the merge, and that is the `merge:commit` label the `PR metadata` check requires.
