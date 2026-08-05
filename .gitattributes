@@ -22,6 +22,15 @@ uv.lock linguist-generated=true
 tests/fixtures/archives/**/*.csv text eol=lf
 tests/fixtures/archives/**/*.zip binary
 
+# The alternative-series recordings (#32), under a second root because they have no
+# declared corpus format and never become bars or prints. Identical reasoning and
+# identical protection: their digests are asserted in
+# tests/data/test_alt_fixture_integrity.py against what data.binance.vision served, and
+# the funding archive is 825 bytes of mostly-ASCII CSV, which is exactly the shape git's
+# text heuristic classifies wrongly.
+tests/fixtures/alt/**/*.csv text eol=lf
+tests/fixtures/alt/**/*.zip binary
+
 # Recorded WebSocket frames, for exactly the same reason: one JSON document per line,
 # committed verbatim, with a SHA-256 over the file asserted in
 # tests/data/test_stream_fixture_integrity.py. A checkout that rewrote the separators
