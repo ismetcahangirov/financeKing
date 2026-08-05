@@ -25,6 +25,7 @@ import hashlib
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 import sqlalchemy as sa
@@ -40,6 +41,7 @@ from fking.data.alt import (
     PostgresAltStore,
     ingest_alt_period,
 )
+from fking.data.alt import ingest as alt_ingest
 from fking.data.alt.registry import (
     BINANCE_FUNDING_RATE,
     BINANCE_OPEN_INTEREST,
@@ -352,12 +354,67 @@ async def test_appending_nothing_writes_nothing_and_opens_no_transaction(
 
 
 @pytest.mark.asyncio
-async def test_a_source_with_an_archive_but_no_parser_is_refused_by_name(
-    ingest_engine: AsyncEngine, tmp_path: Path
+async def test_a_recorded_day_of_open_interest_ingests_and_reads_back_after_its_lag(
+    app_engine: AsyncEngine, ingest_engine: AsyncEngine, tmp_path: Path
 ) -> None:
-    """Open interest is fetchable and probeable today and not parseable, because its
-    `create_time` is a naive datetime string that `ArchiveFormat` has no member for
-    (VF-029, #155). The refusal names that rather than a fetcher pretending to work."""
+    """The same path as the funding case, for the source #155 made parseable.
+
+    Worth asserting separately rather than parametrising: everything that differs between
+    the two is a thing that used to be assumed. The granularity is daily rather than
+    monthly, the timestamp is a naive datetime string rather than a millisecond epoch, and
+    the lag is five minutes rather than one. All three come from declarations, and a shared
+    test body would only prove the shared half.
+    """
+    recorded = alt_fixtures.metrics_archive()
+    series = BINANCE_OPEN_INTEREST.series(recorded.symbol)
+    coordinate = ArchiveCoordinate(
+        market=ALT_MARKET,
+        dataset=ARCHIVE_DATASET[series.source_id],
+        symbol=recorded.symbol,
+        archive_date=recorded.archive_date,
+    )
+    url = archive_url(coordinate, ARCHIVE_GRANULARITY[series.source_id])
+    payload = recorded.read()
+    assert hashlib.sha256(payload).hexdigest() == recorded.archive_sha256
+
+    fetcher = ArchiveFetcher(egress=StubArchiveEgress({url: payload}), cache_root=tmp_path)
+    outcome = await ingest_alt_period(
+        fetcher,
+        AltObservationWriter(ingest_engine),
+        series=series,
+        archive_date=recorded.archive_date,
+        now_utc=alt_fixtures.NOW_UTC,
+    )
+
+    assert outcome.archive_sha256_hex == recorded.archive_sha256
+    assert outcome.observations_parsed == outcome.observations_written
+    assert outcome.observations_written == recorded.member_line_count - 1  # minus the header
+
+    store = PostgresAltStore(app_engine)
+    first_sample = datetime(2024, 1, 2, tzinfo=UTC)
+    lag = BINANCE_OPEN_INTEREST.availability_lag
+
+    at_sample = await store.load(series, as_of=first_sample, lookback=timedelta(days=1))
+    after_lag = await store.load(series, as_of=first_sample + lag, lookback=timedelta(days=1))
+
+    assert at_sample.values == ()
+    assert [entry.observed_value for entry in after_lag.values] == [Decimal("76608.79800000")]
+
+
+@pytest.mark.asyncio
+async def test_an_archive_source_with_no_parser_is_refused_by_name(
+    ingest_engine: AsyncEngine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guard that stands between a future source and a `KeyError`.
+
+    It is unreachable through the registry today, and that is new: between #32 and #155
+    `binance.openInterest` was exactly this case -- fetchable, probeable, and unparseable.
+    Both archive-delivered sources now have parsers, so the parser table is emptied here to
+    reach the branch. Reaching into a private name is the lesser evil against the
+    alternative, which is deleting the test and leaving the guard unexercised until the
+    next source arrives and discovers it produces a `KeyError` instead of a sentence.
+    """
+    monkeypatch.setattr(alt_ingest, "_PARSERS", MappingProxyType({}))
     fetcher = ArchiveFetcher(egress=StubArchiveEgress({}), cache_root=tmp_path)
 
     with pytest.raises(DataUnavailableError, match="no parser in this repository"):

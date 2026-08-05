@@ -48,6 +48,7 @@ from fking.data.alt import (
 )
 from fking.data.alt.registry import BINANCE_FUNDING_RATE, BINANCE_OPEN_INTEREST, FRED_RELEASES
 from fking.data.archive import ArchiveCoordinate, archive_url
+from fking.data.format_resolver import ALT_DATASETS, resolve_archive_format
 from fking.data.loaders import extract_single_member
 from fking.platform.errors import DataIntegrityError, DataUnavailableError, FeatureContractError
 from tests.support import alt_fixtures
@@ -278,10 +279,17 @@ def test_a_release_instant_inside_the_declared_minimum_delay_is_refused() -> Non
 # ---------------------------------------------------------------------------
 
 
+# The declaration `ingest_alt_period` resolves for the recorded month, resolved rather than
+# constructed so these tests exercise the same table production reads (#155).
+FUNDING_FORMAT: Final = alt_fixtures.funding_rate_archive().archive_format()
+
+
 def _funding_observations() -> tuple[AltObservation, ...]:
     recorded = alt_fixtures.funding_rate_archive()
     member = extract_single_member(recorded.read(), source=recorded.label)
-    return parse_funding_rate_archive(member, source=recorded.label, now_utc=NOW_UTC)
+    return parse_funding_rate_archive(
+        member, source=recorded.label, now_utc=NOW_UTC, archive_format=FUNDING_FORMAT
+    )
 
 
 def test_the_whole_recorded_month_parses_into_every_settlement_it_holds() -> None:
@@ -322,7 +330,9 @@ def test_a_settlement_interval_that_is_not_the_declared_cadence_refuses_the_file
     that ratio."""
     mutated = b"calc_time,funding_interval_hours,last_funding_rate\n1577836800000,4,-0.00012359\n"
     with pytest.raises(DataIntegrityError, match="funding_interval_hours"):
-        parse_funding_rate_archive(mutated, source="mutated", now_utc=NOW_UTC)
+        parse_funding_rate_archive(
+            mutated, source="mutated", now_utc=NOW_UTC, archive_format=FUNDING_FORMAT
+        )
 
 
 def test_a_duplicate_settlement_refuses_the_file() -> None:
@@ -334,7 +344,9 @@ def test_a_duplicate_settlement_refuses_the_file() -> None:
         b"1577836800000,8,0.00012359\n"
     )
     with pytest.raises(DataIntegrityError, match="not after the previous"):
-        parse_funding_rate_archive(mutated, source="mutated", now_utc=NOW_UTC)
+        parse_funding_rate_archive(
+            mutated, source="mutated", now_utc=NOW_UTC, archive_format=FUNDING_FORMAT
+        )
 
 
 def test_a_file_without_the_declared_header_is_refused() -> None:
@@ -342,7 +354,9 @@ def test_a_file_without_the_declared_header_is_refused() -> None:
     as a settlement, and reading a headless one as headed discards a real settlement."""
     mutated = b"1577836800000,8,-0.00012359\n"
     with pytest.raises(DataIntegrityError, match="has no header"):
-        parse_funding_rate_archive(mutated, source="mutated", now_utc=NOW_UTC)
+        parse_funding_rate_archive(
+            mutated, source="mutated", now_utc=NOW_UTC, archive_format=FUNDING_FORMAT
+        )
 
 
 @pytest.mark.parametrize(
@@ -382,7 +396,9 @@ def test_every_malformed_row_refuses_the_whole_file(row: bytes, expected: str) -
     """
     payload = b"calc_time,funding_interval_hours,last_funding_rate\n" + row + b"\n"
     with pytest.raises(DataIntegrityError, match=re.escape(expected)):
-        parse_funding_rate_archive(payload, source="mutated", now_utc=NOW_UTC)
+        parse_funding_rate_archive(
+            payload, source="mutated", now_utc=NOW_UTC, archive_format=FUNDING_FORMAT
+        )
 
 
 def test_a_file_with_no_rows_at_all_parses_to_nothing() -> None:
@@ -390,7 +406,11 @@ def test_a_file_with_no_rows_at_all_parses_to_nothing() -> None:
     error. Inventing a row here would be the one thing the corpus never does."""
     header = b"calc_time,funding_interval_hours,last_funding_rate\n"
 
-    assert parse_funding_rate_archive(header, source="empty", now_utc=NOW_UTC) == ()
+    parsed = parse_funding_rate_archive(
+        header, source="empty", now_utc=NOW_UTC, archive_format=FUNDING_FORMAT
+    )
+
+    assert parsed == ()
 
 
 def test_a_naive_reference_instant_is_refused() -> None:
@@ -401,6 +421,25 @@ def test_a_naive_reference_instant_is_refused() -> None:
             b"calc_time,funding_interval_hours,last_funding_rate\n",
             source="empty",
             now_utc=datetime(2026, 8, 5),  # noqa: DTZ001 -- the subject
+            archive_format=FUNDING_FORMAT,
+        )
+
+
+def test_a_parser_handed_the_wrong_declaration_refuses_before_reading_a_row() -> None:
+    """The declaration is resolved by the caller, so passing the wrong one is reachable.
+
+    `metrics` stamps a naive datetime string, so `require_epoch_unit()` refuses rather than
+    letting the funding parser read `1577836800000` as a date -- which would also fail, but
+    with a message about a malformed row rather than about the wrong declaration.
+    """
+    metrics_format = alt_fixtures.metrics_archive().archive_format()
+
+    with pytest.raises(DataIntegrityError, match="not an epoch"):
+        parse_funding_rate_archive(
+            b"calc_time,funding_interval_hours,last_funding_rate\n1577836800000,8,-0.0001\n",
+            source="mutated",
+            now_utc=NOW_UTC,
+            archive_format=metrics_format,
         )
 
 
@@ -631,11 +670,28 @@ def test_every_archive_delivered_source_declares_a_dataset_and_a_granularity() -
 
 
 def test_a_parsed_source_is_always_an_archive_delivered_one() -> None:
-    """A parser for a source with no egress is unreachable code. The converse is allowed
-    and is the current state: `binance.openInterest` is fetchable and probeable, and its
-    `create_time` is a naive datetime string that `ArchiveFormat` has no member for."""
+    """A parser for a source with no egress is unreachable code.
+
+    The converse -- an archive with no parser -- stays representable, and stayed the state
+    of `binance.openInterest` between #32 and #155. It is not the state of anything today,
+    which the next test asserts positively.
+    """
     assert set(ARCHIVE_DATASET) >= PARSED_SOURCES
-    assert BINANCE_OPEN_INTEREST.source_id not in PARSED_SOURCES
+
+
+def test_every_archive_delivered_source_has_a_declared_format_and_a_parser() -> None:
+    """`fking.data.alt`'s half of the drift check `tests/data/test_parsers.py` runs over the
+    corpus tables. A declared format with no parser is a file that cannot be read; a parser
+    for a dataset with no declared format would be inventing an encoding, which is exactly
+    what `docs/adr/0013` exists to prevent."""
+    for source_id, dataset in ARCHIVE_DATASET.items():
+        resolved = resolve_archive_format(
+            market=ALT_MARKET, dataset=dataset, archive_date=date(2024, 1, 2)
+        )
+
+        assert resolved.dataset is dataset
+        assert dataset in ALT_DATASETS, f"{dataset.value} must be excluded from the corpus tables"
+        assert source_id in PARSED_SOURCES
 
 
 def test_source_ids_are_dotted_and_lowercase_at_the_publisher() -> None:

@@ -12,6 +12,11 @@ eight-hour boundary; `8.4E-7`, a rate in scientific notation; and negative rates
 opening rows. Each is the kind of value somebody "tidies" while chasing a failure, and each
 is asserted here so that tidying it fails loudly rather than silently weakening the parser
 test that depends on it.
+
+The `metrics` recording carries one such shape and it is the whole point of that fixture:
+`create_time` is `2024-01-02 00:00:00`, a naive datetime string with no offset (VF-029).
+"Normalising" it to an epoch, or appending `+00:00` to make it explicit, would leave every
+assertion about the naive encoding passing against data that no longer has that shape.
 """
 
 from __future__ import annotations
@@ -33,6 +38,9 @@ SHA256_HEX_LENGTH = 64
 
 # 31 days, three settlements a day, plus the header row.
 JANUARY_2020_LINES = 94
+
+# One day at five-minute sampling -- 288 rows -- plus the header row.
+JANUARY_2024_METRICS_LINES = 289
 
 
 def test_the_alt_corpus_is_not_empty() -> None:
@@ -83,3 +91,36 @@ def test_the_funding_recording_still_carries_the_three_awkward_shapes() -> None:
     assert b"8.4E-7" in member, "the scientific-notation rate was rewritten"
     assert b",-0.000" in member, "the negative rates were removed"
     assert member.startswith(b"calc_time,funding_interval_hours,last_funding_rate")
+
+
+def test_the_metrics_recording_is_a_whole_verified_day() -> None:
+    """288 five-minute samples plus a header. A fragment could not carry that assertion,
+    and a short day is exactly what a truncated download produces."""
+    recorded = alt_fixtures.metrics_archive()
+
+    with zipfile.ZipFile(BytesIO(recorded.read())) as bundle:
+        members = bundle.namelist()
+        assert len(members) == 1
+        member = bundle.read(members[0])
+
+    assert hashlib.sha256(member).hexdigest() == recorded.member_sha256
+    assert recorded.member_line_count == JANUARY_2024_METRICS_LINES
+    assert recorded.dataset is Dataset.METRICS
+
+
+def test_the_metrics_recording_still_stamps_a_naive_datetime_string() -> None:
+    """VF-029's evidence, and the reason `TimestampEncoding.NAIVE_UTC_DATETIME` exists.
+
+    Somebody "normalising" this fixture to epochs would leave every naive-datetime
+    assertion in the suite passing against data that no longer has the shape they are
+    about. The last line is checked too: a day that ends at 23:55 is a day that arrived
+    whole, and the parser's five-minute spacing check is only meaningful across one.
+    """
+    recorded = alt_fixtures.metrics_archive()
+    with zipfile.ZipFile(BytesIO(recorded.read())) as bundle:
+        member = bundle.read(bundle.namelist()[0])
+
+    assert member.startswith(b"create_time,symbol,sum_open_interest,sum_open_interest_value,")
+    assert b"\n2024-01-02 00:00:00,BTCUSDT," in member, "the naive datetime stamp was rewritten"
+    assert b"+00:00" not in member, "an offset appeared, which the declaration says is absent"
+    assert b"2024-01-02 23:55:00,BTCUSDT," in member, "the day no longer runs to its last sample"
