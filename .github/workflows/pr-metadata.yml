@@ -14,9 +14,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
 
+# `cancel-in-progress: false`, unlike ci.yml, and it is not an oversight. Adding three
+# labels to a pull request fires three `labeled` events within seconds; cancelling would
+# leave two check runs named exactly like the required status check with conclusion
+# `cancelled`, and branch protection then blocks the merge on them even though the last
+# run succeeded. Observed on #157, the pull request that added this file. The job takes
+# about fifteen seconds, so there is nothing worth saving by cancelling it.
 concurrency:
   group: pr-metadata-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
