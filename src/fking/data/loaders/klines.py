@@ -79,7 +79,7 @@ def parse_kline_row(row: Sequence[str], spec: IngestionSpec) -> KlineRecord:
     raw fields are still available to name in the rejection.
     """
     require_field_count(row, expected=len(KLINE_COLUMNS))
-    unit = spec.archive_format.epoch_unit
+    unit = spec.archive_format.require_epoch_unit()
     now_utc = spec.now_utc
 
     open_time_utc = parse_epoch(row[_OPEN_TIME], column="open_time", unit=unit, now_utc=now_utc)

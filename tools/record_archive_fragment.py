@@ -52,8 +52,7 @@ from fking.data.archive import (
     archive_filename,
     resolve_granularity,
 )
-from fking.data.format_resolver import Dataset, Market, resolve_archive_format
-from fking.platform.errors import DataIntegrityError
+from fking.data.format_resolver import ALT_DATASETS, Dataset, Market
 from fking.platform.safety.archive import GuardedArchiveEgress
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
@@ -111,22 +110,15 @@ async def _download(
 def _fixture_directory(coordinate: ArchiveCoordinate) -> Path:
     """Where this recording belongs: the corpus fixtures, or the alternative ones.
 
-    Decided by asking `resolve_archive_format` rather than by a list of dataset names. A
-    dataset with a declared corpus format becomes bars or prints and its fixtures are read
-    by `tests/support/archive_fixtures.py`, which resolves that format for every file it
-    finds -- so a `fundingRate` recording under that root would make the whole corpus
-    suite raise. A dataset without one is an alternative series
-    (`fking.data.alt`), and it gets its own root and its own integrity test.
+    Decided by `ALT_DATASETS`, which is the statement of which datasets never become bars
+    or prints. It used to be decided by catching the refusal from `resolve_archive_format`
+    -- true only while the alternative datasets had no declaration, and silently wrong the
+    moment `metrics` acquired one (#155), at which point a `metrics` recording would have
+    landed under the corpus root and made the whole corpus suite raise on collection.
+    Inferring a fact that is stated three imports away is the failure the format table
+    exists to prevent, so it is not a shape to keep in the tool that populates it.
     """
-    try:
-        resolve_archive_format(
-            market=coordinate.market,
-            dataset=coordinate.dataset,
-            archive_date=coordinate.archive_date,
-        )
-        root = FIXTURE_ROOT
-    except DataIntegrityError:
-        root = ALT_FIXTURE_ROOT
+    root = ALT_FIXTURE_ROOT if coordinate.dataset in ALT_DATASETS else FIXTURE_ROOT
     parts = [coordinate.market.value, coordinate.dataset.value, coordinate.symbol]
     if coordinate.interval is not None:
         parts.append(coordinate.interval)

@@ -94,7 +94,7 @@ def parse_trade_row(row: Sequence[str], spec: IngestionSpec) -> TradeRecord:
         event_time_utc=parse_epoch(
             row[_EVENT_TIME],
             column="time",
-            unit=spec.archive_format.epoch_unit,
+            unit=spec.archive_format.require_epoch_unit(),
             now_utc=spec.now_utc,
         ),
         quote_price=parse_positive_decimal(row[_PRICE], column="price"),

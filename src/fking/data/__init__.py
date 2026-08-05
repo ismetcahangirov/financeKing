@@ -37,7 +37,9 @@ from fking.data.format_resolver import (
     Dataset,
     EpochUnit,
     Market,
+    TimestampEncoding,
     epoch_to_utc,
+    parse_naive_utc_datetime,
     resolve_archive_format,
 )
 
@@ -51,7 +53,9 @@ __all__: tuple[str, ...] = (
     "FetchedArchive",
     "Granularity",
     "Market",
+    "TimestampEncoding",
     "epoch_to_utc",
+    "parse_naive_utc_datetime",
     "resolve_archive_format",
     "resolve_granularity",
 )

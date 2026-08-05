@@ -114,7 +114,8 @@ def test_the_corpus_still_contains_a_python_style_boolean() -> None:
 def test_the_corpus_spans_the_microsecond_cutover_in_both_directions() -> None:
     """VF-015's test data, on both sides of 2025-01-01 and in both markets."""
     units = {
-        (recorded.market, recorded.spec().archive_format.epoch_unit) for recorded in ALL_FIXTURES
+        (recorded.market, recorded.spec().archive_format.require_epoch_unit())
+        for recorded in ALL_FIXTURES
     }
     epoch_units = {unit for _market, unit in units}
 

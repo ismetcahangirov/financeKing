@@ -1,4 +1,4 @@
-"""The format resolver, and the three verified traps it exists to make impossible.
+"""The format resolver, and the four verified traps it exists to make impossible.
 
 Every assertion here is about a failure that produces no exception if it is allowed
 through. Milliseconds parsed as microseconds land in 1970 and microseconds parsed as
@@ -7,6 +7,11 @@ genuinely dangerous case is *mixing* the two inside one series while resampling,
 gives correct-looking endpoints and corrupted spacing in the middle. The only defence
 that scales is refusing to guess, so most of this file asserts that the resolver
 raises.
+
+The fourth trap (VF-029) is quieter than the first three and is why `TimestampEncoding`
+exists: `metrics` stamps `2024-01-02 00:00:00`, which is not an epoch, and reading it
+with `fromisoformat` yields a value that is correct to the second and merely has no
+timezone. Nothing about it looks wrong until a join returns nothing months later.
 """
 
 from __future__ import annotations
@@ -24,7 +29,9 @@ from fking.data import (
     Dataset,
     EpochUnit,
     Market,
+    TimestampEncoding,
     epoch_to_utc,
+    parse_naive_utc_datetime,
     resolve_archive_format,
 )
 from fking.data import format_resolver as module_under_test
@@ -46,6 +53,11 @@ DECLARED_KEYS = frozenset(
         (Market.SPOT, Dataset.KLINES),
         (Market.SPOT, Dataset.TRADES),
         (Market.FUTURES_UM, Dataset.KLINES),
+        # The two alternative datasets (#155). Declared here like every other format and
+        # read by `fking.data.alt` rather than by the corpus loaders; `ALT_DATASETS` is
+        # what states that distinction.
+        (Market.FUTURES_UM, Dataset.FUNDING_RATE),
+        (Market.FUTURES_UM, Dataset.METRICS),
     }
 )
 UNDECLARED_KEYS = sorted(
@@ -69,7 +81,7 @@ class TestEpochUnitCutover:
         resolved = resolve_archive_format(
             market=Market.SPOT, dataset=Dataset.KLINES, archive_date=archive_date
         )
-        assert resolved.epoch_unit is expected
+        assert resolved.require_epoch_unit() is expected
 
     @pytest.mark.parametrize("archive_date", [date(2024, 12, 31), date(2025, 1, 1)])
     def test_futures_klines_stayed_milliseconds_across_the_same_boundary(
@@ -78,7 +90,7 @@ class TestEpochUnitCutover:
         resolved = resolve_archive_format(
             market=Market.FUTURES_UM, dataset=Dataset.KLINES, archive_date=archive_date
         )
-        assert resolved.epoch_unit is EpochUnit.MILLISECONDS
+        assert resolved.require_epoch_unit() is EpochUnit.MILLISECONDS
 
     def test_spot_trades_switch_on_the_same_date_as_spot_klines(self) -> None:
         """The cutover is a property of the market, and the table must not drift.
@@ -92,7 +104,7 @@ class TestEpochUnitCutover:
         after = resolve_archive_format(
             market=Market.SPOT, dataset=Dataset.TRADES, archive_date=date(2025, 1, 1)
         )
-        assert (before.epoch_unit, after.epoch_unit) == (
+        assert (before.require_epoch_unit(), after.require_epoch_unit()) == (
             EpochUnit.MILLISECONDS,
             EpochUnit.MICROSECONDS,
         )
@@ -284,6 +296,93 @@ class TestEpochToUtc:
             epoch_to_utc(-CUTOVER_MS, unit=EpochUnit.MILLISECONDS, now_utc=NOW_UTC)
 
 
+class TestTheNaiveDatetimeEncoding:
+    """VF-029, the fourth trap: a declared timestamp that is not an epoch at all."""
+
+    def test_the_metrics_declaration_says_it_is_not_an_epoch(self) -> None:
+        resolved = resolve_archive_format(
+            market=Market.FUTURES_UM, dataset=Dataset.METRICS, archive_date=date(2024, 1, 2)
+        )
+        assert resolved.timestamp_encoding is TimestampEncoding.NAIVE_UTC_DATETIME
+        assert resolved.has_header_row is True
+
+    def test_asking_the_metrics_declaration_for_an_epoch_unit_refuses(self) -> None:
+        """The refusal is the point. A `None` here would be a value somebody picks a unit
+        for; a raise names the dataset and the function to use instead."""
+        resolved = resolve_archive_format(
+            market=Market.FUTURES_UM, dataset=Dataset.METRICS, archive_date=date(2024, 1, 2)
+        )
+        with pytest.raises(DataIntegrityError) as raised:
+            resolved.require_epoch_unit()
+        message = str(raised.value)
+        assert "metrics" in message
+        assert "parse_naive_utc_datetime" in message
+
+    def test_the_funding_declaration_still_answers_with_milliseconds(self) -> None:
+        """The other alternative dataset is an epoch, which is why the two are declared
+        rather than assumed from the fact that both live in `fking.data.alt`."""
+        resolved = resolve_archive_format(
+            market=Market.FUTURES_UM,
+            dataset=Dataset.FUNDING_RATE,
+            archive_date=date(2020, 1, 1),
+        )
+        assert resolved.timestamp_encoding is TimestampEncoding.EPOCH_MILLISECONDS
+        assert resolved.require_epoch_unit() is EpochUnit.MILLISECONDS
+
+    def test_a_declared_timestamp_reads_as_aware_utc(self) -> None:
+        """The whole defect this encoding exists for: `fromisoformat` would return a naive
+        datetime that compares equal to nothing and joins against nothing."""
+        parsed = parse_naive_utc_datetime("2024-01-02 00:05:00", now_utc=NOW_UTC)
+
+        assert parsed == datetime(2024, 1, 2, 0, 5, tzinfo=UTC)
+        assert parsed.tzinfo is not None
+        assert parsed.utcoffset() == datetime(2024, 1, 2, tzinfo=UTC).utcoffset()
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "2024-01-02T00:00:00",  # ISO 'T' separator
+            "2024-01-02 00:00:00Z",  # a Z suffix
+            "2024-01-02 00:00:00+04:00",  # an offset, the case that must never be absorbed
+            "2024-01-02 00:00:00.500",  # fractional seconds
+            "2024-01-02",  # a date with no time
+            "1704153600000",  # a millisecond epoch, i.e. the wrong declaration
+            "",
+        ],
+    )
+    def test_anything_but_the_declared_spelling_is_refused(self, raw: str) -> None:
+        with pytest.raises(DataIntegrityError, match="is not"):
+            parse_naive_utc_datetime(raw, now_utc=NOW_UTC)
+
+    def test_an_offset_is_refused_rather_than_converted(self) -> None:
+        """Stated separately from the parametrised case because it is the one that would
+        otherwise *work*: `fromisoformat` reads it, converts, and silently moves every row
+        in the file by the offset with nothing to show for it."""
+        with pytest.raises(DataIntegrityError) as raised:
+            parse_naive_utc_datetime("2024-01-02 00:00:00+04:00", now_utc=NOW_UTC)
+        assert "publisher changed how it spells this column" in str(raised.value)
+
+    def test_a_shape_that_matches_but_is_not_a_real_instant_is_refused(self) -> None:
+        """The pattern admits month 13 and hour 32; the calendar does not."""
+        with pytest.raises(DataIntegrityError, match="not a real instant"):
+            parse_naive_utc_datetime("2024-13-45 32:99:99", now_utc=NOW_UTC)
+
+    @pytest.mark.parametrize("raw", ["2009-12-31 23:59:59", "2026-08-05 00:00:00"])
+    def test_the_same_plausibility_window_applies(self, raw: str) -> None:
+        """One definition of "an instant this corpus could contain", shared with
+        `epoch_to_utc`: below 2010 there is no archive, and above `now + 1 day` there is
+        no archive yet. `NOW_UTC` is 2026-08-03, so the second case is two days ahead."""
+        with pytest.raises(DataIntegrityError, match="plausible window"):
+            parse_naive_utc_datetime(raw, now_utc=NOW_UTC)
+
+    def test_a_naive_reference_instant_is_refused(self) -> None:
+        with pytest.raises(DataIntegrityError, match="timezone-aware"):
+            parse_naive_utc_datetime(
+                "2024-01-02 00:00:00",
+                now_utc=datetime(2026, 8, 3),  # noqa: DTZ001 - the input under test
+            )
+
+
 class TestTheDeclarationTableIsWellFormed:
     def test_every_declared_segment_is_immutable(self) -> None:
         resolved = resolve_archive_format(
@@ -291,7 +390,9 @@ class TestTheDeclarationTableIsWellFormed:
         )
         assert isinstance(resolved, ArchiveFormat)
         with pytest.raises(AttributeError):
-            resolved.epoch_unit = EpochUnit.MILLISECONDS  # type: ignore[misc]
+            resolved.timestamp_encoding = (  # type: ignore[misc]
+                TimestampEncoding.EPOCH_MILLISECONDS
+            )
 
     @pytest.mark.parametrize(("market", "dataset"), sorted(DECLARED_KEYS), ids=str)
     def test_segments_are_contiguous_and_ordered(self, market: Market, dataset: Dataset) -> None:

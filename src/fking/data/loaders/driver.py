@@ -91,7 +91,7 @@ def parse_rows[RecordT: ArchiveRecord](
         rows_out=len(accepted),
         rows_rejected=len(rows) - len(accepted),
         rejection_reasons=tally,
-        epoch_unit_applied=spec.archive_format.epoch_unit,
+        epoch_unit_applied=spec.archive_format.require_epoch_unit(),
         first_event_time_utc=accepted[0].event_time_utc if accepted else None,
         last_event_time_utc=accepted[-1].event_time_utc if accepted else None,
         source_checksum_hex=spec.source_checksum_hex,

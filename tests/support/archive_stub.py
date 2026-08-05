@@ -80,7 +80,7 @@ def shift_member(member: bytes, *, coordinate: ArchiveCoordinate, days: int) -> 
         dataset=coordinate.dataset,
         archive_date=coordinate.archive_date,
     )
-    offset = _SECONDS_PER_DAY * days * _EPOCH_MULTIPLIER[archive_format.epoch_unit]
+    offset = _SECONDS_PER_DAY * days * _EPOCH_MULTIPLIER[archive_format.require_epoch_unit()]
     columns = _EPOCH_COLUMNS[coordinate.dataset]
     shifted = _shift_rows(
         member.decode("utf-8"),
