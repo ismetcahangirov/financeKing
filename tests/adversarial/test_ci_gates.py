@@ -61,6 +61,12 @@ AST_GATE_CASES: tuple[tuple[str, str, str, str], ...] = (
         "a wall-clock read inside risk",
     ),
     (
+        "clock_isolation.py",
+        "backtest",
+        "from datetime import UTC, datetime\n\nas_of = datetime.now(UTC)\n",
+        "a wall-clock read inside backtest",
+    ),
+    (
         "no_catch_safety.py",
         "execution",
         "try:\n    pass\nexcept SafetyViolation:\n    pass\n",

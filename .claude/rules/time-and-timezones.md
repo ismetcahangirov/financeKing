@@ -190,7 +190,7 @@ Rejecting a non-UTC aware datetime rather than converting it is deliberate. `ast
 **AST check** at `tools/checks/clock_isolation.py`, wired into the `checks` target described in [`./decimal-and-money.md`](./decimal-and-money.md):
 
 ```python
-"""No module under strategy/ or risk/ may read the wall clock."""
+"""No module under strategy/, risk/ or backtest/ may read the wall clock."""
 
 from __future__ import annotations
 
@@ -198,7 +198,7 @@ import ast
 import sys
 from pathlib import Path
 
-PURE_PACKAGES: tuple[str, ...] = ("strategy", "risk")
+PURE_PACKAGES: tuple[str, ...] = ("strategy", "risk", "backtest")
 BANNED_ATTRIBUTES: frozenset[str] = frozenset({"now", "today", "utcnow", "utcfromtimestamp", "fromtimestamp"})
 BANNED_CALLS: frozenset[str] = frozenset({"time", "time_ns", "monotonic", "perf_counter"})
 CLOCK_MODULE = Path("platform/clock.py")
@@ -235,6 +235,8 @@ def main(root: Path) -> int:
 if __name__ == "__main__":
     raise SystemExit(main(Path(sys.argv[1])))
 ```
+
+`backtest` is in that set for a sharper version of the same reason as the other two. Its clock is *simulated* — the event loop advances it to each event's instant — and a result is reproducible only while that is the sole source of time in the run. One `datetime.now(UTC)` inside the engine and two runs of the same `config_hash` disagree, which per `../../BACKTEST_ENGINE.md` §5 voids not only that run but every result the engine has produced: nothing distinguishes the ones that happened to agree.
 
 **Tests** that the guard is real, not decorative:
 

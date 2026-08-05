@@ -27,7 +27,7 @@ A single-threaded, deterministic loop over a merged, time-ordered event stream. 
 ```
                  ┌─────────────────────────────────────────┐
                  │  EventQueue (heap, ordered by           │
-                 │  (timestamp, sequence, priority))       │
+                 │  (timestamp, priority, sequence))       │
                  └───────────────┬─────────────────────────┘
                                  │ pop
                                  ▼
@@ -72,6 +72,20 @@ Ties on `(timestamp, priority)` break on a monotone sequence number assigned at 
 
 1. **No component reads the clock.** The clock is injected, always. `datetime.now()` inside `strategy`, `risk` or the engine makes the run non-reproducible, and `CLAUDE.md` §4 makes clock injection mandatory in exactly those modules.
 2. **A strategy sees only what a snapshot at *t* contains.** The `FeatureStore` is advanced to *t* before the strategy is called and exposes no method to read beyond it. Look-ahead is prevented by the shape of the interface, not by the strategy author's care — because the strategy author will frequently be an LLM.
+
+### What a handler may do, and the two things the loop refuses
+
+A handler receives a `RunContext` exposing exactly three operations: read the clock, schedule a future event, and derive a seed for a named source of randomness. It cannot advance the clock, reorder the queue, or read an event that has not been dispatched — because a handler that could look ahead would have look-ahead available *through an interface*, and no amount of care in the strategy author prevents that when the strategy author is frequently an LLM.
+
+Two refusals, both raising rather than repairing:
+
+**An event scheduled before the instant being dispatched.** Scheduling *at* the current instant is ordinary — a bar, the fill it caused and the timer it woke share one timestamp, and priority and sequence order them. Scheduling before it is a causality violation and is never clamped to `now`: a clamped fill happens at a plausible-looking time and produces an excellent equity curve with no error anywhere.
+
+**A run that exceeds its declared event budget.** The failure this catches is a handler that schedules at its own timestamp on every call, so simulated time never advances and the queue never drains. Under an unattended evolution cycle that is a machine occupied indefinitely rather than a crash — nothing times out, nothing alerts, and the generation never completes.
+
+Events scheduled *past* the window's end are neither an error nor invisible: a fill acknowledged 180 ms after the final bar is ordinary, so those are dropped and **counted**, and the count is reported on the trace. A run that dropped thousands of them ended mid-flight, and a count of zero where a venue was active is itself a finding.
+
+`RunConfig` carries only what can change a run's output — strategy, parameters, symbols, window, seed, budget — and is content-hashed into `config_hash` over canonical JSON, never over `repr`, `pickle` or Python's `hash()`, which is salted per process by `PYTHONHASHSEED`. Anything that can change without changing the result stays out, or two runs producing identical numbers carry different identities and the determinism check below passes vacuously by never comparing anything.
 
 ### What the engine does not do
 

@@ -1,9 +1,16 @@
-"""No module under strategy/ or risk/ may read the wall clock.
+"""No module under strategy/, risk/ or backtest/ may read the wall clock.
 
 A strategy that calls `datetime.now()` produces a different decision on Tuesday than
 the same code produced on Monday against the same bar. That breaks backtest/live
 parity at the only point where parity is checkable, and it makes an evolution result
 irreproducible -- which means the survival score is scoring noise.
+
+`backtest` is here for a sharper version of the same reason. Its clock is *simulated*:
+the loop advances it to each event's instant, and every result is reproducible only
+while that is the sole source of time in the run. One `datetime.now(UTC)` inside the
+engine and two runs of the same `config_hash` disagree -- which, per BACKTEST_ENGINE.md
+section 5, voids not just that run but every result the engine has ever produced, since
+nothing distinguishes the ones that happened to agree.
 
 `monotonic` and `perf_counter` are banned here too. Pure functions have no business
 measuring their own runtime, and a strategy that branches on how long it took to
@@ -26,7 +33,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
 
-PURE_PACKAGES: Final[frozenset[str]] = frozenset({"risk", "strategy"})
+PURE_PACKAGES: Final[frozenset[str]] = frozenset({"backtest", "risk", "strategy"})
 
 # The stdlib names that are wall-clock sources. `datetime.now`, `datetime.datetime.now`
 # and `time.monotonic` all have one of these at the root of the attribute chain.
