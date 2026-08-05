@@ -46,6 +46,7 @@ from typing import Final
 from fking.platform.errors import DataIntegrityError
 
 __all__ = [
+    "ALT_DATASETS",
     "ArchiveFormat",
     "BooleanEncoding",
     "Dataset",
