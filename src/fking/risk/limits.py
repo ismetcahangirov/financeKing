@@ -94,7 +94,7 @@ class RiskLimits:
     def bounded_values(self) -> Mapping[str, Decimal]:
         """Every bounded limit as a `Decimal`, keyed by field name.
 
-        The two integer-valued limits are widened here rather than compared as ints, so
+        The integer-valued limits are widened here rather than compared as ints, so
         that one comparison implementation serves both and there is no second code path
         whose direction could be written backwards.
         """
