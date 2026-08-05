@@ -40,9 +40,14 @@ from fking.data.alt import (
     PostgresAltStore,
     ingest_alt_period,
 )
-from fking.data.alt.registry import BINANCE_FUNDING_RATE, FEAR_AND_GREED, FRED_RELEASES
+from fking.data.alt.registry import (
+    BINANCE_FUNDING_RATE,
+    BINANCE_OPEN_INTEREST,
+    FEAR_AND_GREED,
+    FRED_RELEASES,
+)
 from fking.data.archive import ArchiveCoordinate, ArchiveFetcher, archive_url
-from fking.platform.errors import DataUnavailableError
+from fking.platform.errors import DataUnavailableError, FeatureContractError
 from tests.support import alt_fixtures
 from tests.support.archive_stub import StubArchiveEgress
 
@@ -319,6 +324,43 @@ async def test_a_recorded_month_ingests_and_is_then_readable_only_after_the_lag(
 
     assert at_settlement.values == ()
     assert [entry.observed_value for entry in after_lag.values] == [Decimal("-0.00012359")]
+
+
+@pytest.mark.asyncio
+async def test_a_zero_lookback_is_refused(app_engine: AsyncEngine) -> None:
+    """A zero window returns nothing and reads downstream as "this source has no
+    history", which is a different claim from "this window holds nothing"."""
+    store = PostgresAltStore(app_engine)
+
+    with pytest.raises(FeatureContractError, match="lookback must be positive"):
+        await store.load(_FUNDING, as_of=_SETTLEMENT, lookback=timedelta(0))
+
+
+@pytest.mark.asyncio
+async def test_appending_nothing_writes_nothing_and_opens_no_transaction(
+    ingest_engine: AsyncEngine,
+) -> None:
+    """An empty archive period is an ordinary answer for a symbol listed mid-month."""
+    assert await AltObservationWriter(ingest_engine).append([]) == 0
+
+
+@pytest.mark.asyncio
+async def test_a_source_with_an_archive_but_no_parser_is_refused_by_name(
+    ingest_engine: AsyncEngine, tmp_path: Path
+) -> None:
+    """Open interest is fetchable and probeable today and not parseable, because its
+    `create_time` is a naive datetime string that `ArchiveFormat` has no member for
+    (VF-029, #155). The refusal names that rather than a fetcher pretending to work."""
+    fetcher = ArchiveFetcher(egress=StubArchiveEgress({}), cache_root=tmp_path)
+
+    with pytest.raises(DataUnavailableError, match="no parser in this repository"):
+        await ingest_alt_period(
+            fetcher,
+            AltObservationWriter(ingest_engine),
+            series=BINANCE_OPEN_INTEREST.series("BTCUSDT"),
+            archive_date=date(2024, 1, 2),
+            now_utc=alt_fixtures.NOW_UTC,
+        )
 
 
 @pytest.mark.asyncio

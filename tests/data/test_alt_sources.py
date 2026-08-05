@@ -23,7 +23,7 @@ worse than none because it trains readers to skim.
 from __future__ import annotations
 
 import re
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Final
@@ -166,6 +166,54 @@ def test_a_zero_lag_cannot_be_declared() -> None:
         )
 
 
+def test_a_non_positive_cadence_is_refused() -> None:
+    """A source that never publishes has no series, and its cadence sizes the gap
+    detector — a zero there makes every window look complete."""
+    with pytest.raises(FeatureContractError, match="cadence"):
+        AltSourceSpec(
+            source_id="test.silent",
+            delivery=Delivery.EGRESS_NOT_PROVISIONED,
+            availability_lag=timedelta(hours=1),
+            cadence=timedelta(0),
+            unit="widgets",
+            requires_credential=False,
+            revision=Revision.FINAL,
+            terms_position="a sentence long enough to be checkable by the guard",
+            provenance="measured on a date, by a method, and written down here",
+        )
+
+
+def test_an_offset_but_non_utc_timestamp_is_refused_rather_than_converted() -> None:
+    """`astimezone(UTC)` would launder an offset guessed wrong upstream into a confident
+    value, and in a 24/7 market there is no session boundary to make the shift visible."""
+    baku = timezone(timedelta(hours=4))
+    with pytest.raises(DataIntegrityError, match="must be UTC"):
+        BINANCE_FUNDING_RATE.point(
+            BINANCE_FUNDING_RATE.series("BTCUSDT"),
+            AltObservation(
+                event_time_utc=datetime(2026, 3, 1, 12, 0, tzinfo=baku),
+                observed_value=Decimal("0.0001"),
+            ),
+        )
+
+
+def test_a_blank_unit_is_refused() -> None:
+    """The unit is declared once per source and never per row, so a blank one leaves every
+    value in the store dimensionless."""
+    with pytest.raises(FeatureContractError, match="unit"):
+        AltSourceSpec(
+            source_id="test.unitless",
+            delivery=Delivery.EGRESS_NOT_PROVISIONED,
+            availability_lag=timedelta(hours=1),
+            cadence=timedelta(hours=1),
+            unit="   ",
+            requires_credential=False,
+            revision=Revision.FINAL,
+            terms_position="a sentence long enough to be checkable by the guard",
+            provenance="measured on a date, by a method, and written down here",
+        )
+
+
 def test_a_placeholder_terms_position_is_refused() -> None:
     with pytest.raises(FeatureContractError, match="terms_position"):
         AltSourceSpec(
@@ -297,6 +345,65 @@ def test_a_file_without_the_declared_header_is_refused() -> None:
         parse_funding_rate_archive(mutated, source="mutated", now_utc=NOW_UTC)
 
 
+@pytest.mark.parametrize(
+    ("row", "expected"),
+    [
+        (b"1577836800000,8", "holds 2 columns"),
+        (b"1577836800000,8,-0.0001,extra", "holds 4 columns"),
+        (b"not-an-epoch,8,-0.0001", "not a base-10 integer"),
+        (b"1577836800,8,-0.0001", "implausible"),
+        (b"1577836800000,eight,-0.0001", "not a non-negative base-10 integer"),
+        (b"1577836800000,8, -0.0001 ", "not plain decimal notation"),
+        (b"1577836800000,8,NaN", "not plain decimal notation"),
+        (b"1577836800000,8,1_0", "not plain decimal notation"),
+        (b"1577836800000,8,2", "whole turn of the notional"),
+    ],
+    ids=[
+        "short_row",
+        "extra_column",
+        "non_integer_epoch",
+        "seconds_read_as_milliseconds",
+        "non_integer_interval",
+        "padded_decimal",
+        "nan",
+        "underscore_separated",
+        "absurd_magnitude",
+    ],
+)
+def test_every_malformed_row_refuses_the_whole_file(row: bytes, expected: str) -> None:
+    """A ninety-row month has no rejection budget.
+
+    The corpus driver tallies a bad row and continues, because one bad print in 3.5
+    million must not stop a backfill. At this size a rejection ceiling that tolerated one
+    row would be 1.1% -- eleven times looser than the corpus ceiling, and wide enough to
+    admit exactly the uniform drift it exists to catch. Three of these cases are the ones
+    a permissive `Decimal()` would silently accept as a *different number*: `" -0.0001 "`
+    strips, `1_0` is ten, and `NaN` constructs happily and then compares False forever.
+    """
+    payload = b"calc_time,funding_interval_hours,last_funding_rate\n" + row + b"\n"
+    with pytest.raises(DataIntegrityError, match=re.escape(expected)):
+        parse_funding_rate_archive(payload, source="mutated", now_utc=NOW_UTC)
+
+
+def test_a_file_with_no_rows_at_all_parses_to_nothing() -> None:
+    """A header and no settlements is a real answer for a symbol listed mid-month, not an
+    error. Inventing a row here would be the one thing the corpus never does."""
+    header = b"calc_time,funding_interval_hours,last_funding_rate\n"
+
+    assert parse_funding_rate_archive(header, source="empty", now_utc=NOW_UTC) == ()
+
+
+def test_a_naive_reference_instant_is_refused() -> None:
+    """`now_utc` moves the plausibility window by its offset, so a naive one moves it by
+    whatever the machine's timezone happens to be."""
+    with pytest.raises(DataIntegrityError, match="timezone-aware"):
+        parse_funding_rate_archive(
+            b"calc_time,funding_interval_hours,last_funding_rate\n",
+            source="empty",
+            now_utc=datetime(2026, 8, 5),  # noqa: DTZ001 -- the subject
+        )
+
+
 # ---------------------------------------------------------------------------
 # 4. Where a symbol's history actually starts
 # ---------------------------------------------------------------------------
@@ -414,6 +521,74 @@ async def test_a_stranded_island_of_history_is_refused_rather_than_called_a_star
             symbol="BTCUSDT",
             today_utc=date(2026, 8, 5),
             now_utc=NOW_UTC,
+        )
+
+
+def _daily_metrics_urls(symbol: str, *, first: date, last: date) -> dict[str, bytes]:
+    """The daily counterpart of `_monthly_funding_urls`, for the open-interest series."""
+    urls: dict[str, bytes] = {}
+    cursor = first
+    while cursor <= last:
+        urls[
+            archive_url(
+                ArchiveCoordinate(
+                    market=ALT_MARKET,
+                    dataset=ARCHIVE_DATASET[BINANCE_OPEN_INTEREST.source_id],
+                    symbol=symbol,
+                    archive_date=cursor,
+                ),
+                ARCHIVE_GRANULARITY[BINANCE_OPEN_INTEREST.source_id],
+            )
+        ] = b"stand-in bytes; the probe reads the CHECKSUM sibling, never the archive"
+        cursor += timedelta(days=1)
+    return urls
+
+
+@pytest.mark.asyncio
+async def test_the_probe_finds_the_day_the_open_interest_series_really_starts() -> None:
+    """The daily half of the search, and the second of the two boundaries in VF-028.
+
+    Open interest begins 2020-09-01 for BTCUSDT -- almost a year after the corpus genesis
+    and eight months after funding. The two dates are different, which is why neither can
+    be derived from the other and both are probed.
+    """
+    egress = StubArchiveEgress(
+        _daily_metrics_urls("BTCUSDT", first=date(2020, 9, 1), last=date(2026, 8, 4))
+    )
+
+    availability = await probe_earliest_archive_date(
+        egress,
+        source_id=BINANCE_OPEN_INTEREST.source_id,
+        symbol="BTCUSDT",
+        today_utc=date(2026, 8, 5),
+        now_utc=NOW_UTC,
+    )
+
+    assert availability.earliest_archive_date == date(2020, 9, 1)
+    # A linear walk from the 2019-09-08 genesis would be ~2,500 requests. Binary search
+    # over the day index is what makes a daily series probeable per symbol at startup.
+    assert availability.probe_request_count < 16  # noqa: PLR2004 -- log2(2523) plus two probes
+
+
+@pytest.mark.asyncio
+async def test_an_empty_window_is_refused_before_the_start_date_is_consulted() -> None:
+    """A window that closes at or before it opens returns nothing from any store, which
+    reads downstream as an absent signal rather than as a malformed question."""
+    egress = StubArchiveEgress(
+        _monthly_funding_urls("BTCUSDT", first=date(2020, 1, 1), last=date(2026, 7, 1))
+    )
+    availability = await probe_earliest_archive_date(
+        egress,
+        source_id=BINANCE_FUNDING_RATE.source_id,
+        symbol="BTCUSDT",
+        today_utc=date(2026, 8, 5),
+        now_utc=NOW_UTC,
+    )
+
+    with pytest.raises(DataUnavailableError, match="empty window"):
+        availability.require_window(
+            window_start_utc=datetime(2021, 1, 1, tzinfo=UTC),
+            window_end_utc=datetime(2021, 1, 1, tzinfo=UTC),
         )
 
 
