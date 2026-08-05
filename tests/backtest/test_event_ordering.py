@@ -22,6 +22,7 @@ from fking.backtest import (
     FundingEvent,
     MarketDataEvent,
     OrderAckEvent,
+    QueuedEvent,
     ReconciliationEvent,
     RejectEvent,
     TimerEvent,
@@ -140,11 +141,18 @@ def test_a_queued_event_compares_completely_and_not_only_with_less_than() -> Non
     earlier = queue.schedule(fill_event_at(INSTANT, ordinal=1))
     later = queue.schedule(fill_event_at(INSTANT, ordinal=2))
 
+    twin = QueuedEvent(
+        occurs_at_utc=earlier.occurs_at_utc,
+        priority=earlier.priority,
+        sequence=earlier.sequence,
+        event=earlier.event,
+    )
+
     assert (earlier < later, earlier <= later) == (True, True)
     assert (earlier > later, earlier >= later) == (False, False)
-    same = queue.peek()
-    assert same is not None
-    assert (same <= same, same >= same) == (True, True)  # noqa: PLR0124 - reflexivity is the claim
+    # Reflexivity through an equal-but-distinct object rather than `x <= x`: the
+    # comparison has to route through __eq__ to be worth asserting.
+    assert (earlier <= twin, earlier >= twin) == (True, True)
 
 
 def test_the_comparison_never_falls_through_to_the_payload() -> None:
