@@ -115,7 +115,7 @@ Three notes that change how the code is written:
 
 **Granularity is a property of the dataset, not of the calendar.** `fundingRate` is published monthly only and `metrics` daily only (VF-029), so the daily-versus-monthly rule that picks by distance from today is wrong for both, in opposite directions, on every date. Every alternative fetch states its granularity explicitly.
 
-**`metrics` carries no epoch.** Its first column is `create_time,2024-01-02 00:00:00` — a naive datetime string with no offset. `ArchiveFormat.epoch_unit` has no member for that, so open interest is fetchable and probeable today and **not parseable**; `PARSED_SOURCES` records the asymmetry rather than hiding it.
+**`metrics` carries no epoch.** Its first column is `create_time,2024-01-02 00:00:00` — a naive datetime string with no offset. That is a declared encoding, `TimestampEncoding.NAIVE_UTC_DATETIME`, resolved per `(market, dataset, date)` like every other format decision, and `parse_naive_utc_datetime` attaches UTC because VF-029 checked that the publisher means UTC — not because a naive string implies it. **Only `sum_open_interest` is ingested** of the file's eight columns: the four long/short ratios are separate series that would need their own declaration and their own measured lag, and `sum_open_interest_value` is the same position restated at a mark price the file does not carry. A column ingested with no reader is a maintenance surface nobody can later justify.
 
 **Neither start date reaches the contract's listing, and they differ from each other.** That is why the start is probed per `(source, symbol)` and a window opening before it is refused rather than answered short.
 

@@ -11,9 +11,10 @@ The public surface is small on purpose:
   `point()` is the only path to an `AltPoint`, so `available_at_utc` is always derived
   from the declaration or from the source's own published release calendar.
 - `registry` holds the five measured sources and says which are reachable today.
-- `funding` parses the one archive-delivered payload this repository can read, and
-  `ingest` is the composition: verified bytes in, `AltPoint`s written, with no step at
-  which a caller could supply its own `available_at_utc`.
+- `funding` and `metrics` parse the two archive-delivered payloads, each stating only its
+  own layout and taking the timestamp encoding and header row from the declaration in
+  `fking.data.format_resolver`. `ingest` is the composition: verified bytes in, `AltPoint`s
+  written, with no step at which a caller could supply its own `available_at_utc`.
 - `probe` discovers where a symbol's history actually starts, which is not where the
   contract was listed.
 - `store` is the as-of read and the ingest-role write, over `alt_observations`.
@@ -26,6 +27,11 @@ from __future__ import annotations
 
 from fking.data.alt.funding import FUNDING_RATE_COLUMNS, parse_funding_rate_archive
 from fking.data.alt.ingest import PARSED_SOURCES, AltIngestOutcome, ingest_alt_period
+from fking.data.alt.metrics import (
+    METRICS_COLUMNS,
+    OPEN_INTEREST_COLUMN,
+    parse_open_interest_archive,
+)
 from fking.data.alt.probe import ALT_MARKET, AltAvailability, probe_earliest_archive_date
 from fking.data.alt.registry import (
     ALT_SOURCES,
@@ -57,6 +63,8 @@ __all__ = [
     "ARCHIVE_GRANULARITY",
     "FUNDING_RATE_COLUMNS",
     "GLOBAL_SERIES",
+    "METRICS_COLUMNS",
+    "OPEN_INTEREST_COLUMN",
     "PARSED_SOURCES",
     "AltAvailability",
     "AltIngestOutcome",
@@ -73,6 +81,7 @@ __all__ = [
     "Revision",
     "ingest_alt_period",
     "parse_funding_rate_archive",
+    "parse_open_interest_archive",
     "probe_earliest_archive_date",
     "registered",
 ]

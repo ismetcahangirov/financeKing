@@ -196,7 +196,7 @@ def gate_archive(
     if rows and len(rows[0]) > layout.epoch_column_index:
         assert_first_timestamp_is_plausible(
             rows[0][layout.epoch_column_index],
-            unit=spec.archive_format.epoch_unit,
+            unit=spec.archive_format.require_epoch_unit(),
             now_utc=spec.now_utc,
             source=source,
         )

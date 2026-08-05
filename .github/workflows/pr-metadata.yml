@@ -1,0 +1,58 @@
+name: PR metadata
+
+# Its own workflow rather than a job in ci.yml, and the trigger is why: two of the three
+# rules are about *labels*, so the check has to re-run when a label changes. Adding
+# `labeled`/`unlabeled` to ci.yml's trigger would restart the whole twenty-minute suite
+# on every label edit -- and worse, ci.yml's `cancel-in-progress` concurrency group would
+# cancel a test run that was already halfway through, so labelling a pull request would
+# throw away its verdict.
+#
+# The job name is a required status check on `main`. Changing it requires updating
+# branch protection in the same change, or the required check never reports and every
+# pull request blocks forever.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+# `cancel-in-progress: false`, unlike ci.yml, and it is not an oversight. Adding three
+# labels to a pull request fires three `labeled` events within seconds; cancelling would
+# leave two check runs named exactly like the required status check with conclusion
+# `cancelled`, and branch protection then blocks the merge on them even though the last
+# run succeeded. Observed on #157, the pull request that added this file. The job takes
+# about fifteen seconds, so there is nothing worth saving by cancelling it.
+concurrency:
+  group: pr-metadata-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  pr-metadata:
+    name: PR metadata (docs/src split, safety and merge labels)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Check title, labels and changed paths
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          git fetch --quiet origin "${{ github.base_ref }}"
+          git diff --name-only "origin/${{ github.base_ref }}"...HEAD > changed-files.txt
+          uv run python tools/ci/check_pr_metadata.py \
+            --pr-title "$PR_TITLE" \
+            --labels "$PR_LABELS" \
+            --changed-files changed-files.txt

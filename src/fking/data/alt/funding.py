@@ -42,7 +42,7 @@ from typing import Final
 
 from fking.data.alt.registry import BINANCE_FUNDING_RATE
 from fking.data.alt.spec import AltObservation, require_utc
-from fking.data.format_resolver import EpochUnit, epoch_to_utc
+from fking.data.format_resolver import ArchiveFormat, EpochUnit, epoch_to_utc
 from fking.data.loaders.source import split_rows
 from fking.platform.errors import DataIntegrityError
 
@@ -74,7 +74,11 @@ _HOURS_PER_SETTLEMENT: Final[int] = int(
 
 
 def parse_funding_rate_archive(
-    member_bytes: bytes, *, source: str, now_utc: datetime
+    member_bytes: bytes,
+    *,
+    source: str,
+    now_utc: datetime,
+    archive_format: ArchiveFormat,
 ) -> tuple[AltObservation, ...]:
     """Every realised funding settlement in one archive member, in event order.
 
@@ -85,21 +89,29 @@ def parse_funding_rate_archive(
     for the whole parse. A bound re-read per row drifts mid-file, and then the same raw
     integer can be accepted at the top of an archive and rejected at the bottom.
 
+    `archive_format` is the resolved declaration for this `(market, dataset, date)`. The
+    epoch unit and the header row come from it rather than from constants here, so this
+    file states the *layout* -- three columns in this order, this interval, this sign
+    convention -- and `fking.data.format_resolver` states the encoding, as it does for
+    every other archive (#155).
+
     Returns observations with no `published_at_utc`: Binance publishes no release calendar
     for funding, so `available_at_utc` comes from the declared lag.
 
     Raises:
-        DataIntegrityError: the header contradicts the declared layout, a row is
-            unparseable, the settlement interval is not the declared cadence, or the
-            series is not strictly increasing in `calc_time`.
+        DataIntegrityError: the declared format stamps something other than an epoch, the
+            header contradicts the declared layout, a row is unparseable, the settlement
+            interval is not the declared cadence, or the series is not strictly increasing
+            in `calc_time`.
         HeaderExpectationError: a subclass of the above, raised by `split_rows` when the
             first row is data rather than the declared header.
     """
     require_utc(now_utc, "now_utc")
+    epoch_unit = archive_format.require_epoch_unit()
     rows = split_rows(
         member_bytes,
         source=source,
-        has_header_row=True,
+        has_header_row=archive_format.has_header_row,
         columns=FUNDING_RATE_COLUMNS,
     )
 
@@ -116,7 +128,9 @@ def parse_funding_rate_archive(
             )
         raw_calc_time, raw_interval_hours, raw_last_funding_rate = row
 
-        event_time_utc = _parse_settlement_instant(raw_calc_time, where=where, now_utc=now_utc)
+        event_time_utc = _parse_settlement_instant(
+            raw_calc_time, where=where, now_utc=now_utc, epoch_unit=epoch_unit
+        )
         _require_declared_settlement_interval(raw_interval_hours, where=where)
         funding_rate_fraction = _parse_signed_rate(raw_last_funding_rate, where=where)
 
@@ -135,14 +149,17 @@ def parse_funding_rate_archive(
     return tuple(observations)
 
 
-def _parse_settlement_instant(raw: str, *, where: str, now_utc: datetime) -> datetime:
+def _parse_settlement_instant(
+    raw: str, *, where: str, now_utc: datetime, epoch_unit: EpochUnit
+) -> datetime:
     if not _SIGNED_INTEGER_TOKEN.match(raw):
         raise DataIntegrityError(f"{where}: calc_time={raw!r} is not a base-10 integer")
     try:
-        return epoch_to_utc(int(raw), unit=EpochUnit.MILLISECONDS, now_utc=now_utc)
+        return epoch_to_utc(int(raw), unit=epoch_unit, now_utc=now_utc)
     except DataIntegrityError as out_of_range:
         raise DataIntegrityError(
-            f"{where}: calc_time={raw!r} read as milliseconds is implausible -- {out_of_range}"
+            f"{where}: calc_time={raw!r} read as {epoch_unit.value!r} is implausible "
+            f"-- {out_of_range}"
         ) from out_of_range
 
 

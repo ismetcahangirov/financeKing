@@ -77,7 +77,7 @@ From **2025-01-01**, Binance spot archives (klines, trades, aggTrades) emit **mi
 
 A loader with a global `// 1000` divisor applied to post-2025 spot data produces timestamps around the year **56,000**. A loader with a global `* 1000` multiplier applied to pre-2025 data lands in **1970**. Neither raises. If the divisor is right for one market and wrong for the other, a mixed-market backtest has one leg aligned and one leg shifted by three orders of magnitude, and it will look either brilliant or broken depending on which way the shift ran.
 
-**The rule:** epoch unit is resolved per `(market, date)`. There is no global constant anywhere in the parsing path. The resolver **raises** on an undeclared `(market, dataset, date)` combination rather than defaulting — defaulting is the entire bug.
+**The rule:** the timestamp encoding is resolved per `(market, dataset, date)`. There is no global constant anywhere in the parsing path. The resolver **raises** on an undeclared combination rather than defaulting — defaulting is the entire bug. The encoding is not always an epoch: `ArchiveFormat.timestamp_encoding` has three members, and `metrics` stamps a naive datetime string (§8, VF-029). Asking a non-epoch declaration for a unit refuses rather than answering `None`, so there is no value for a caller to pick a unit for.
 
 ```python
 # Binance spot archives switched to microsecond epochs on 2025-01-01;
@@ -499,7 +499,11 @@ Two more traps of the §3 class, both measured on 2026-08-05 (VF-029):
 | `fundingRate` | **monthly only** — every daily path 404s | `calc_time`, milliseconds, header row |
 | `metrics` (open interest) | **daily only** — the monthly path 404s | `create_time` as `2024-01-02 00:00:00`, a **naive datetime string** |
 
-The granularity rule that picks daily-versus-monthly by distance from today is therefore wrong for both, in opposite directions, on every date — so granularity is declared per dataset and every fetch states it. And `ArchiveFormat.epoch_unit` has no member for a datetime string, so `metrics` is fetchable and probeable today and **not parseable**: `PARSED_SOURCES` records that asymmetry rather than hiding it behind a parser that guesses.
+The granularity rule that picks daily-versus-monthly by distance from today is therefore wrong for both, in opposite directions, on every date — so granularity is declared per dataset and every fetch states it.
+
+The `metrics` timestamp is the §3 rule's fourth instance and is declared the same way the other three are: `ArchiveFormat.timestamp_encoding` carries `NAIVE_UTC_DATETIME` alongside the two epoch units, and `parse_naive_utc_datetime` refuses an offset, a `Z`, a `T` separator or fractional seconds rather than absorbing them — any of those means the publisher changed convention, which is a new declared segment and not a row to handle. It is the quietest of the four: `datetime.fromisoformat` reads `2024-01-02 00:00:00` happily and returns a **naive** datetime, correct to the second, that joins against nothing and produces an *empty* feature rather than a visibly wrong one.
+
+Of the eight `metrics` columns only `sum_open_interest` is ingested. The four long/short ratios are positioning statistics, not open interest: each is its own series with its own meaning and would need its own `AltSourceSpec` and its own measured lag, and hanging them off this source's declaration would hand four series one source's lag by accident.
 
 Three of the five registered sources are `EGRESS_NOT_PROVISIONED`: their hosts are in no allowlist, and FRED's cannot be added to `ARCHIVE_HOSTS` at all because it is authenticated, which [`docs/adr/0017`](docs/adr/0017-separate-archive-egress-path.md) explicitly names as a refutation of that decision. Their measurements are registered anyway — the measurement is the expensive part, and a declared source that refuses to fetch is honest in a way a stub is not. [`SOURCES.md`](SOURCES.md) §4 carries the full register.
 

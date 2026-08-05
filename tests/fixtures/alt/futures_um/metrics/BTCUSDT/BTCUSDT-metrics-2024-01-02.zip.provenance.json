@@ -1,0 +1,17 @@
+{
+  "archive_date": "2024-01-02",
+  "archive_filename": "BTCUSDT-metrics-2024-01-02.zip",
+  "archive_sha256": "a8e8580d2a820f6bb8ef49d2f4c3acbe5fc46d59d3a8cb2da7536d9fd3535493",
+  "dataset": "metrics",
+  "fragment_line_count": null,
+  "fragment_sha256": null,
+  "interval": null,
+  "market": "futures_um",
+  "member_filename": "BTCUSDT-metrics-2024-01-02.csv",
+  "member_line_count": 289,
+  "member_sha256": "22eedd2e4d7dc2af019faa6208913e6c564fca4cd3849d606356c2d76002ad9d",
+  "recorded_at_utc": "2026-08-05T08:02:36.080129+00:00",
+  "source_url": "https://data.binance.vision/data/futures/um/daily/metrics/BTCUSDT/BTCUSDT-metrics-2024-01-02.zip",
+  "symbol": "BTCUSDT",
+  "whole_archive_committed": true
+}

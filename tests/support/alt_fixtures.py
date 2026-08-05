@@ -22,7 +22,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Final
 
-from fking.data.format_resolver import Dataset, Market
+from fking.data.format_resolver import ArchiveFormat, Dataset, Market, resolve_archive_format
 
 FIXTURE_ROOT: Final[Path] = Path(__file__).resolve().parents[1] / "fixtures" / "alt"
 
@@ -59,6 +59,18 @@ class RecordedAltArchive:
     def read(self) -> bytes:
         return self.path.read_bytes()
 
+    def archive_format(self) -> ArchiveFormat:
+        """The declaration `ingest_alt_period` would resolve for this recording.
+
+        Resolved from the recording's own `(market, dataset, archive_date)` rather than
+        constructed, so a test exercises the same declaration production does. A test that
+        built its own `ArchiveFormat` would keep passing after the table was changed under
+        it -- which is the one thing these tests exist to notice.
+        """
+        return resolve_archive_format(
+            market=self.market, dataset=self.dataset, archive_date=self.archive_date
+        )
+
 
 def _load(provenance_path: Path) -> RecordedAltArchive:
     recorded = json.loads(provenance_path.read_text(encoding="utf-8"))
@@ -87,6 +99,19 @@ def recorded_alt_archives() -> tuple[RecordedAltArchive, ...]:
     )
 
 
+def _only_whole_archive(dataset: Dataset) -> RecordedAltArchive:
+    whole = [
+        recorded
+        for recorded in recorded_alt_archives()
+        if recorded.dataset is dataset and recorded.is_whole_archive
+    ]
+    if len(whole) != 1:  # pragma: no cover - a guard on the fixture corpus, not on code
+        raise AssertionError(
+            f"expected exactly one whole {dataset.value} archive, found {len(whole)}"
+        )
+    return whole[0]
+
+
 def funding_rate_archive() -> RecordedAltArchive:
     """The whole verified `.zip` of BTCUSDT's first month of funding history.
 
@@ -94,11 +119,15 @@ def funding_rate_archive() -> RecordedAltArchive:
     and a fragment cannot prove that ninety-three settlements arrived -- which is the
     assertion that catches a truncated month.
     """
-    whole = [
-        recorded
-        for recorded in recorded_alt_archives()
-        if recorded.dataset is Dataset.FUNDING_RATE and recorded.is_whole_archive
-    ]
-    if len(whole) != 1:  # pragma: no cover - a guard on the fixture corpus, not on code
-        raise AssertionError(f"expected exactly one whole fundingRate archive, found {len(whole)}")
-    return whole[0]
+    return _only_whole_archive(Dataset.FUNDING_RATE)
+
+
+def metrics_archive() -> RecordedAltArchive:
+    """The whole verified `.zip` of one day of BTCUSDT open interest.
+
+    Whole for the same reason as funding and one stronger: the parser's five-minute
+    spacing check only means something across a complete day, and 288 samples ending at
+    23:55 is what proves the day is complete. 11.6 KB, which is inside the "a few tens of
+    KB" bound `tools/record_archive_fragment.py --keep-archive` states.
+    """
+    return _only_whole_archive(Dataset.METRICS)

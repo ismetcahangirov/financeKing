@@ -30,16 +30,19 @@ from typing import Final, Protocol
 import structlog
 
 from fking.data.alt.funding import parse_funding_rate_archive
+from fking.data.alt.metrics import parse_open_interest_archive
 from fking.data.alt.probe import ALT_MARKET
 from fking.data.alt.registry import (
     ARCHIVE_DATASET,
     ARCHIVE_GRANULARITY,
     BINANCE_FUNDING_RATE,
+    BINANCE_OPEN_INTEREST,
     registered,
 )
 from fking.data.alt.spec import AltObservation, AltPoint, AltSeriesRef, require_utc
 from fking.data.alt.store import AltObservationWriter
 from fking.data.archive import ArchiveCoordinate, ArchiveFetcher
+from fking.data.format_resolver import ArchiveFormat, resolve_archive_format
 from fking.data.loaders import extract_single_member
 from fking.platform.errors import DataUnavailableError
 
@@ -58,7 +61,12 @@ class AltArchiveParser(Protocol):
     """
 
     def __call__(
-        self, member_bytes: bytes, *, source: str, now_utc: datetime
+        self,
+        member_bytes: bytes,
+        *,
+        source: str,
+        now_utc: datetime,
+        archive_format: ArchiveFormat,
     ) -> tuple[AltObservation, ...]:
         """The docstring is the whole body; a trailing `...` after it does nothing."""
 
@@ -66,17 +74,24 @@ class AltArchiveParser(Protocol):
 # Which sources this repository can read the payload of, as a table rather than a branch.
 # Kept here rather than in the registry because "is this source declared" and "can this
 # source's payload be read" are different questions -- the same split, for the same
-# reason, as `fking.data.loaders._PARSERS` against `DECLARED_FORMATS`.
-#
-# `binance.openInterest` is deliberately absent and is the case that shows why the split
-# is needed: its archive is fetchable and probeable today, and its `create_time` is a
-# naive datetime string that `ArchiveFormat.epoch_unit` has no member for (VF-029).
+# reason, as `fking.data.loaders._PARSERS` against `DECLARED_FORMATS`. A source can still
+# acquire the first without the second; the three sources with no egress are exactly that
+# case today, and they refuse by name rather than by silence.
 _PARSERS: Final[Mapping[str, AltArchiveParser]] = MappingProxyType(
-    {BINANCE_FUNDING_RATE.source_id: parse_funding_rate_archive}
+    {
+        BINANCE_FUNDING_RATE.source_id: parse_funding_rate_archive,
+        BINANCE_OPEN_INTEREST.source_id: parse_open_interest_archive,
+    }
 )
 
 PARSED_SOURCES: Final[frozenset[str]] = frozenset(_PARSERS)
 """Sources `ingest_alt_period` can read. Everything else refuses, naming what is missing."""
+
+# What the two archive-delivered sources have in common and where they differ is the whole
+# argument for one protocol rather than two functions: `fundingRate` is monthly-only with a
+# millisecond epoch, `metrics` is daily-only with a naive datetime string, and neither
+# difference is visible in the bytes. Both come from the resolved declaration, so a parser
+# holds only its own layout.
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,9 +152,16 @@ async def ingest_alt_period(
             f"archive and a declared layout, never before them"
         )
 
+    dataset = ARCHIVE_DATASET[source_id]
+    # Resolved here rather than inside the parser: the date this archive covers is the
+    # caller's fact, and a parser deriving it from the payload would be inferring the
+    # declaration from the very bytes the declaration exists to interpret.
+    archive_format = resolve_archive_format(
+        market=ALT_MARKET, dataset=dataset, archive_date=archive_date
+    )
     coordinate = ArchiveCoordinate(
         market=ALT_MARKET,
-        dataset=ARCHIVE_DATASET[source_id],
+        dataset=dataset,
         symbol=series.series_id,
         archive_date=archive_date,
     )
@@ -153,7 +175,7 @@ async def ingest_alt_period(
     )
 
     member = extract_single_member(fetched.path.read_bytes(), source=fetched.url)
-    observations = parse(member, source=fetched.url, now_utc=now_utc)
+    observations = parse(member, source=fetched.url, now_utc=now_utc, archive_format=archive_format)
     points: list[AltPoint] = [source.point(series, observation) for observation in observations]
     written = await writer.append(points)
 

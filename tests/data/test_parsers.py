@@ -22,12 +22,14 @@ import pytest
 
 from fking.data.archive import ArchiveCoordinate
 from fking.data.format_resolver import (
+    ALT_DATASETS,
     DECLARED_FORMATS,
     ArchiveFormat,
     BooleanEncoding,
     Dataset,
     EpochUnit,
     Market,
+    TimestampEncoding,
 )
 from fking.data.loaders import (
     IMPLEMENTED_DATASETS,
@@ -500,11 +502,20 @@ class TestDispatch:
     def test_the_parser_table_and_the_format_table_stay_in_step(self) -> None:
         """They answer different questions, and either drift is a defect.
 
-        A parser for a dataset whose format cannot be resolved is unreachable code. A
-        declared format with no parser is a file that cannot be read. Neither is caught by
-        a type checker, because both tables type-check fine while disagreeing.
+        A corpus parser for a dataset whose format cannot be resolved is unreachable code.
+        A declared corpus format with no parser is a file that cannot be read. Neither is
+        caught by a type checker, because both tables type-check fine while disagreeing.
+
+        `ALT_DATASETS` is subtracted rather than the assertion being weakened to a subset:
+        `fundingRate` and `metrics` have declared formats and deliberately no *corpus*
+        parser, because neither becomes a bar or a print. They are read by
+        `fking.data.alt`, whose own equivalent of this test is
+        `test_every_archive_delivered_source_has_a_declared_format_and_a_parser`. A subset
+        assertion would also pass for a kline dataset that quietly lost its parser.
         """
-        assert {dataset for _market, dataset in DECLARED_FORMATS} == IMPLEMENTED_DATASETS
+        corpus_datasets = {dataset for _market, dataset in DECLARED_FORMATS} - ALT_DATASETS
+
+        assert corpus_datasets == IMPLEMENTED_DATASETS
 
     def test_parse_archive_dispatches_on_the_declared_dataset(self) -> None:
         klines = spot_klines()
@@ -531,7 +542,7 @@ class TestDeclarationDrift:
         drifted = ArchiveFormat(
             market=Market.SPOT,
             dataset=Dataset.AGG_TRADES,
-            epoch_unit=EpochUnit.MICROSECONDS,
+            timestamp_encoding=TimestampEncoding.EPOCH_MICROSECONDS,
             has_header_row=False,
             boolean_encoding=BooleanEncoding.PYTHON,
             boolean_columns=("is_buyer_maker",),
@@ -565,7 +576,7 @@ class TestDeclarationDrift:
         incomplete = ArchiveFormat(
             market=Market.SPOT,
             dataset=Dataset.TRADES,
-            epoch_unit=EpochUnit.MICROSECONDS,
+            timestamp_encoding=TimestampEncoding.EPOCH_MICROSECONDS,
             has_header_row=False,
             boolean_encoding=None,
             boolean_columns=(),
