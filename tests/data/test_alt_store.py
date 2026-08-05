@@ -187,8 +187,13 @@ async def test_re_ingesting_the_same_observation_writes_nothing(
         ),
     )
 
-    assert await writer.append([point]) == 1
-    assert await writer.append([point]) == 0
+    # The awaits are outside the asserts on purpose: `python -O` strips an assert
+    # statement whole, so a write performed inside one would silently not happen.
+    first_write = await writer.append([point])
+    second_write = await writer.append([point])
+
+    assert first_write == 1
+    assert second_write == 0
 
 
 # ---------------------------------------------------------------------------
@@ -341,7 +346,9 @@ async def test_appending_nothing_writes_nothing_and_opens_no_transaction(
     ingest_engine: AsyncEngine,
 ) -> None:
     """An empty archive period is an ordinary answer for a symbol listed mid-month."""
-    assert await AltObservationWriter(ingest_engine).append([]) == 0
+    written = await AltObservationWriter(ingest_engine).append([])
+
+    assert written == 0
 
 
 @pytest.mark.asyncio
