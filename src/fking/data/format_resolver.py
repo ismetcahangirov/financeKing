@@ -73,6 +73,14 @@ class Dataset(StrEnum):
     AGG_TRADES = "aggTrades"
     BOOK_DEPTH = "bookDepth"
     BOOK_TICKER = "bookTicker"
+    # The two alternative series (#32). They are addressable here because
+    # `ArchiveCoordinate` builds their URLs from this enum, and deliberately absent from
+    # `DECLARED_FORMATS`, `_PARSERS`, `DATASET_PARTITION_GRAIN` and the Parquet schemas:
+    # neither produces a bar or a print, neither has a partition grain, and neither
+    # enters the corpus. `fking.data.alt` owns their layout and their availability lag,
+    # and `resolve_archive_format` refusing them is what keeps them off the corpus path.
+    FUNDING_RATE = "fundingRate"
+    METRICS = "metrics"
 
 
 class EpochUnit(StrEnum):

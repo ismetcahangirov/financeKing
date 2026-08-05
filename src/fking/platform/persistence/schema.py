@@ -106,6 +106,17 @@ AGENT_OUTCOMES: Final[tuple[str, ...]] = ("succeeded", "failed", "degraded")
 # failed told us something about the world, and a run claimed by a process that then died
 # tells us only that the process died, which is a different investigation.
 SCHEDULER_JOB_OUTCOMES: Final[tuple[str, ...]] = ("succeeded", "failed", "abandoned")
+# Mirrors the keys of `fking.data.alt.registry.ALT_SOURCES`, and asserted equal to them in
+# `test_schema_contract.py`. A source id that reaches this table without a registered
+# declaration is a row whose availability lag nobody stated, which is the one property the
+# alternative-source contract exists to guarantee.
+ALT_SOURCE_IDS: Final[tuple[str, ...]] = (
+    "alternative.me.fearGreed",
+    "binance.fundingRate",
+    "binance.openInterest",
+    "cryptopanic.posts",
+    "stlouisfed.fredReleases",
+)
 
 
 def _one_of(column_name: str, permitted: tuple[str, ...]) -> sa.CheckConstraint:
@@ -558,6 +569,45 @@ feature_values = sa.Table(
     _one_of("market", MARKETS),
     sa.CheckConstraint("feature_version >= 1", name="feature_version_is_positive"),
     sa.CheckConstraint("available_at_utc >= event_time_utc", name="availability_follows_event"),
+)
+
+# Raw third-party series -- funding rates, open interest, an index, a macro release --
+# before any feature is computed from them. Separate from `feature_values` rather than
+# folded into it, because that table is keyed by `(market, symbol)` and read through a
+# function that resolves a `FeatureSpec`, whose `compute` is typed over bars with an open
+# and a close. A funding rate is not a bar and an economic release has no symbol, so
+# registering these as features would mean widening the feature contract to admit things
+# that are not features. They are an *input* to features, and they get the same
+# point-in-time guarantee by the same mechanism.
+alt_observations = sa.Table(
+    "alt_observations",
+    METADATA,
+    sa.Column("source_id", identifier(), nullable=False),
+    # `series_id`, not `symbol`: a per-instrument source files under its symbol and a
+    # worldwide one under 'GLOBAL'. A column named `symbol` holding 'GLOBAL' is a column
+    # somebody will join against the instrument table.
+    sa.Column("series_id", identifier(), nullable=False),
+    sa.Column("event_time_utc", utc_timestamp(), nullable=False),
+    sa.Column("available_at_utc", utc_timestamp(), nullable=False),
+    # Generically named on purpose. The unit is a property of the source and is declared
+    # once in `fking.data.alt.registry` -- a funding rate is a dimensionless fraction, an
+    # open interest is a base quantity, and the Fear & Greed index is an integer in
+    # [0, 100]. A column named for any one of those would be wrong for the other two, and
+    # `NUMERIC(38, 18)` is what stops the generic name becoming a float.
+    sa.Column("observed_value", money(), nullable=False),
+    _recorded_at_utc(),
+    # available_at_utc closes the key, which is what makes a revision a second row rather
+    # than an UPDATE of the first. The macro sources revise weeks after the first print,
+    # and the first print is what a decision at the time was actually made on.
+    sa.PrimaryKeyConstraint(
+        "source_id",
+        "series_id",
+        "event_time_utc",
+        "available_at_utc",
+        name="pk_alt_observations",
+    ),
+    _one_of("source_id", ALT_SOURCE_IDS),
+    sa.CheckConstraint("available_at_utc > event_time_utc", name="availability_follows_event"),
 )
 
 # ---------------------------------------------------------------------------
@@ -1263,6 +1313,7 @@ MONEY_COLUMN_SUFFIXES: Final[tuple[str, ...]] = (
 )
 
 __all__: tuple[str, ...] = (
+    "ALT_SOURCE_IDS",
     "APPEND_ONLY_TABLES",
     "GAP_KINDS",
     "GAP_RESOLUTIONS",

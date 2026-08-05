@@ -464,6 +464,47 @@ This matters most for LLM-authored strategies. An agent asked to write a mean-re
 
 ---
 
+## 8a. Alternative sources, and the lag a publisher chose
+
+Everything above §8 is market data, where a bar is late by the length of its own interval and no more. Funding rates, open interest, an index, news and macro releases are late by something a *publisher* decided, the gap is larger, and **it is visible in the source, which is what makes it easy to shrug off**. `fking.data.alt` is one adapter shape for all of them.
+
+```python
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AltSourceSpec:                      # fking.data.alt.spec
+    source_id: str
+    delivery: Delivery                    # ARCHIVE | EGRESS_NOT_PROVISIONED
+    availability_lag: timedelta           # strictly positive; no default
+    cadence: timedelta
+    unit: str                             # declared once per source, never per row
+    requires_credential: bool
+    revision: Revision                    # FINAL | REVISED
+    terms_position: str                   # recorded BEFORE ingestion
+    provenance: str                       # where the two durations came from
+```
+
+**`availability_lag` must be strictly positive here, unlike on `FeatureSpec`.** Zero is a legal declaration for a value derived only from a bar that has closed. Nothing in this package is such a value: every row is something a third party published *after* the instant it stamps. The constraint is enforced at both ends — the dataclass refuses a non-positive declaration and `alt_observations` carries `CHECK (available_at_utc > event_time_utc)`.
+
+**`available_at_utc` is derived, never supplied.** `AltSourceSpec.point()` is the only construction path for an `AltPoint`, and it computes the instant itself. There is no `available_at_utc` parameter anywhere on the write path, so a writer cannot claim a value was knowable earlier than the declaration says.
+
+**A source that publishes a release calendar overrides the lag with the real instant.** This is the macro case and no fixed offset can express it: Q2 GDP has an observation period ending in June and a release at 08:30 on 26 August. FRED's `release/dates` and BEA's forward-dated schedule give the instant directly, so `AltObservation.published_at_utc` carries it and the declared lag degrades to a floor that refuses a release predating its own observation period. **The release calendar is not metadata about the data; for a macro series it *is* the data this pipeline must ingest**, and a feature keyed on the observation period is look-ahead by weeks.
+
+**A revision is a new row.** `alt_observations` closes its primary key with `available_at_utc`, so a first print and its restatement coexist and `fking_alt_as_of()` returns what was *believed* at the `as_of`. For a macro series, where restatements are routine and sometimes large, backfilling a correction over the original would make every historical backtest a test of a belief nobody held at the time.
+
+**Where a symbol's history starts is probed, not assumed.** BTCUSDT's perpetual listed 2019-09-08; its funding archive begins 2020-01 and its open-interest archive 2020-09-01 (VF-028). The two boundaries differ from each other and neither reaches the listing, so `probe_earliest_archive_date` binary-searches the archive's `.CHECKSUM` siblings per `(source, symbol)` — about seven requests for a monthly series — and a window opening before the result is refused rather than answered short.
+
+Two more traps of the §3 class, both measured on 2026-08-05 (VF-029):
+
+| Dataset | Granularity | Timestamp |
+|---|---|---|
+| `fundingRate` | **monthly only** — every daily path 404s | `calc_time`, milliseconds, header row |
+| `metrics` (open interest) | **daily only** — the monthly path 404s | `create_time` as `2024-01-02 00:00:00`, a **naive datetime string** |
+
+The granularity rule that picks daily-versus-monthly by distance from today is therefore wrong for both, in opposite directions, on every date — so granularity is declared per dataset and every fetch states it. And `ArchiveFormat.epoch_unit` has no member for a datetime string, so `metrics` is fetchable and probeable today and **not parseable**: `PARSED_SOURCES` records that asymmetry rather than hiding it behind a parser that guesses.
+
+Three of the five registered sources are `EGRESS_NOT_PROVISIONED`: their hosts are in no allowlist, and FRED's cannot be added to `ARCHIVE_HOSTS` at all because it is authenticated, which [`docs/adr/0017`](docs/adr/0017-separate-archive-egress-path.md) explicitly names as a refutation of that decision. Their measurements are registered anyway — the measurement is the expensive part, and a declared source that refuses to fetch is honest in a way a stub is not. [`SOURCES.md`](SOURCES.md) §4 carries the full register.
+
+---
+
 ## 9. The honest L2 constraint
 
 > **Free full-depth L2 order book history does not exist.**
