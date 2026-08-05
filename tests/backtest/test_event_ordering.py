@@ -65,10 +65,8 @@ def test_market_data_precedes_a_fill_sharing_its_instant() -> None:
     queue.schedule(fill)  # inserted first, dispatched second
     queue.schedule(market_data)
 
-    assert [type(queue.pop().event).__name__ for _ in range(2)] == [
-        "MarketDataEvent",
-        "FillEvent",
-    ]
+    dispatched = [type(queue.pop().event).__name__ for _ in range(2)]
+    assert dispatched == ["MarketDataEvent", "FillEvent"]
 
 
 def test_the_priority_ladder_orders_a_shared_instant_end_to_end() -> None:
@@ -132,6 +130,23 @@ def test_the_sequence_is_what_makes_the_ordering_key_a_total_order() -> None:
     assert [entry.sequence for entry in queued] == list(range(len(queued)))
 
 
+def test_a_queued_event_compares_completely_and_not_only_with_less_than() -> None:
+    """`heapq` needs `__lt__` alone; a type that *is* a total order should offer all four.
+
+    A partial one raises `TypeError` on `>=` and invites a caller to re-derive the key by
+    hand with `sorted(..., key=...)`, which is a second copy of the ordering rule.
+    """
+    queue = EventQueue()
+    earlier = queue.schedule(fill_event_at(INSTANT, ordinal=1))
+    later = queue.schedule(fill_event_at(INSTANT, ordinal=2))
+
+    assert (earlier < later, earlier <= later) == (True, True)
+    assert (earlier > later, earlier >= later) == (False, False)
+    same = queue.peek()
+    assert same is not None
+    assert (same <= same, same >= same) == (True, True)  # noqa: PLR0124 - reflexivity is the claim
+
+
 def test_the_comparison_never_falls_through_to_the_payload() -> None:
     """A fall-through would raise here rather than reorder -- and it must never happen.
 
@@ -148,7 +163,8 @@ def test_the_comparison_never_falls_through_to_the_payload() -> None:
     queue = EventQueue()
     queue.schedule(first)
     queue.schedule(second)
-    assert [queue.pop().event for _ in range(2)] == [first, second]
+    dispatched = [queue.pop().event for _ in range(2)]
+    assert dispatched == [first, second]
 
 
 def test_an_event_scheduled_mid_drain_lands_in_the_total_order() -> None:
@@ -179,16 +195,19 @@ def test_peek_does_not_consume_and_an_empty_pop_refuses() -> None:
     assert len(queue) == 0
 
     event = fill_event_at(INSTANT)
-    assert queue.schedule(event).sequence == 0
-    assert queue.peek() is not None
-    assert queue.peek().event is event  # type: ignore[union-attr]  # asserted non-None above
+    first = queue.schedule(event)
+    peeked = queue.peek()
+    assert first.sequence == 0
+    assert peeked is not None
+    assert peeked.event is event
     assert len(queue) == 1
 
     queue.pop()
     # The counter is the run's event ordinal: it does not fall back when one is popped,
     # so a sequence number identifies an event for the whole run rather than a slot that
     # a later event can reuse.
-    assert queue.schedule(fill_event_at(INSTANT, ordinal=2)).sequence == 1
+    second = queue.schedule(fill_event_at(INSTANT, ordinal=2))
+    assert second.sequence == 1
 
     queue.pop()
     with pytest.raises(BacktestError, match="empty event queue"):

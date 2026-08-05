@@ -27,13 +27,13 @@ from __future__ import annotations
 import heapq
 from dataclasses import dataclass
 from datetime import datetime
+from functools import total_ordering
 
 from fking.backtest._errors import BacktestError
 from fking.backtest._events import Event, EventPriority
 
-__all__ = ["EventQueue", "QueuedEvent"]
 
-
+@total_ordering
 @dataclass(frozen=True, slots=True)
 class QueuedEvent:
     """An event with the position the queue gave it.
@@ -43,6 +43,12 @@ class QueuedEvent:
     component whenever the first three tied -- which is exactly the fall-through this
     module exists to make impossible, and it would be invisible in the diff that
     introduced it.
+
+    `total_ordering` then fills in the other three comparisons from `__lt__` and the
+    dataclass's `__eq__`. `heapq` needs only `__lt__`, so this is not for the queue's
+    benefit: a type whose entire purpose is to carry a total order should not raise
+    `TypeError` on `>=`, and a partial one invites a caller to reach for `sorted(...,
+    key=...)` and re-derive the key by hand.
     """
 
     occurs_at_utc: datetime

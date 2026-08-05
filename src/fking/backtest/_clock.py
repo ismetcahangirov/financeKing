@@ -25,8 +25,6 @@ from datetime import datetime
 from fking.backtest._errors import CausalityError
 from fking.backtest._guards import require_utc
 
-__all__ = ["SimulationClock"]
-
 
 class SimulationClock:
     """The loop's position in simulated time.
