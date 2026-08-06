@@ -1,0 +1,9 @@
+_recording:
+  body_sha256: c4eeea7bdfde8cd88a119c3ba6303ae6ddd9c89b33ec3d637cace0e887bb3cac
+  captured_at_utc: 2026-08-06T07-25-15Z
+  derivation: null
+  endpoint: GET /api/v3/time
+  http_status: 200
+  request_url: https://testnet.binance.vision/api/v3/time
+  venue: binance-spot-testnet
+body: '{"serverTime":1786001115042}'

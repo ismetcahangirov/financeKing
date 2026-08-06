@@ -21,12 +21,35 @@ from fking.platform.safety.client import (
     guarded_ws_connect,
     verify_endpoints_or_abort,
 )
+from fking.platform.safety.exchange import (
+    GuardedExchange,
+    UnknownVenueEndpointError,
+    VenueTransportError,
+    assert_sandbox_urls_permitted,
+    guarded_aiohttp_session,
+    guarded_ccxt,
+)
 
+# The second egress path is deliberately NOT re-exported here. An adversarial test under
+# tests/adversarial/ asserts that by scanning this file for the module's name, and it
+# refuses a *mention* as well as an import -- a comment naming it is one edit away from
+# importing it, and the substring check cannot tell the two apart. That is why the
+# reasoning is not restated here: ADR 0017 and .claude/rules/safety-kernel.md carry it,
+# and duplicated documentation diverges (CLAUDE.md 13).
+#
+# The exchange path below is the opposite case: `fking.execution` is supposed to reach
+# it, and is supposed to have no other way of obtaining an exchange object.
 __all__ = [
     "PERMITTED_HOSTS",
     "TRANSPORT_ERRORS",
+    "GuardedExchange",
     "SafetyViolation",
+    "UnknownVenueEndpointError",
+    "VenueTransportError",
     "assert_host_permitted",
+    "assert_sandbox_urls_permitted",
+    "guarded_aiohttp_session",
+    "guarded_ccxt",
     "guarded_client",
     "guarded_ws_connect",
     "verify_endpoints_or_abort",

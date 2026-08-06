@@ -22,7 +22,7 @@ Two names deliberately live elsewhere:
 from __future__ import annotations
 
 from fking.platform.safety import SafetyViolation
-from fking.platform.safety.archive import ArchiveUnavailableError
+from fking.platform.safety._archive_errors import ArchiveUnavailableError
 
 __all__ = [
     "ArchiveUnavailableError",
@@ -111,3 +111,9 @@ class DataUnavailableError(FkingError):
 # and the archive egress path exists precisely so that it does not have to. It is
 # re-exported rather than redefined, because two classes with one name is how an
 # `except` clause stops catching what its author believed it caught.
+#
+# It is imported from `fking.platform.safety._archive_errors` rather than from
+# `archive.py`, and that indirection is load-bearing. `fking.execution` imports this
+# module for `FkingError`; importing the archive *client's* module here would put every
+# taxonomy importer one edge from the archive egress path and break the "The order path
+# cannot reach the archive egress client" contract through a chain neither file shows.
