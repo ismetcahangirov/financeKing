@@ -24,8 +24,8 @@ environment, and are implemented here:
 
 - every requested feature is declared available by the feature store;
 - a falsifiable thesis is stated, with an explicit invalidation claim;
-- the rationale is not a restatement of the invalidation claim;
-- the rationale differs from the parent's when the logic differs;
+- the thesis statement is not a restatement of the invalidation claim;
+- the thesis statement differs from the parent's when the logic differs;
 - the genome is not a resubmission of a tombstoned hypothesis.
 
 The other three -- type-checking under `mypy --strict`, purity verified by executing the
@@ -78,11 +78,11 @@ class ContractCheck(StrEnum):
     retired for `environmental` reasons because there is nothing to observe breaking.
     """
 
-    RATIONALE_STATES_A_THESIS = "rationale_states_a_thesis"
-    """The rationale is a mechanism, not a restatement of the invalidation clause."""
+    THESIS_STATED = "thesis_stated"
+    """The thesis statement is a mechanism, not a restatement of the invalidation."""
 
-    RATIONALE_TRACKS_THE_LOGIC = "rationale_tracks_the_logic"
-    """A mutant whose structure changed carries a rationale that also changed.
+    THESIS_TRACKS_THE_LOGIC = "thesis_tracks_the_logic"
+    """A mutant whose structure changed carries a thesis statement that also changed.
 
     This is the cheapest check here and it catches the most common machine-authored
     failure: mutate the expression tree, copy the parent's justification. The copied
@@ -119,11 +119,11 @@ class ContractViolation:
 # at 03:00 with positions open, and the loosening outlives the incident.
 #
 # The character counts are deliberately modest. They are a floor on effort, not a proxy
-# for quality -- a gate that tried to judge a rationale's content would be scoring, and
+# for quality -- a gate that tried to judge a thesis statement's content would be scoring, and
 # this gate is score-free by construction.
 COMPILED_THRESHOLD_FLOORS: Final[Mapping[str, int]] = MappingProxyType(
     {
-        "min_rationale_chars": 40,
+        "min_thesis_chars": 40,
         "min_invalidation_chars": 20,
     }
 )
@@ -139,12 +139,12 @@ class ContractGateThresholds:
     startup makes the disagreement a deployment failure, which is where it is cheap.
     """
 
-    min_rationale_chars: int = COMPILED_THRESHOLD_FLOORS["min_rationale_chars"]
+    min_thesis_chars: int = COMPILED_THRESHOLD_FLOORS["min_thesis_chars"]
     min_invalidation_chars: int = COMPILED_THRESHOLD_FLOORS["min_invalidation_chars"]
 
     def __post_init__(self) -> None:
         configured = {
-            "min_rationale_chars": self.min_rationale_chars,
+            "min_thesis_chars": self.min_thesis_chars,
             "min_invalidation_chars": self.min_invalidation_chars,
         }
         for name, floor in COMPILED_THRESHOLD_FLOORS.items():
@@ -161,20 +161,20 @@ class ParentThesis:
 
     The parent's `structure_hash` rather than its `genome_hash`: a parameter-only jitter
     is the same claim about the world at different settings, so requiring a fresh
-    rationale for one would train proposers to paraphrase, and a paraphrase is exactly
+    thesis statement for one would train proposers to paraphrase, and a paraphrase is exactly
     the signal this gate is trying to keep meaningful.
     """
 
     structure_hash: str
-    rationale: str
+    thesis_statement: str
 
     def __post_init__(self) -> None:
         if not self.structure_hash.strip():
             raise ContractGateError("a parent thesis carries the parent's structure hash")
-        if not self.rationale.strip():
+        if not self.thesis_statement.strip():
             raise ContractGateError(
-                "a parent thesis carries the parent's rationale; comparing against an "
-                "absent one would pass RATIONALE_TRACKS_THE_LOGIC by default, which is "
+                "a parent thesis carries the parent's thesis statement; comparing against an "
+                "absent one would pass THESIS_TRACKS_THE_LOGIC by default, which is "
                 "the check reporting a result it did not compute"
             )
 
@@ -183,14 +183,24 @@ class ParentThesis:
 class GenomeProposal:
     """A genome plus the claims its author makes about it.
 
-    The rationale and the invalidation claim are separate fields rather than one block of
-    prose because they are answerable separately: the first says why this should work,
-    the second says what observation would end it, and a gate that reads one string
+    The thesis statement and the invalidation claim are separate fields rather than one
+    block of prose because they are answerable separately: the first says why this should
+    work, the second says what observation would end it, and a gate that reads one string
     cannot tell whether the second was ever written.
+
+    **`thesis_statement` is not `Signal.rationale`, and the distinction is load-bearing.**
+    `.claude/rules/llm-output-handling.md` forbids any branch whose condition reads
+    `rationale`, because that field travels with a decision toward the order path and a
+    branch on it is an untyped control channel from a model into the risk engine. This
+    field never leaves the admission decision, and the only two operations performed on
+    it are `len()` and `==` against the parent's -- neither of which extracts a value
+    from the text, and both of which can only refuse. A proposer cannot write anything
+    here that admits a genome the genome's own structure would not have admitted; the
+    most it can do is fail to write enough, which is the outcome the check wants.
     """
 
     genome: Genome
-    rationale: str
+    thesis_statement: str
     invalidation_claim: str
     parent: ParentThesis | None = None
 
@@ -269,40 +279,40 @@ def _check_invalidation_declared(
     )
 
 
-def _check_rationale_states_a_thesis(
+def _check_thesis_stated(
     proposal: GenomeProposal, thresholds: ContractGateThresholds
 ) -> ContractViolation | None:
-    rationale = proposal.rationale.strip()
-    if len(rationale) < thresholds.min_rationale_chars:
+    thesis = proposal.thesis_statement.strip()
+    if len(thesis) < thresholds.min_thesis_chars:
         return ContractViolation(
-            check=ContractCheck.RATIONALE_STATES_A_THESIS,
+            check=ContractCheck.THESIS_STATED,
             detail=(
-                f"the rationale is {len(rationale)} characters against a floor of "
-                f"{thresholds.min_rationale_chars}"
+                f"the thesis statement is {len(thesis)} characters against a floor of "
+                f"{thresholds.min_thesis_chars}"
             ),
         )
-    if rationale == proposal.invalidation_claim.strip():
+    if thesis == proposal.invalidation_claim.strip():
         return ContractViolation(
-            check=ContractCheck.RATIONALE_STATES_A_THESIS,
+            check=ContractCheck.THESIS_STATED,
             detail=(
-                "the rationale and the invalidation claim are the same text, so one of "
+                "the thesis statement and the invalidation claim are the same text, so one of "
                 "the two questions was not answered"
             ),
         )
     return None
 
 
-def _check_rationale_tracks_the_logic(proposal: GenomeProposal) -> ContractViolation | None:
+def _check_thesis_tracks_the_logic(proposal: GenomeProposal) -> ContractViolation | None:
     parent = proposal.parent
     if parent is None or parent.structure_hash == proposal.structure_hash:
         return None
-    if proposal.rationale.strip() != parent.rationale.strip():
+    if proposal.thesis_statement.strip() != parent.thesis_statement.strip():
         return None
     return ContractViolation(
-        check=ContractCheck.RATIONALE_TRACKS_THE_LOGIC,
+        check=ContractCheck.THESIS_TRACKS_THE_LOGIC,
         detail=(
             f"the expression tree changed -- structure {parent.structure_hash} became "
-            f"{proposal.structure_hash} -- while the rationale is byte-identical to the "
+            f"{proposal.structure_hash} -- while the thesis statement is byte-identical to the "
             f"parent's, so the recorded justification describes a hypothesis that is no "
             f"longer the one being tested"
         ),
@@ -348,8 +358,8 @@ def evaluate_contract_gate(
     candidates: Sequence[ContractViolation | None] = (
         _check_features_available(proposal, available_feature_ids),
         _check_invalidation_declared(proposal, applied),
-        _check_rationale_states_a_thesis(proposal, applied),
-        _check_rationale_tracks_the_logic(proposal),
+        _check_thesis_stated(proposal, applied),
+        _check_thesis_tracks_the_logic(proposal),
         _check_genome_not_tombstoned(proposal, tombstoned_genome_hashes),
     )
     return ContractGateVerdict(

@@ -40,7 +40,7 @@ INVALIDATION = "Two consecutive quarters in which extreme funding is followed by
 
 def build_proposal(
     *,
-    rationale: str = THESIS,
+    thesis_statement: str = THESIS,
     invalidation_claim: str = INVALIDATION,
     feature_ids: frozenset[str] = frozenset({"momentum.4h"}),
     parent: ParentThesis | None = None,
@@ -48,7 +48,7 @@ def build_proposal(
     entry_rule = comparison_rule(feature_id=min(feature_ids))
     return GenomeProposal(
         genome=build_genome(entry_rule=entry_rule, feature_ids=feature_ids),
-        rationale=rationale,
+        thesis_statement=thesis_statement,
         invalidation_claim=invalidation_claim,
         parent=parent,
     )
@@ -85,43 +85,47 @@ def test_a_thesis_with_no_stated_invalidation_is_refused() -> None:
     )
 
 
-def test_a_rationale_that_merely_repeats_the_invalidation_answers_one_question() -> None:
+def test_a_thesis_that_merely_repeats_the_invalidation_answers_one_question() -> None:
     long_enough = INVALIDATION + " " + INVALIDATION
-    proposal = build_proposal(rationale=long_enough, invalidation_claim=long_enough)
+    proposal = build_proposal(thesis_statement=long_enough, invalidation_claim=long_enough)
 
-    assert ContractCheck.RATIONALE_STATES_A_THESIS in failed_checks(proposal)
+    assert ContractCheck.THESIS_STATED in failed_checks(proposal)
 
 
-def test_a_mutant_that_changed_its_logic_and_copied_its_rationale_is_rejected() -> None:
+def test_a_mutant_that_changed_its_logic_and_copied_its_thesis_is_rejected() -> None:
     """The single most common machine-authored failure: mutate the tree, keep the words."""
     parent_genome = build_genome(entry_rule=comparison_rule(feature_id="momentum.4h"))
     mutant = build_proposal(
         feature_ids=frozenset({"funding.8h"}),
-        parent=ParentThesis(structure_hash=structure_hash(parent_genome), rationale=THESIS),
+        parent=ParentThesis(structure_hash=structure_hash(parent_genome), thesis_statement=THESIS),
     )
 
     assert mutant.structure_hash != structure_hash(parent_genome)
-    assert ContractCheck.RATIONALE_TRACKS_THE_LOGIC in failed_checks(mutant)
+    assert ContractCheck.THESIS_TRACKS_THE_LOGIC in failed_checks(mutant)
 
 
-def test_the_same_mutant_passes_once_its_rationale_describes_what_changed() -> None:
+def test_the_same_mutant_passes_once_its_thesis_describes_what_changed() -> None:
     parent_genome = build_genome(entry_rule=comparison_rule(feature_id="momentum.4h"))
     mutant = build_proposal(
-        rationale="Funding, not momentum, carries the signal: the carry cost is the mechanism.",
+        thesis_statement=(
+            "Funding, not momentum, carries the signal: the carry cost is the mechanism."
+        ),
         feature_ids=frozenset({"funding.8h"}),
-        parent=ParentThesis(structure_hash=structure_hash(parent_genome), rationale=THESIS),
+        parent=ParentThesis(structure_hash=structure_hash(parent_genome), thesis_statement=THESIS),
     )
 
     assert evaluate_contract_gate(mutant, available_feature_ids=CATALOGUE).is_admitted
 
 
-def test_a_parameter_only_jitter_may_keep_its_parents_rationale() -> None:
-    """Same claim about the world at a different setting. Demanding a fresh rationale
+def test_a_parameter_only_jitter_may_keep_its_parents_thesis() -> None:
+    """Same claim about the world at a different setting. Demanding a fresh thesis statement
     here would train proposers to paraphrase, which is what the check exists to detect."""
     parent_genome = build_genome()
     jittered = replace(
         build_proposal(
-            parent=ParentThesis(structure_hash=structure_hash(parent_genome), rationale=THESIS)
+            parent=ParentThesis(
+                structure_hash=structure_hash(parent_genome), thesis_statement=THESIS
+            )
         ),
         genome=build_genome(parameters={"entry_threshold": Decimal("2.5")}),
     )
@@ -141,7 +145,7 @@ def test_a_tombstoned_hypothesis_cannot_be_resubmitted() -> None:
 def test_every_failing_check_is_reported_rather_than_the_first() -> None:
     """One round trip per defect would charge the trial ledger once per defect."""
     proposal = build_proposal(
-        rationale="too short",
+        thesis_statement="too short",
         invalidation_claim="",
         feature_ids=frozenset({"unknown.feature"}),
     )
@@ -149,7 +153,7 @@ def test_every_failing_check_is_reported_rather_than_the_first() -> None:
     assert failed_checks(proposal) == {
         ContractCheck.FEATURES_AVAILABLE,
         ContractCheck.INVALIDATION_DECLARED,
-        ContractCheck.RATIONALE_STATES_A_THESIS,
+        ContractCheck.THESIS_STATED,
     }
 
 
@@ -196,7 +200,7 @@ def test_configuration_above_a_compiled_floor_is_accepted(threshold_name: str) -
 
 def test_a_stricter_threshold_refuses_a_proposal_the_default_admits() -> None:
     proposal = build_proposal()
-    demanding = ContractGateThresholds(min_rationale_chars=len(THESIS) + 1)
+    demanding = ContractGateThresholds(min_thesis_chars=len(THESIS) + 1)
 
     assert evaluate_contract_gate(proposal, available_feature_ids=CATALOGUE).is_admitted
     assert not evaluate_contract_gate(
