@@ -1,0 +1,186 @@
+{
+  "anchored": [
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "0",
+      "purge": "1 day, 0:00:00",
+      "scheme": "anchored",
+      "test_end_utc": "2024-05-02T00:00:00+00:00",
+      "test_start_utc": "2024-04-02T00:00:00+00:00",
+      "train_end_utc": "2024-03-31T00:00:00+00:00",
+      "train_start_utc": "2024-01-01T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "1",
+      "purge": "1 day, 0:00:00",
+      "scheme": "anchored",
+      "test_end_utc": "2024-06-01T00:00:00+00:00",
+      "test_start_utc": "2024-05-02T00:00:00+00:00",
+      "train_end_utc": "2024-04-30T00:00:00+00:00",
+      "train_start_utc": "2024-01-01T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "2",
+      "purge": "1 day, 0:00:00",
+      "scheme": "anchored",
+      "test_end_utc": "2024-07-01T00:00:00+00:00",
+      "test_start_utc": "2024-06-01T00:00:00+00:00",
+      "train_end_utc": "2024-05-30T00:00:00+00:00",
+      "train_start_utc": "2024-01-01T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "3",
+      "purge": "1 day, 0:00:00",
+      "scheme": "anchored",
+      "test_end_utc": "2024-07-31T00:00:00+00:00",
+      "test_start_utc": "2024-07-01T00:00:00+00:00",
+      "train_end_utc": "2024-06-29T00:00:00+00:00",
+      "train_start_utc": "2024-01-01T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "4",
+      "purge": "1 day, 0:00:00",
+      "scheme": "anchored",
+      "test_end_utc": "2024-08-30T00:00:00+00:00",
+      "test_start_utc": "2024-07-31T00:00:00+00:00",
+      "train_end_utc": "2024-07-29T00:00:00+00:00",
+      "train_start_utc": "2024-01-01T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "5",
+      "purge": "1 day, 0:00:00",
+      "scheme": "anchored",
+      "test_end_utc": "2024-09-29T00:00:00+00:00",
+      "test_start_utc": "2024-08-30T00:00:00+00:00",
+      "train_end_utc": "2024-08-28T00:00:00+00:00",
+      "train_start_utc": "2024-01-01T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "6",
+      "purge": "1 day, 0:00:00",
+      "scheme": "anchored",
+      "test_end_utc": "2024-10-29T00:00:00+00:00",
+      "test_start_utc": "2024-09-29T00:00:00+00:00",
+      "train_end_utc": "2024-09-27T00:00:00+00:00",
+      "train_start_utc": "2024-01-01T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "7",
+      "purge": "1 day, 0:00:00",
+      "scheme": "anchored",
+      "test_end_utc": "2024-11-28T00:00:00+00:00",
+      "test_start_utc": "2024-10-29T00:00:00+00:00",
+      "train_end_utc": "2024-10-27T00:00:00+00:00",
+      "train_start_utc": "2024-01-01T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "8",
+      "purge": "1 day, 0:00:00",
+      "scheme": "anchored",
+      "test_end_utc": "2024-12-28T00:00:00+00:00",
+      "test_start_utc": "2024-11-28T00:00:00+00:00",
+      "train_end_utc": "2024-11-26T00:00:00+00:00",
+      "train_start_utc": "2024-01-01T00:00:00+00:00"
+    }
+  ],
+  "rolling": [
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "0",
+      "purge": "1 day, 0:00:00",
+      "scheme": "rolling",
+      "test_end_utc": "2024-05-02T00:00:00+00:00",
+      "test_start_utc": "2024-04-02T00:00:00+00:00",
+      "train_end_utc": "2024-03-31T00:00:00+00:00",
+      "train_start_utc": "2024-01-01T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "1",
+      "purge": "1 day, 0:00:00",
+      "scheme": "rolling",
+      "test_end_utc": "2024-06-01T00:00:00+00:00",
+      "test_start_utc": "2024-05-02T00:00:00+00:00",
+      "train_end_utc": "2024-04-30T00:00:00+00:00",
+      "train_start_utc": "2024-01-31T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "2",
+      "purge": "1 day, 0:00:00",
+      "scheme": "rolling",
+      "test_end_utc": "2024-07-01T00:00:00+00:00",
+      "test_start_utc": "2024-06-01T00:00:00+00:00",
+      "train_end_utc": "2024-05-30T00:00:00+00:00",
+      "train_start_utc": "2024-03-01T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "3",
+      "purge": "1 day, 0:00:00",
+      "scheme": "rolling",
+      "test_end_utc": "2024-07-31T00:00:00+00:00",
+      "test_start_utc": "2024-07-01T00:00:00+00:00",
+      "train_end_utc": "2024-06-29T00:00:00+00:00",
+      "train_start_utc": "2024-03-31T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "4",
+      "purge": "1 day, 0:00:00",
+      "scheme": "rolling",
+      "test_end_utc": "2024-08-30T00:00:00+00:00",
+      "test_start_utc": "2024-07-31T00:00:00+00:00",
+      "train_end_utc": "2024-07-29T00:00:00+00:00",
+      "train_start_utc": "2024-04-30T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "5",
+      "purge": "1 day, 0:00:00",
+      "scheme": "rolling",
+      "test_end_utc": "2024-09-29T00:00:00+00:00",
+      "test_start_utc": "2024-08-30T00:00:00+00:00",
+      "train_end_utc": "2024-08-28T00:00:00+00:00",
+      "train_start_utc": "2024-05-30T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "6",
+      "purge": "1 day, 0:00:00",
+      "scheme": "rolling",
+      "test_end_utc": "2024-10-29T00:00:00+00:00",
+      "test_start_utc": "2024-09-29T00:00:00+00:00",
+      "train_end_utc": "2024-09-27T00:00:00+00:00",
+      "train_start_utc": "2024-06-29T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "7",
+      "purge": "1 day, 0:00:00",
+      "scheme": "rolling",
+      "test_end_utc": "2024-11-28T00:00:00+00:00",
+      "test_start_utc": "2024-10-29T00:00:00+00:00",
+      "train_end_utc": "2024-10-27T00:00:00+00:00",
+      "train_start_utc": "2024-07-29T00:00:00+00:00"
+    },
+    {
+      "embargo": "1 day, 0:00:00",
+      "fold_index": "8",
+      "purge": "1 day, 0:00:00",
+      "scheme": "rolling",
+      "test_end_utc": "2024-12-28T00:00:00+00:00",
+      "test_start_utc": "2024-11-28T00:00:00+00:00",
+      "train_end_utc": "2024-11-26T00:00:00+00:00",
+      "train_start_utc": "2024-08-28T00:00:00+00:00"
+    }
+  ]
+}
