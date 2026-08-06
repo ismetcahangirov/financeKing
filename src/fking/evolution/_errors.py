@@ -12,6 +12,7 @@ from __future__ import annotations
 from fking.platform.errors import FkingError
 
 __all__ = [
+    "ContractGateError",
     "EvolutionError",
     "GenomeError",
     "IllegalTransitionError",
@@ -68,4 +69,15 @@ class IllegalTransitionError(LifecycleTransitionError):
     thought it was -- a stale read, and the answer is to re-derive and retry. An
     `IllegalTransitionError` means the caller believes in an edge the lifecycle does not have,
     which is a bug in whatever computed the destination and is never retried.
+    """
+
+
+class ContractGateError(EvolutionError):
+    """The contract gate could not be evaluated, as distinct from returning a refusal.
+
+    A gate that cannot run is not a gate that passed. Raised when the inputs the gate
+    needs are absent or self-contradictory -- an empty available-feature set, a parent
+    reference with no rationale to compare against -- because the alternative is a
+    verdict computed from missing evidence, which reads as `admitted` for exactly the
+    genomes nobody checked.
     """
