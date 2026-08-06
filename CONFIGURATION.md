@@ -392,6 +392,16 @@ The bounded pattern gets both: **tightening is free, loosening past the ceiling 
 
 The same pattern applies wherever a numeric limit protects something: agent token budgets, order rate limits, position counts. Anything that can be raised to make the system take more risk gets a ceiling.
 
+### The floors, which are where the bug lives
+
+The loop above is correct for every limit in `HARD_CEILINGS` and **backwards for every limit where smaller is riskier** — `min_free_margin_ratio`, `min_trades_for_kelly`, `conviction_floor`. `0 > 0.25` is `False`, so `if value > bound` accepts `min_free_margin_ratio = 0`, authorises trading with no margin buffer at all, and reports a passing configuration check.
+
+So the bounds are two mappings, checked by two validators, holding values of two **distinct types** — `Ceiling` and `Floor`, in `fking.risk.ceilings`, each offering exactly one comparison in its own direction. `mypy --strict` then rejects `HARD_FLOORS[name] > requested` and rejects handing `HARD_FLOORS` to the ceiling validator; the type system does the reviewing, rather than a human scanning a `>` inside a loop over a dictionary. Both are frozen single-field classes rather than `typing.NewType` over `Decimal`: a `NewType` is assignable to `Decimal`, inherits its comparison operators, and the backwards expression compiles.
+
+`fking.risk.ceilings` imports the ceiling *values* from `fking.platform.config` rather than restating them — two compiled-in copies of a safety constant are two numbers that can disagree, and the one that disagrees silently is whichever the reader is not looking at. `platform` still owns them because it may import no other `fking` module.
+
+Floors obey the same direction-of-friction rule read the other way: **raising a floor is free, lowering one past its compiled-in value requires a source edit and a `safety:critical` pull request.** The bound values and their provenance are in `RISK_PHILOSOPHY.md` §4 and §9; `tests/risk/test_limits_property.py` is the guarantee, asserting over arbitrary generated configurations that a configuration is accepted **if and only if** it is within every ceiling and above every floor.
+
 `kill_switch_enabled` and `require_invalidation_level` are `Literal[True]`. `CLAUDE.md` §11 names the anti-pattern: adding a config flag to bypass a gate. Gates exist because someone will be in a hurry later, and that someone is you.
 
 ---
