@@ -121,11 +121,11 @@ def test_a_derived_recording_states_what_it_was_derived_from(recording: Recordin
     assert derivation is not None
     assert derivation["kind"] == "symbol_subset"
     assert len(str(derivation["source_body_sha256"])) == SHA256_HEX_LENGTH
-    assert int(derivation["kept_symbol_count"]) < int(derivation["source_symbol_count"])
+    assert int(str(derivation["kept_symbol_count"])) < int(str(derivation["source_symbol_count"]))
 
     payload = parse_venue_payload(recording.body)
     assert isinstance(payload, dict)
-    assert len(payload["symbols"]) == int(derivation["kept_symbol_count"])
+    assert len(payload["symbols"]) == int(str(derivation["kept_symbol_count"]))
 
 
 @pytest.mark.parametrize("venue", REQUIRED_VENUES, ids=str)

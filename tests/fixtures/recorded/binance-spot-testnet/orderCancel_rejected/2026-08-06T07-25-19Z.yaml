@@ -1,0 +1,9 @@
+_recording:
+  body_sha256: 440a565dfab78f553157c8647cf721ff5f1f8ed9f5a363ee61086ef7db1302e1
+  captured_at_utc: 2026-08-06T07-25-19Z
+  derivation: null
+  endpoint: DELETE /api/v3/order
+  http_status: 400
+  request_url: https://testnet.binance.vision/api/v3/order
+  venue: binance-spot-testnet
+body: '{"code":-1102,"msg":"Mandatory parameter ''symbol'' was not sent, was empty/null, or malformed."}'

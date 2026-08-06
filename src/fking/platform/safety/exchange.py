@@ -42,7 +42,7 @@ import aiohttp
 # ccxt ships no py.typed marker, so mypy cannot see its signatures. The import is
 # confined to this module and every value taken from it is immediately narrowed to
 # `_CcxtExchange` below, so no Any escapes into the rest of the tree.
-import ccxt.async_support as ccxt_async  # type: ignore[import-untyped]
+import ccxt.async_support as ccxt_async
 import structlog
 
 from fking.platform.safety._errors import SafetyViolation

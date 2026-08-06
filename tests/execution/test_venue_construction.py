@@ -26,8 +26,8 @@ from typing import Final
 
 import aiohttp
 import pytest
+import websockets
 
-import fking.platform.safety.client as safety_client
 from fking.domain import Venue
 from fking.execution import (
     BINANCE_SPOT_TESTNET,
@@ -118,7 +118,7 @@ async def test_a_production_websocket_url_is_refused_before_a_socket_opens(
     async def _explode(*_args: object, **_kwargs: object) -> None:
         raise _SocketOpenedError("guarded_ws_connect opened a socket to a non-allowlisted host")
 
-    monkeypatch.setattr(safety_client.websockets, "connect", _explode)
+    monkeypatch.setattr(websockets, "connect", _explode)
 
     with pytest.raises(SafetyViolation, match="not in the compiled-in"):
         async with guarded_ws_connect(url):
@@ -251,4 +251,4 @@ def test_a_non_binance_profile_is_refused_by_the_binance_adapter() -> None:
             raise AssertionError("the adapter must refuse before it can close anything")
 
     with pytest.raises(PermanentExchangeError, match="not a Binance market"):
-        BinanceVenue(_NeverCalled(), BYBIT_TESTNET)  # type: ignore[arg-type]
+        BinanceVenue(_NeverCalled(), BYBIT_TESTNET)

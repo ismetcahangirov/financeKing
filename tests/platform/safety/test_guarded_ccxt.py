@@ -79,7 +79,7 @@ class _FakeCcxtExchange:
 
 
 def _guarded(exchange: _FakeCcxtExchange, session: aiohttp.ClientSession) -> GuardedCcxtExchange:
-    return GuardedCcxtExchange(exchange, session, "binance-spot-testnet")  # type: ignore[arg-type]
+    return GuardedCcxtExchange(exchange, session, "binance-spot-testnet")
 
 
 class TestTheInjectedSession:
@@ -154,6 +154,43 @@ class TestTheSandboxUrlWalk:
             )
             == ()
         )
+
+    def test_every_endpoint_in_a_list_valued_key_is_validated(self) -> None:
+        """ccxt stores several endpoints under one key for some exchanges, and the
+        walk has to reach all of them rather than stopping at the first.
+
+        Every other case in this class abandons the walk on the first violation, so
+        without this one the list branch is never iterated to completion and a
+        `break` smuggled into it would pass every test here.
+        """
+        validated = assert_sandbox_urls_permitted(
+            {
+                "api": {
+                    "public": [
+                        "https://testnet.binance.vision/api/v3",
+                        "https://testnet.binance.vision/api/v1",
+                    ]
+                }
+            }
+        )
+        assert validated == (
+            "https://testnet.binance.vision/api/v3",
+            "https://testnet.binance.vision/api/v1",
+        )
+
+    def test_a_later_endpoint_in_a_list_is_still_refused(self) -> None:
+        """The violation is second, so a walk that checked only the head would pass."""
+        with pytest.raises(SafetyViolation, match=re.escape("api.binance.com")):
+            assert_sandbox_urls_permitted(
+                {
+                    "api": {
+                        "public": [
+                            "https://testnet.binance.vision/api/v3",
+                            "https://api.binance.com/api/v3",
+                        ]
+                    }
+                }
+            )
 
     def test_a_non_string_leaf_is_skipped_rather_than_stringified(self) -> None:
         """ccxt's `urls` carries ints and None in places. Coercing them would produce a

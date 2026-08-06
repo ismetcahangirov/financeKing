@@ -30,9 +30,14 @@ pytestmark = pytest.mark.unit
 SPOT_TESTNET_ORDERS_PER_10S: Final[int] = 50
 FUTURES_LISTEN_KEY_KEEPALIVE_SECONDS: Final[int] = 1_800
 
-ALL_PROFILES = pytest.mark.parametrize(
-    "profile", sorted(VENUE_PROFILES.values(), key=lambda entry: entry.venue_id), ids=str
+# Sorted into its own annotated binding rather than inline. `parametrize` types
+# `argvalues` as `Iterable[object]`, and that context propagates into `sorted`, so an
+# inline lambda is handed `object` and cannot reach `.venue_id`.
+_PROFILES_BY_VENUE: Final[list[VenueProfile]] = sorted(
+    VENUE_PROFILES.values(), key=lambda entry: entry.venue_id
 )
+
+ALL_PROFILES = pytest.mark.parametrize("profile", _PROFILES_BY_VENUE, ids=str)
 
 
 @ALL_PROFILES
@@ -56,7 +61,10 @@ def test_every_profile_endpoint_is_in_the_compiled_in_allowlist(profile: VenuePr
 def test_every_profile_is_frozen(profile: VenueProfile) -> None:
     """A mutable profile is a rate limit somebody can raise at runtime."""
     with pytest.raises(ValueError, match="frozen"):
-        profile.order_rate_per_10s = 100_000  # type: ignore[misc]
+        # No `type: ignore` here on purpose: mypy's pydantic plugin does not model
+        # `frozen=True` as an assignment error, so the refusal this asserts is a
+        # runtime one and the type checker has nothing to say about it.
+        profile.order_rate_per_10s = 100_000
 
 
 @ALL_PROFILES

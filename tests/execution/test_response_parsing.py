@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation
-from typing import Final
+from typing import Final, cast
 
 import pytest
 from hypothesis import given
@@ -172,6 +172,18 @@ def test_a_domain_instrument_built_from_a_recording_carries_exact_decimals(venue
     assert instrument.tick_size == Decimal(str(instrument.tick_size))
 
 
+def _carry(raw: object) -> _DecimalCarrier:
+    """Construct through the wire contract, which is what these tests exercise.
+
+    `quote_price` is annotated `Decimal` because that is what the field *holds*.
+    What `VenueDecimal`'s BeforeValidator accepts as *input* is a string and nothing
+    else -- that asymmetry is the whole point of the type. mypy builds `__init__`
+    from the annotation, so sending the characters the venue actually sends needs
+    one narrowing point rather than an ignore at every call site.
+    """
+    return _DecimalCarrier(quote_price=cast(Decimal, raw))
+
+
 class _DecimalCarrier(BaseModel):
     quote_price: VenueDecimal
 
@@ -187,7 +199,7 @@ class _DecimalCarrier(BaseModel):
 )
 def test_a_venue_decimal_round_trips_the_exact_characters_it_was_sent(text: str) -> None:
     """The venue's characters, not a value near them."""
-    assert _DecimalCarrier(quote_price=text).quote_price == Decimal(text)
+    assert _carry(text).quote_price == Decimal(text)
 
 
 @pytest.mark.parametrize("candidate", [0.1, 1, True, None, ["0.1"]])
@@ -198,12 +210,12 @@ def test_a_non_string_decimal_field_is_refused_rather_than_coerced(candidate: ob
     mean the model no longer proves the body went through `parse_venue_payload`.
     """
     with pytest.raises(ValidationError, match="string-encoded decimal"):
-        _DecimalCarrier(quote_price=candidate)  # type: ignore[arg-type]
+        _carry(candidate)
 
 
 def test_a_malformed_decimal_string_is_refused() -> None:
     with pytest.raises(ValidationError, match="not a decimal"):
-        _DecimalCarrier(quote_price="not-a-number")
+        _carry("not-a-number")
 
 
 @pytest.mark.parametrize("venue", recorded_venues(), ids=str)

@@ -37,7 +37,6 @@ dependencies = [
     # contribute -- which is the entire return on the partition layout. pyarrow is the
     # writer: it is the only way to declare `decimal128(38, 18)` explicitly, and an
     # inferred schema is how an OHLCV column becomes a double.
-    "ccxt>=4.5.70",
     "duckdb>=1.1",
     "httpx>=0.28.1",
     # Telemetry (#18). The SDK plus the OTLP/gRPC exporter is the whole pipeline into
@@ -293,10 +292,26 @@ module = [
     "fking.platform.bus._envelope",
     "fking.platform.config.settings",
     "tests.agents.test_contracts",
+    "tests.execution.test_response_parsing",
     "tests.platform.bus.test_registry",
     "tests.platform.bus.test_stream",
 ]
 disallow_any_explicit = false
+
+# ccxt ships no `py.typed` marker, so mypy refuses to analyse it and reports
+# `import-untyped` at every import site. Narrowed to `ccxt.*` rather than set
+# globally: `ignore_missing_imports` applied repository-wide would also silence a
+# genuinely missing first-party module, which is a real error wearing a
+# third-party packaging gap as a disguise.
+#
+# This does NOT weaken the safety kernel's guarantee. Nothing is inferred from
+# ccxt's own annotations -- `guarded_ccxt` re-validates every URL in the sandbox
+# map it returns, and `.claude/rules/safety-kernel.md` treats those endpoints as
+# dependency-supplied input precisely because the type system cannot vouch for
+# them.
+[[tool.mypy.overrides]]
+module = ["ccxt.*"]
+ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
 # import-linter -- the architecture diagram, made executable

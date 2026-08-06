@@ -277,7 +277,7 @@ async def test_a_payload_of_the_wrong_shape_is_refused_rather_than_indexed(
     """An array where an object was expected is a contract change, not a value to guess at."""
 
     class _ArrayForEverything(RecordedExchange):
-        async def call(self, _endpoint: str, _params: object) -> str:  # type: ignore[override]
+        async def call(self, _endpoint: str, _params: object) -> str:
             return "[]"
 
     venue = BinanceVenue(
