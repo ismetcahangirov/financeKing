@@ -23,9 +23,11 @@ which is what keeps the parse path free of I/O and free of a session.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
+from types import MappingProxyType
 from typing import Final, Protocol
 from uuid import UUID
 
@@ -37,6 +39,11 @@ __all__ = [
 ]
 
 _UTC_OFFSET: Final[timedelta] = timedelta(0)
+
+# A prompt address is a sha256 digest, and the database computes its own from the
+# template text. A length check here turns "somebody passed a hex string" into a failure
+# at construction rather than into a row whose prompt can never be resolved.
+_SHA256_BYTES: Final[int] = 32
 
 
 def _require_utc(candidate: datetime, field_name: str) -> datetime:
@@ -79,6 +86,8 @@ class AgentCallContext:
     provider: str
     model_id: str
     temperature: Decimal
+    prompt_hash: bytes
+    prompt_variables: Mapping[str, str]
     prompt_text: str
     called_at_utc: datetime
 
@@ -86,6 +95,15 @@ class AgentCallContext:
         _require_utc(self.called_at_utc, "called_at_utc")
         if self.temperature < Decimal("0"):
             raise ValueError(f"temperature must not be negative; got {self.temperature}")
+        if len(self.prompt_hash) != _SHA256_BYTES:
+            raise ValueError(
+                f"prompt_hash must be a {_SHA256_BYTES}-byte sha256 address of the "
+                f"template this prompt was rendered from; got {len(self.prompt_hash)} bytes"
+            )
+        # frozen=True protects the binding, not the object bound: without the copy the
+        # caller keeps a live handle on a mapping that is about to be hashed into an
+        # append-only row (.claude/rules/immutability.md).
+        object.__setattr__(self, "prompt_variables", MappingProxyType(dict(self.prompt_variables)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +151,8 @@ class AgentCallRecord:
     provider: str
     model_id: str
     temperature: Decimal
+    prompt_hash: bytes
+    prompt_variables: Mapping[str, str]
     prompt_text: str
     response_text: str | None
     prompt_token_count: int
@@ -144,6 +164,7 @@ class AgentCallRecord:
 
     def __post_init__(self) -> None:
         _require_utc(self.called_at_utc, "called_at_utc")
+        object.__setattr__(self, "prompt_variables", MappingProxyType(dict(self.prompt_variables)))
         if self.response_text is None and self.schema_valid:
             raise ValueError(
                 "schema_valid is true with no response_text; a validated response has "
@@ -168,6 +189,8 @@ class AgentCallRecord:
             provider=call.provider,
             model_id=call.model_id,
             temperature=call.temperature,
+            prompt_hash=call.prompt_hash,
+            prompt_variables=call.prompt_variables,
             prompt_text=call.prompt_text,
             # Verbatim, and verbatim on the failure path most of all.
             response_text=completion.text,

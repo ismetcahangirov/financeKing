@@ -27,6 +27,10 @@ CALL_ID = UUID("11111111-1111-4111-8111-111111111111")
 RUN_ID = UUID("22222222-2222-4222-8222-222222222222")
 CORRELATION_ID = UUID("33333333-3333-4333-8333-333333333333")
 CALLED_AT_UTC = datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+# The address of the template the prompt below was rendered from. A literal rather than a
+# call to `prompt_address`, so a change to the addressing recipe fails a test instead of
+# being absorbed by the fixture that was supposed to pin it.
+PROMPT_HASH = bytes.fromhex("9d1ecf5e21b1f9ed2a1a1a0f1a3f3f36e8ac6e2b6c2bb4a1e3c0b62f16b9a3e7")
 
 
 class RecordingAudit:
@@ -54,6 +58,8 @@ def call() -> AgentCallContext:
         provider="gemini",
         model_id="gemini-2.5-flash-002",
         temperature=Decimal("0"),
+        prompt_hash=PROMPT_HASH,
+        prompt_variables={"role": "analyst"},
         prompt_text="You are an analyst.",
         called_at_utc=CALLED_AT_UTC,
     )

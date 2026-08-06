@@ -14,7 +14,14 @@ from decimal import Decimal
 import pytest
 
 from fking.agents import AgentCallContext, AgentCallRecord, CompletionResult
-from tests.agents.conftest import CALL_ID, CALLED_AT_UTC, CORRELATION_ID, RUN_ID, completion
+from tests.agents.conftest import (
+    CALL_ID,
+    CALLED_AT_UTC,
+    CORRELATION_ID,
+    PROMPT_HASH,
+    RUN_ID,
+    completion,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -30,6 +37,8 @@ def a_context(**overrides: object) -> AgentCallContext:
         "provider": "gemini",
         "model_id": "gemini-2.5-flash-002",
         "temperature": Decimal("0"),
+        "prompt_hash": PROMPT_HASH,
+        "prompt_variables": {"role": "analyst"},
         "prompt_text": "You are an analyst.",
         "called_at_utc": CALLED_AT_UTC,
     }
@@ -57,6 +66,8 @@ class TestTimestampsAreAwareUtc:
                 provider="gemini",
                 model_id="gemini-2.5-flash-002",
                 temperature=Decimal("0"),
+                prompt_hash=PROMPT_HASH,
+                prompt_variables={},
                 prompt_text="p",
                 response_text="r",
                 prompt_token_count=1,
@@ -101,6 +112,8 @@ class TestImplausibleValuesAreRefused:
                 provider="gemini",
                 model_id="gemini-2.5-flash-002",
                 temperature=Decimal("0"),
+                prompt_hash=PROMPT_HASH,
+                prompt_variables={},
                 prompt_text="p",
                 response_text=None,
                 prompt_token_count=1,
