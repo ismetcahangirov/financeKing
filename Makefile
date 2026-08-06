@@ -11,7 +11,7 @@ ARGS ?=
 COMPOSE ?= docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help check lint format types imports checks corrupt-fixtures adr-index test cover secrets audit up down logs ps config migrate migrate-down migrate-sql seed ingest data-coverage backtest release release-tag rollback-drill
+.PHONY: help check lint format types imports checks corrupt-fixtures adr-index test cover secrets audit up down logs ps config migrate migrate-down migrate-sql seed ingest data-coverage backtest release release-tag rollback-drill backup backup-list backup-prune
 
 help:  ## Show the available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -252,3 +252,32 @@ release-tag:  ## Create the annotated tag after `make release`. VERSION=x.y.z
 ## above it has already been dropped and committed. RELEASE_PROCESS.md 7.
 rollback-drill:  ## Execute the rollback drill against a real database
 	$(UV) run python -m pytest tests/infra/test_release_rollback_drill.py --no-cov -v
+
+# ---------------------------------------------------------------------------
+# Backup and recovery. DEPLOYMENT.md section 9 is the procedure; this is the part
+# of it a machine runs.
+# ---------------------------------------------------------------------------
+
+BACKUP_DIR ?= backups
+KEEP_DAYS  ?= 30
+
+## A dump in pg_dump's custom format, its SHA-256, the Alembic revision it was taken at,
+## and the hash-chain tip of every append-only table. The tips are the load-bearing part:
+## without them a restore that silently dropped its tail verifies cleanly, because a
+## prefix of a valid chain is a valid chain.
+##
+## The client is version-matched to the server -- from PATH if the majors agree, else
+## from the pinned TimescaleDB image via docker. A pg_restore from a different major
+## omits objects it does not understand and still exits 0.
+backup:  ## Take a verified dump with a chain-tip manifest into BACKUP_DIR
+	$(UV) run python -m tools.backup --directory $(BACKUP_DIR) dump
+
+backup-list:  ## List the backups present, newest first
+	$(UV) run python -m tools.backup --directory $(BACKUP_DIR) list
+
+## Prints what it would delete and deletes nothing without APPLY=1. Archival that cannot
+## be inspected before it runs is indistinguishable from truncation, and three copies are
+## retained regardless of age so retention can never remove the last restorable backup.
+backup-prune:  ## Apply retention; KEEP_DAYS=30 APPLY=1 to act
+	$(UV) run python -m tools.backup --directory $(BACKUP_DIR) prune \
+		--keep-days $(KEEP_DAYS) $(if $(APPLY),--apply,)
