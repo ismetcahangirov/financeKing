@@ -65,6 +65,9 @@ imports:  ## import-linter architecture contracts
 ## host, and that nothing branches on an LLM's free-text rationale. .claude/rules/
 ## carries the reasoning for each.
 ##
+## property_coverage is the one that gates the tests rather than the source: risk and
+## position math without a Hypothesis property test is a merge blocker (#170).
+##
 ## adr_index is not an AST check -- it reads Markdown front matter -- but it belongs
 ## here for the same reason: a stale decision index is a document that answers a
 ## question wrongly, and a reader who gets an answer stops looking.
@@ -76,6 +79,7 @@ checks:  ## Project-specific AST and documentation checks
 	$(UV) run python tools/checks/feature_registry.py $(SRC)
 	$(UV) run python tools/checks/agent_schema_fields.py $(SRC)/agents
 	$(UV) run python tools/checks/rationale_untouched.py $(SRC)
+	$(UV) run python tools/checks/property_coverage.py $(SRC) tests/property
 	$(UV) run python tools/checks/adr_index.py docs/adr
 	$(UV) run python tools/corrupt_archive_fixture.py --check
 

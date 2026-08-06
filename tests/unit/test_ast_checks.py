@@ -13,7 +13,14 @@ from pathlib import Path
 
 import pytest
 
-from tools.checks import clock_isolation, feature_registry, money_types, naming, no_catch_safety
+from tools.checks import (
+    clock_isolation,
+    feature_registry,
+    money_types,
+    naming,
+    no_catch_safety,
+    property_coverage,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -255,6 +262,125 @@ class TestFeatureRegistry:
         package = tmp_path / "fking"
         package.mkdir()
         assert feature_registry.check_package(package)
+
+
+class TestPropertyCoverage:
+    """The gate that makes Hypothesis mandatory for risk and position math (#170).
+
+    Its own failure mode is the one it exists to catch: a check that accepts a named file
+    with nothing behind it is indistinguishable from no check, because `ls tests/property/`
+    reads as complete either way.
+    """
+
+    _PROPERTY_TEST = (
+        "from hypothesis import given\n"
+        "@given(x=st.integers())\n"
+        "def test_something(x: int) -> None:\n    assert x == x\n"
+    )
+
+    def _tree(self, tmp_path: Path, *, risk: Sequence[str], tests: Mapping[str, str]) -> Path:
+        package = tmp_path / "fking"
+        (package / "risk").mkdir(parents=True)
+        (package / "domain").mkdir(parents=True)
+        (package / "risk" / "__init__.py").touch()
+        for module in risk:
+            (package / "risk" / module).write_text("def f() -> None: ...\n", encoding="utf-8")
+        (package / "domain" / "position.py").write_text("class Position: ...\n", encoding="utf-8")
+        property_tests = tmp_path / "tests" / "property"
+        property_tests.mkdir(parents=True)
+        (property_tests / "test_position_properties.py").write_text(
+            self._PROPERTY_TEST, encoding="utf-8"
+        )
+        for name, source in tests.items():
+            (property_tests / name).write_text(source, encoding="utf-8")
+        return package
+
+    def test_a_risk_module_with_no_property_test_is_rejected(self, tmp_path: Path) -> None:
+        package = self._tree(tmp_path, risk=["sizing.py"], tests={})
+        failures = property_coverage.check_package(package, tmp_path / "tests" / "property")
+        assert len(failures) == 1
+        assert "test_sizing_properties.py" in failures[0]
+
+    def test_a_risk_module_with_a_property_test_is_accepted(self, tmp_path: Path) -> None:
+        package = self._tree(
+            tmp_path,
+            risk=["sizing.py"],
+            tests={"test_sizing_properties.py": self._PROPERTY_TEST},
+        )
+        assert property_coverage.check_package(package, tmp_path / "tests" / "property") == []
+
+    def test_a_named_file_with_no_given_is_rejected(self, tmp_path: Path) -> None:
+        """The decay this check exists to stop: the file exists, the assertion does not."""
+        package = self._tree(
+            tmp_path,
+            risk=["sizing.py"],
+            tests={"test_sizing_properties.py": "def test_placeholder() -> None:\n    ...\n"},
+        )
+        failures = property_coverage.check_package(package, tmp_path / "tests" / "property")
+        assert len(failures) == 1
+        assert "declares no @given" in failures[0]
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            '"""A docstring mentioning @given(x=...) and nothing more."""\n',
+            "# @given(x=st.integers())\nCOVERED = False\n",
+            "MESSAGE = 'use @given for this'\n",
+        ],
+    )
+    def test_given_in_prose_does_not_satisfy_the_gate(self, tmp_path: Path, source: str) -> None:
+        """Parsed, not grepped. A substring search is satisfied by a comment."""
+        package = self._tree(
+            tmp_path, risk=["sizing.py"], tests={"test_sizing_properties.py": source}
+        )
+        assert property_coverage.check_package(package, tmp_path / "tests" / "property")
+
+    @pytest.mark.parametrize(
+        "decorator", ["@given(x=st.integers())", "@hypothesis.given(x=st.integers())", "@given"]
+    )
+    def test_every_spelling_of_the_decorator_counts(self, tmp_path: Path, decorator: str) -> None:
+        source = f"{decorator}\ndef test_p(x: int) -> None:\n    assert x == x\n"
+        package = self._tree(
+            tmp_path, risk=["sizing.py"], tests={"test_sizing_properties.py": source}
+        )
+        assert property_coverage.check_package(package, tmp_path / "tests" / "property") == []
+
+    def test_a_private_risk_module_is_not_demanded(self, tmp_path: Path) -> None:
+        """`_sizing.py` carries no compatibility promise, so it has no public property."""
+        package = self._tree(tmp_path, risk=["_sizing.py"], tests={})
+        assert property_coverage.check_package(package, tmp_path / "tests" / "property") == []
+
+    def test_a_stale_position_math_declaration_is_rejected(self, tmp_path: Path) -> None:
+        """Renaming the declared module must break the gate rather than empty it."""
+        package = self._tree(tmp_path, risk=[], tests={})
+        (package / "domain" / "position.py").unlink()
+        failures = property_coverage.check_package(package, tmp_path / "tests" / "property")
+        assert len(failures) == 1
+        assert "declaration is stale" in failures[0]
+
+    def test_position_math_without_a_property_test_is_rejected(self, tmp_path: Path) -> None:
+        package = self._tree(tmp_path, risk=[], tests={})
+        (tmp_path / "tests" / "property" / "test_position_properties.py").unlink()
+        failures = property_coverage.check_package(package, tmp_path / "tests" / "property")
+        assert len(failures) == 1
+        assert "test_position_properties.py" in failures[0]
+
+    def test_a_missing_property_test_directory_fails_rather_than_passes(
+        self, tmp_path: Path
+    ) -> None:
+        package = self._tree(tmp_path, risk=["sizing.py"], tests={})
+        assert property_coverage.check_package(package, tmp_path / "nowhere")
+
+    def test_empty_argv_exits_zero(self) -> None:
+        assert property_coverage.main([]) == 0
+
+    def test_a_single_argument_is_a_usage_error_rather_than_a_pass(self) -> None:
+        """One root cannot say where the tests live, and guessing would gate the wrong tree."""
+        assert property_coverage.main(["src/fking"]) == property_coverage.USAGE_EXIT_CODE
+
+    def test_the_real_tree_passes(self) -> None:
+        """The committed tree must be clean, or `make check` is green on a lie."""
+        assert property_coverage.main(["src/fking", "tests/property"]) == 0
 
 
 CHECK_ENTRY_POINTS: Mapping[str, Callable[[Sequence[str]], int]] = {
