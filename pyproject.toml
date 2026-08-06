@@ -257,6 +257,12 @@ warn_unused_ignores = true
 # anywhere else still fails.
 [[tool.mypy.overrides]]
 module = [
+    "fking.backtest.costs._calibrate",
+    "fking.backtest.costs._charge",
+    "fking.backtest.costs._depth",
+    "fking.backtest.costs._latency",
+    "fking.backtest.costs._model",
+    "fking.backtest.costs._spread",
     "fking.data.live.frames",
     "fking.platform.bus._envelope",
     "fking.platform.config.settings",

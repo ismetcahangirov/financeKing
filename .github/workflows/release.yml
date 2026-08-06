@@ -1,0 +1,114 @@
+name: Release
+
+# Pushing a release tag is the publish action. Nothing here triggers on a branch, and
+# nothing here creates a tag -- `python -m tools.release cut --confirm` does that on a
+# human's machine, deliberately one step short of the push, so the reflog records who
+# cut the release (RELEASE_PROCESS.md 6).
+#
+# The pattern is exact rather than `v*`. `v0.4.0-rc1` and `v2026-08-05` are both `v*`,
+# and a release process that publishes whatever somebody tagged is a release process
+# whose tag list stops answering "what can I roll back to?".
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+# `cancel-in-progress: false`. Two tags pushed together are two independent releases,
+# and cancelling one leaves a tag in the repository with no GitHub release behind it --
+# a state nothing else in this process detects, because every other check reads the tag
+# rather than the release.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# `contents: write` is what `gh release create` needs and is the only write scope here.
+# `pull-requests: read` is what the changelog needs: it reads each merged pull
+# request's labels, which is where the `type:` grouping and the `safety:critical`
+# leading section come from.
+permissions:
+  contents: write
+  pull-requests: read
+
+env:
+  # Matches .python-version and ci.yml. A release built on a different interpreter from
+  # the one the checks ran on is a release whose verification was of something else.
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  publish:
+    name: Publish the release (verify the tag, derive the notes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # fetch-depth: 0 and fetch-tags: true are both required and for different
+      # reasons. The full history is what makes `previous_tag..HEAD` resolvable, so
+      # without it the changelog range is empty and the migration scan sees nothing --
+      # which fails *open*, reporting a clean reversible release. The tags are what
+      # `previous_release_tag` orders against; a shallow clone with no tags makes every
+      # release look like the first one.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # Exact version, not a floating major: astral-sh/setup-uv publishes only precise
+      # tags, and referencing a `v9` that does not exist fails at action resolution,
+      # before any step has had the chance to say anything. Same pin as ci.yml.
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen
+
+      # The tag's own commit must be reachable from main. checkout leaves the default
+      # branch unfetched under a tag ref, so `origin/main` does not exist until this
+      # runs -- and `merge-base --is-ancestor` against a missing ref exits non-zero,
+      # which would read as "the tag is not on main" for the wrong reason.
+      - name: Fetch main so the tag's ancestry is checkable
+        run: git fetch --quiet origin main:refs/remotes/origin/main
+
+      # The single gate. It asserts, from the tagged commit alone:
+      #   - the tag is annotated (a lightweight tag carries no message, so the
+      #     irreversibility assertion below has nothing to read);
+      #   - the commit is an ancestor of origin/main (releases are cut from main only);
+      #   - every check run reported for that commit concluded green, with an absent
+      #     verdict treated as a refusal rather than as a neutral;
+      #   - the `Irreversible-Migration:` trailer in the tag message matches the
+      #     classification re-derived from migrations/versions/ over the range.
+      #
+      # That last one is what catches a tag created by hand with `git tag -a`. The
+      # trailer decides which of two rollback procedures the published notes carry, and
+      # a release whose runbook describes the wrong procedure is worse than one with no
+      # runbook, because it will be followed.
+      - name: Verify the tag, and write the notes it will be published with
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run python -m tools.release verify-tag \
+            --tag "${GITHUB_REF_NAME}" \
+            --notes-out "release-notes.md"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # --verify-tag makes gh refuse a tag that does not exist on the remote rather
+        # than creating one, which is the difference between publishing a release and
+        # inventing one.
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md \
+            --verify-tag
+
+      # The notes are the artifact a rollback is read from, and a GitHub release body
+      # is editable by anyone with write access. Keeping the generated file makes the
+      # published text checkable against what the tool derived.
+      - name: Upload the derived notes
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: error
