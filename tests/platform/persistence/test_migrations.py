@@ -9,6 +9,7 @@ have, at whatever hour that query first runs.
 from __future__ import annotations
 
 import asyncio
+import pathlib
 import re
 
 import pytest
@@ -51,15 +52,40 @@ async def _applied_revision(dsn: str) -> str | None:
     return str(revision) if revision is not None else None
 
 
+def newest_reversible_revision() -> str:
+    """The newest revision whose `downgrade()` does not refuse.
+
+    Discovered from the scripts rather than hardcoded, so that adding a reversible
+    migration moves the operator loop forward with no edit here -- and so that the
+    revision this test exercises is never quietly the one somebody chose to make it
+    pass. A `raise` inside `downgrade()` is the repository's spelling of "irreversible"
+    (`.claude/rules/append-only-audit.md` clause 4), so that is what is detected.
+    """
+    script = ScriptDirectory(str(REPO_ROOT / "migrations"))
+    for revision in script.walk_revisions():
+        source = pathlib.Path(revision.path).read_text(encoding="utf-8")
+        body = source.split("def downgrade()", 1)[-1]
+        if "raise" not in body:
+            return str(revision.revision)
+    raise AssertionError("no reversible migration exists; make migrate-down is dead")
+
+
 def test_upgrade_then_downgrade_one_step_then_upgrade_again(scratch_dsn: str) -> None:
     """`make migrate`, `make migrate-down`, `make migrate`. The loop an operator runs.
+
+    The loop runs from the newest *reversible* revision rather than from head. 0017 adds
+    the hash chain to `agent_call` and creates `prompt_template`, and an audit migration
+    refuses to roll back by rule -- so from head, `make migrate-down` reports why and
+    stops. That is the intended behaviour of an audit migration and the reason the
+    refusal is asserted separately below; what this test protects is that the loop still
+    works everywhere it is allowed to.
 
     Synchronous on purpose. `migrations/env.py` calls `asyncio.run`, which cannot be
     reached from inside a running event loop -- so an `async def` test driving Alembic
     fails with a never-awaited coroutine rather than with anything about migrations.
     """
     config = alembic_config(scratch_dsn)
-    command.upgrade(config, "head")
+    command.upgrade(config, newest_reversible_revision())
     command.downgrade(config, "-1")
     command.upgrade(config, "head")
 
@@ -68,6 +94,20 @@ def test_upgrade_then_downgrade_one_step_then_upgrade_again(scratch_dsn: str) ->
     # reading -- which is how the assertion ends up describing whatever the code now does.
     expected_head = ScriptDirectory(str(REPO_ROOT / "migrations")).get_current_head()
     assert asyncio.run(_applied_revision(scratch_dsn)) == expected_head
+
+
+def test_downgrading_the_agent_call_chain_refuses(scratch_dsn: str) -> None:
+    """0017 raises rather than dropping the chain and the prompt registry.
+
+    Rolling this back would discard the only evidence that the recorded prompts and
+    responses are the ones the models were given, and would make every `prompt_hash` in
+    `agent_call` permanently unresolvable -- which is the P0 finding the replay job
+    exists to raise, manufactured by an operator running a schema command.
+    """
+    config = alembic_config(scratch_dsn)
+    command.upgrade(config, "head")
+    with pytest.raises(RuntimeError, match="irreversible"):
+        command.downgrade(config, "-1")
 
 
 def test_downgrading_past_the_audit_substrate_refuses(scratch_dsn: str) -> None:

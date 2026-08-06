@@ -202,12 +202,16 @@ CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
         # cannot express "these three columns". DELETE is granted and unused; retention
         # on this table is a decision nobody has had to take yet (ADR-0019).
         "scheduler_job_run": PrivilegeClass.APP_MUTABLE,
-        # Append-only: the 12 tables in schema.APPEND_ONLY_TABLES, repeated here rather
+        # Append-only: the 13 tables in schema.APPEND_ONLY_TABLES, repeated here rather
         # than derived, so that the two lists disagreeing is a test failure instead of
         # one list silently defining the other.
         "audit_log": PrivilegeClass.APPEND_ONLY,
         "trial_ledger": PrivilegeClass.APPEND_ONLY,
         "agent_call": PrivilegeClass.APPEND_ONLY,
+        # Content-addressed prompt registry. Append-only for the reason the whole replay
+        # job exists: a template edited in place makes every call that used it
+        # unauditable, and the edit leaves no trace unless the table refuses it.
+        "prompt_template": PrivilegeClass.APPEND_ONLY,
         "fill": PrivilegeClass.APPEND_ONLY,
         "risk_decision": PrivilegeClass.APPEND_ONLY,
         "limit_breach": PrivilegeClass.APPEND_ONLY,

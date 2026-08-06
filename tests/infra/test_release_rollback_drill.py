@@ -90,12 +90,21 @@ def _stamped_revision(dsn: str) -> str | None:
 
 
 def test_the_schema_refuses_to_roll_back_past_the_audit_substrate(scratch_dsn: str) -> None:
-    """The drill. Executed, not asserted from the source."""
+    """The drill. Executed, not asserted from the source.
+
+    The floor may equal the head, and that is not a broken drill. It happens whenever
+    the newest migration is itself an audit migration -- 0017 is -- and it means the
+    partial teardown described in the module docstring has nothing above the floor to
+    tear down. That is strictly *safer* than the state this drill was written against,
+    so the precondition asserts a floor exists rather than asserting there is wreckage
+    above it: a safety test that fails because the schema became more protected reads as
+    a regression and is the opposite.
+    """
     config = alembic_config(scratch_dsn)
     command.upgrade(config, "head")
     head = _stamped_revision(scratch_dsn)
     assert head is not None
-    assert head != _rollback_floor()
+    assert _rollback_floor() <= head
 
     # A genuine rollback attempt, which is what `make migrate-down` repeated does.
     with pytest.raises(RuntimeError, match="irreversible"):

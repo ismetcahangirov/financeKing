@@ -1073,16 +1073,43 @@ agent_run = sa.Table(
     ),
 )
 
+# Content-addressed prompt registry. `prompt_hash` is computed in the database from
+# `template_text` by a BEFORE INSERT trigger, so a writer cannot supply an address that
+# disagrees with the text it claims to identify -- and the append-only guard means the
+# text under an address can never change afterwards. That pair of properties is what
+# makes an unresolvable `agent_call.prompt_hash` a statement about history rather than
+# about a race.
+prompt_template = sa.Table(
+    "prompt_template",
+    METADATA,
+    sa.Column("prompt_hash", postgresql.BYTEA(), primary_key=True),
+    sa.Column("agent_id", identifier(), nullable=False),
+    sa.Column("template_text", sa.Text(), nullable=False),
+    sa.Column("registered_at_utc", utc_timestamp(), nullable=False),
+    _recorded_at_utc(),
+    sa.Index("ix_prompt_template_agent_id_registered_at_utc", "agent_id", "registered_at_utc"),
+    sa.CheckConstraint("length(template_text) > 0", name="template_text_is_not_empty"),
+)
+
 agent_call = sa.Table(
     "agent_call",
     METADATA,
     sa.Column("call_id", postgresql.UUID(as_uuid=True), primary_key=True),
+    # Chain order. GENERATED ALWAYS, so a writer cannot choose its own position in the
+    # chain; Postgres computes column defaults before BEFORE ROW triggers fire, which is
+    # what lets the chain trigger read NEW.seq while assembling the digest.
+    sa.Column("seq", sa.BigInteger(), sa.Identity(always=True), nullable=False, unique=True),
     sa.Column(
         "run_id",
         postgresql.UUID(as_uuid=True),
         sa.ForeignKey("agent_run.run_id"),
         nullable=False,
     ),
+    # Minted at the top of the flow -- the bar close or the schedule tick -- never by the
+    # audit writer, and denormalised off `agent_run` on purpose: a reconstruction that
+    # needs a join is a reconstruction that depends on a second table still agreeing.
+    sa.Column("correlation_id", postgresql.UUID(as_uuid=True), nullable=False),
+    sa.Column("agent_id", identifier(), nullable=False),
     sa.Column("provider", identifier(), nullable=False),
     # A pinned model id, never a floating alias. The same prompt to two successive
     # models is two different experiments, and a provider rolling `*-latest` forward
@@ -1092,6 +1119,13 @@ agent_call = sa.Table(
     # Verbatim, in the database rather than in the log stream: log retention expires
     # and ARCHITECTURE.md section 11 needs the exact prompt months later. The log line
     # carries the audit reference and nothing else from the payload.
+    # The address of the template this prompt was rendered from, plus the values that
+    # were substituted into it. Together with `prompt_text` they let the replay job
+    # re-render the call and prove the recorded prompt is reproducible, rather than
+    # merely present. No foreign key: the audit row must be writable even when the
+    # registry write was lost, and an FK would make the replay check vacuous.
+    sa.Column("prompt_hash", postgresql.BYTEA(), nullable=False),
+    sa.Column("prompt_variables", postgresql.JSONB(), nullable=False),
     sa.Column("prompt_text", sa.Text(), nullable=False),
     sa.Column("response_text", sa.Text(), nullable=True),
     sa.Column("prompt_token_count", sa.Integer(), nullable=False),
@@ -1101,8 +1135,12 @@ agent_call = sa.Table(
     sa.Column("schema_valid", sa.Boolean(), nullable=False),
     sa.Column("called_at_utc", utc_timestamp(), nullable=False),
     _recorded_at_utc(),
+    sa.Column("prev_hash", postgresql.BYTEA(), nullable=False),
+    sa.Column("row_hash", postgresql.BYTEA(), nullable=False),
     sa.Index("ix_agent_call_run_id", "run_id"),
     sa.Index("ix_agent_call_model_id_called_at_utc", "model_id", "called_at_utc"),
+    sa.Index("ix_agent_call_correlation_id_called_at_utc", "correlation_id", "called_at_utc"),
+    sa.Index("ix_agent_call_prompt_hash", "prompt_hash"),
     sa.CheckConstraint("temperature >= 0", name="temperature_is_not_negative"),
     sa.CheckConstraint("prompt_token_count >= 0", name="prompt_token_count_is_not_negative"),
     sa.CheckConstraint(
@@ -1278,6 +1316,7 @@ APPEND_ONLY_TABLES: Final[frozenset[str]] = frozenset(
         "audit_log",
         "trial_ledger",
         "agent_call",
+        "prompt_template",
         "fill",
         "risk_decision",
         "limit_breach",
@@ -1291,10 +1330,12 @@ APPEND_ONLY_TABLES: Final[frozenset[str]] = frozenset(
 )
 
 # The subset that additionally carries a per-row hash chain, and whose migration is
-# irreversible. These two are the ledgers every other claim in the system is checked
-# against: the audit log answers "why did this trade happen", and the trial ledger is
-# the denominator of every deflated Sharpe the project reports.
-HASH_CHAINED_TABLES: Final[frozenset[str]] = frozenset({"audit_log", "trial_ledger"})
+# irreversible. These are the ledgers every other claim in the system is checked
+# against: the audit log answers "why did this trade happen", the trial ledger is the
+# denominator of every deflated Sharpe the project reports, and `agent_call` is the only
+# record of which agent reasoning contributed -- reasoning that can be silently edited
+# afterwards is a contribution that can be asserted but not demonstrated.
+HASH_CHAINED_TABLES: Final[frozenset[str]] = frozenset({"audit_log", "trial_ledger", "agent_call"})
 
 # What `test_schema_contract.py` and the information_schema scan key on. A column named
 # `price` would be invisible to both, which is why .claude/rules/naming.md bans the bare
