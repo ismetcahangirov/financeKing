@@ -147,6 +147,13 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+# N818: both names are specified verbatim by .claude/rules/llm-output-handling.md and by
+# issue #70's acceptance criteria, and both read as the refusal they are rather than as a
+# fault: `AgentOutputInvalid` and `FencedPayloadRejected` are statements about the input,
+# not about a malfunction. Renaming them to `...Error` would make the rule file, the
+# acceptance criteria and the code disagree about the name of the thing under test, which
+# is a worse outcome than a suffix convention broken in one file with a reason.
+"src/fking/agents/_errors.py" = ["N818"]
 # A005: `fking.platform.logging` shadows the standard library's `logging`. The name is
 # deliberate -- `.claude/rules/logging-rules.md` and OBSERVABILITY.md both name this
 # module, and a reader looking for the logging pipeline looks for `logging`. Python 3
@@ -257,6 +264,8 @@ warn_unused_ignores = true
 # anywhere else still fails.
 [[tool.mypy.overrides]]
 module = [
+    "fking.agents.contracts",
+    "fking.agents.declaration",
     "fking.backtest.costs._calibrate",
     "fking.backtest.costs._charge",
     "fking.backtest.costs._depth",
@@ -266,6 +275,7 @@ module = [
     "fking.data.live.frames",
     "fking.platform.bus._envelope",
     "fking.platform.config.settings",
+    "tests.agents.test_contracts",
     "tests.platform.bus.test_registry",
     "tests.platform.bus.test_stream",
 ]
