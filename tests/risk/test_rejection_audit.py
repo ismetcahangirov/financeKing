@@ -22,9 +22,19 @@ from typing import Final
 
 import pytest
 
-from fking.domain import Direction, Instrument, Portfolio, Position, Signal, Venue
+from fking.domain import (
+    Direction,
+    DomainError,
+    Instrument,
+    Portfolio,
+    Position,
+    Signal,
+    Venue,
+)
 from fking.risk.exposure import (
     ExposureLimits,
+    LimitEvaluation,
+    PreTradeContext,
     ViolationTally,
     validate_pre_trade,
 )
@@ -56,6 +66,10 @@ MARKS_USD: Final = {BTCUSDT: Decimal("64000"), DOGEUSDT: Decimal("0.21")}
 
 # Every ratio limit plus every absolute cap plus the order-level cap. A row missing from
 # this set is a limit the reviewer cannot see the headroom of.
+# The same refusal replayed twice: at-least-once delivery means a consumer will
+# re-present it, and the tally must count intents rather than deliveries.
+EXPECTED_REPEAT_VIOLATIONS: Final[int] = 2
+
 EXPECTED_LIMIT_NAMES: Final[frozenset[str]] = frozenset(
     {
         "max_position_equity_ratio",
@@ -130,10 +144,12 @@ def test_a_breaching_signal_is_refused_with_every_evaluated_limit_in_the_audit_r
         signal=_signal(BTCUSDT),
         portfolio=_book_holding(BTCUSDT, Decimal("0.5")),
         marks_usd=MARKS_USD,
-        equity_usd=Decimal("40000"),
-        exposure_limits=ExposureLimits(),
-        absolute_limits=RiskLimits(),
-        tradable_symbols=frozenset({"BTCUSDT", "DOGEUSDT"}),
+        context=PreTradeContext(
+            equity_usd=Decimal("40000"),
+            exposure_limits=ExposureLimits(),
+            absolute_limits=RiskLimits(),
+            tradable_symbols=frozenset({"BTCUSDT", "DOGEUSDT"}),
+        ),
         clock=_clock,
     )
 
@@ -162,10 +178,12 @@ def test_a_symbol_outside_the_universe_is_refused_before_any_sizing_arithmetic()
         signal=_signal(DOGEUSDT),
         portfolio=_book_holding(BTCUSDT, Decimal("0.1")),
         marks_usd=_ExplodingMarks(),
-        equity_usd=Decimal("50000"),
-        exposure_limits=ExposureLimits(),
-        absolute_limits=RiskLimits(),
-        tradable_symbols=frozenset({"BTCUSDT"}),
+        context=PreTradeContext(
+            equity_usd=Decimal("50000"),
+            exposure_limits=ExposureLimits(),
+            absolute_limits=RiskLimits(),
+            tradable_symbols=frozenset({"BTCUSDT"}),
+        ),
         clock=_clock,
     )
     assert not assessment.is_approved
@@ -179,14 +197,16 @@ def test_a_refused_signal_counts_against_the_strategy_though_no_exposure_was_tak
         signal=_signal(DOGEUSDT),
         portfolio=Portfolio(as_of_utc=_AS_OF, positions=(), cash_balances={}),
         marks_usd=MARKS_USD,
-        equity_usd=Decimal("50000"),
-        exposure_limits=ExposureLimits(),
-        absolute_limits=RiskLimits(),
-        tradable_symbols=frozenset({"BTCUSDT"}),
+        context=PreTradeContext(
+            equity_usd=Decimal("50000"),
+            exposure_limits=ExposureLimits(),
+            absolute_limits=RiskLimits(),
+            tradable_symbols=frozenset({"BTCUSDT"}),
+        ),
         clock=_clock,
     )
     tally = ViolationTally().with_assessment(assessment).with_assessment(assessment)
-    assert tally.violation_count_for("breakout-v3") == 2
+    assert tally.violation_count_for("breakout-v3") == EXPECTED_REPEAT_VIOLATIONS
     assert tally.violation_count_for("someone-else") == 0
 
 
@@ -209,10 +229,12 @@ def test_closing_an_over_limit_position_is_never_refused() -> None:
         ),
         portfolio=_book_holding(BTCUSDT, Decimal("2")),
         marks_usd=MARKS_USD,
-        equity_usd=Decimal("1000"),
-        exposure_limits=ExposureLimits(),
-        absolute_limits=RiskLimits(),
-        tradable_symbols=frozenset({"BTCUSDT"}),
+        context=PreTradeContext(
+            equity_usd=Decimal("1000"),
+            exposure_limits=ExposureLimits(),
+            absolute_limits=RiskLimits(),
+            tradable_symbols=frozenset({"BTCUSDT"}),
+        ),
         clock=_clock,
     )
     assert assessment.is_approved
@@ -234,16 +256,60 @@ def test_a_free_margin_floor_below_the_compiled_in_floor_is_refused() -> None:
 
 def test_an_open_position_with_no_mark_refuses_rather_than_pricing_it_at_zero() -> None:
     """A missing mark reports headroom that does not exist, at the worst possible moment."""
-    from fking.domain import DomainError
-
     with pytest.raises(DomainError, match="must not be assumed zero"):
         validate_pre_trade(
             signal=_signal(BTCUSDT),
             portfolio=_book_holding(DOGEUSDT, Decimal("100")),
             marks_usd={BTCUSDT: Decimal("64000")},
+            context=PreTradeContext(
+                equity_usd=Decimal("50000"),
+                exposure_limits=ExposureLimits(),
+                absolute_limits=RiskLimits(),
+                tradable_symbols=frozenset({"BTCUSDT", "DOGEUSDT"}),
+            ),
+            clock=_clock,
+        )
+
+
+def test_a_mutable_universe_is_refused_at_construction() -> None:
+    """A `set` can be widened between two checks; a `frozenset` cannot."""
+    with pytest.raises(DomainError, match="must be a frozenset"):
+        PreTradeContext(
+            equity_usd=Decimal("50000"),
+            exposure_limits=ExposureLimits(),
+            absolute_limits=RiskLimits(),
+            # The suppression below is unavoidable: the runtime guard exists precisely
+            # for the untyped callers mypy never sees, so exercising it needs a bad type.
+            tradable_symbols={"BTCUSDT"},  # type: ignore[arg-type]
+        )
+
+
+def test_an_unknown_bound_kind_is_refused_rather_than_defaulting_to_a_direction() -> None:
+    """A default would silently pick a comparison direction for an unrecognised limit."""
+    with pytest.raises(DomainError, match="bound_kind must be"):
+        LimitEvaluation(
+            limit_name="invented",
+            # Same reason as above: the guard is for values arriving without a type.
+            bound_kind="sideways",  # type: ignore[arg-type]
+            threshold_usd=Decimal("1"),
+            observed_usd=Decimal("0"),
+        )
+
+
+def test_a_signal_on_a_symbol_with_no_mark_is_refused_before_sizing() -> None:
+    """Sizing needs a price, and refusing is the only honest answer when there is none."""
+    assessment = validate_pre_trade(
+        signal=_signal(DOGEUSDT),
+        portfolio=Portfolio(as_of_utc=_AS_OF, positions=(), cash_balances={}),
+        marks_usd={BTCUSDT: Decimal("64000")},
+        context=PreTradeContext(
             equity_usd=Decimal("50000"),
             exposure_limits=ExposureLimits(),
             absolute_limits=RiskLimits(),
             tradable_symbols=frozenset({"BTCUSDT", "DOGEUSDT"}),
-            clock=_clock,
-        )
+        ),
+        clock=_clock,
+    )
+    assert not assessment.is_approved
+    assert assessment.rejection is not None
+    assert assessment.rejection.binding_limit_name == "mark_available"

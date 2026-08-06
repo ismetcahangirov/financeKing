@@ -13,6 +13,7 @@ in `fking.risk`.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Final
@@ -26,6 +27,7 @@ from fking.risk.exposure import (
     EXPOSURE_HARD_CEILINGS,
     EXPOSURE_HARD_FLOORS,
     ExposureLimits,
+    PreTradeContext,
     ViolationTally,
     portfolio_exposure,
     validate_pre_trade,
@@ -77,7 +79,7 @@ MARKS_USD: Final = {
 }
 
 
-def frozen_clock(moment: datetime = _AS_OF) -> "object":
+def frozen_clock(moment: datetime = _AS_OF) -> Callable[[], datetime]:
     """A `Clock` that never moves. Purity in `risk` means the time is an input."""
 
     def _now() -> datetime:
@@ -130,7 +132,10 @@ def _signal(instrument: Instrument, direction: Direction) -> Signal:
         direction=direction,
         conviction=Decimal("0.6"),
         horizon=timedelta(hours=8),
-        invalidation_quote_price=MARKS_USD[instrument] * Decimal("0.98"),
+        # A flat signal asserts nothing to invalidate, so it carries no level.
+        invalidation_quote_price=(
+            None if direction is Direction.FLAT else MARKS_USD[instrument] * Decimal("0.98")
+        ),
         rationale="property test",
         decided_at_utc=_AS_OF,
     )
@@ -161,10 +166,12 @@ def test_an_approved_order_leaves_every_exposure_bound_satisfied(
         signal=_signal(instrument, direction),
         portfolio=portfolio,
         marks_usd=MARKS_USD,
-        equity_usd=equity_usd,
-        exposure_limits=exposure_limits,
-        absolute_limits=absolute_limits,
-        tradable_symbols=TRADABLE,
+        context=PreTradeContext(
+            equity_usd=equity_usd,
+            exposure_limits=exposure_limits,
+            absolute_limits=absolute_limits,
+            tradable_symbols=TRADABLE,
+        ),
         clock=frozen_clock(),
     )
     if not assessment.is_approved:
@@ -198,8 +205,7 @@ def test_an_approved_order_leaves_every_exposure_bound_satisfied(
         <= exposure_limits.max_net_exposure_ratio * equity_usd
     )
     free_margin_after_usd = (
-        equity_usd
-        - (before.gross_notional_usd + added_notional_usd) / absolute_limits.max_leverage
+        equity_usd - (before.gross_notional_usd + added_notional_usd) / absolute_limits.max_leverage
     )
     assert free_margin_after_usd >= exposure_limits.min_free_margin_ratio * equity_usd
     assert added_notional_usd <= absolute_limits.max_single_order_notional_usd
@@ -228,10 +234,12 @@ def test_every_emitted_quantity_satisfies_the_venue_filters(
         signal=_signal(instrument, direction),
         portfolio=portfolio,
         marks_usd=MARKS_USD,
-        equity_usd=equity_usd,
-        exposure_limits=ExposureLimits(),
-        absolute_limits=RiskLimits(),
-        tradable_symbols=TRADABLE,
+        context=PreTradeContext(
+            equity_usd=equity_usd,
+            exposure_limits=ExposureLimits(),
+            absolute_limits=RiskLimits(),
+            tradable_symbols=TRADABLE,
+        ),
         clock=frozen_clock(),
     )
     if not assessment.is_approved:
@@ -261,10 +269,12 @@ def test_an_inflated_equity_number_cannot_breach_the_absolute_notional_cap(
         signal=_signal(BTCUSDT, Direction.LONG),
         portfolio=Portfolio(as_of_utc=_AS_OF, positions=(), cash_balances={}),
         marks_usd=MARKS_USD,
-        equity_usd=Decimal("100000") * equity_multiple,
-        exposure_limits=ExposureLimits(),
-        absolute_limits=absolute_limits,
-        tradable_symbols=TRADABLE,
+        context=PreTradeContext(
+            equity_usd=Decimal("100000") * equity_multiple,
+            exposure_limits=ExposureLimits(),
+            absolute_limits=absolute_limits,
+            tradable_symbols=TRADABLE,
+        ),
         clock=frozen_clock(),
     )
     notional_usd = assessment.permitted_base_quantity * MARKS_USD[BTCUSDT]
@@ -290,10 +300,12 @@ def test_every_assessment_records_a_verdict_and_a_headroom_for_each_limit_it_eva
         signal=_signal(instrument, direction),
         portfolio=portfolio,
         marks_usd=MARKS_USD,
-        equity_usd=equity_usd,
-        exposure_limits=ExposureLimits(),
-        absolute_limits=RiskLimits(),
-        tradable_symbols=TRADABLE,
+        context=PreTradeContext(
+            equity_usd=equity_usd,
+            exposure_limits=ExposureLimits(),
+            absolute_limits=RiskLimits(),
+            tradable_symbols=TRADABLE,
+        ),
         clock=frozen_clock(),
     )
     payload = assessment.audit_payload()
@@ -339,10 +351,12 @@ def test_a_refusal_increments_the_strategys_violation_tally_and_an_approval_does
         signal=_signal(BTCUSDT, direction),
         portfolio=portfolio,
         marks_usd=MARKS_USD,
-        equity_usd=equity_usd,
-        exposure_limits=ExposureLimits(),
-        absolute_limits=RiskLimits(),
-        tradable_symbols=TRADABLE,
+        context=PreTradeContext(
+            equity_usd=equity_usd,
+            exposure_limits=ExposureLimits(),
+            absolute_limits=RiskLimits(),
+            tradable_symbols=TRADABLE,
+        ),
         clock=frozen_clock(),
     )
     tally = ViolationTally().with_assessment(assessment)
