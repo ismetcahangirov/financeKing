@@ -78,6 +78,12 @@ AST_GATE_CASES: tuple[tuple[str, str, str, str], ...] = (
         "def submit(size) -> None: ...\n",
         "an ambiguous trading noun as an identifier",
     ),
+    (
+        "metric_cardinality.py",
+        "execution",
+        'handle.increment(1, symbol=payload["symbol"])\n',
+        "a metric label filled from an unvalidated exchange symbol",
+    ),
 )
 
 
