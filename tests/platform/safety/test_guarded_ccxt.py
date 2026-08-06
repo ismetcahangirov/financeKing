@@ -17,6 +17,7 @@ Three mechanisms, tested separately because each closes a hole the others leave:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Final
 
@@ -130,7 +131,7 @@ class TestTheSandboxUrlWalk:
         assert validated == ("https://testnet.binance.vision/api/v3",)
 
     def test_a_production_endpoint_anywhere_in_the_map_aborts(self) -> None:
-        with pytest.raises(SafetyViolation, match="api.binance.com"):
+        with pytest.raises(SafetyViolation, match=re.escape("api.binance.com")):
             assert_sandbox_urls_permitted(
                 {"api": {"nested": {"deep": ["https://api.binance.com/api/v3"]}}}
             )
