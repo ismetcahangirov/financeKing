@@ -11,7 +11,7 @@ ARGS ?=
 COMPOSE ?= docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help check lint format types imports checks corrupt-fixtures adr-index test cover secrets audit up down logs ps config migrate migrate-down migrate-sql seed ingest data-coverage
+.PHONY: help check lint format types imports checks corrupt-fixtures adr-index test cover secrets audit up down logs ps config migrate migrate-down migrate-sql seed ingest data-coverage backtest release release-tag rollback-drill
 
 help:  ## Show the available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -60,8 +60,10 @@ imports:  ## import-linter architecture contracts
 ## The AST checks enforce rules that no off-the-shelf linter knows about: that a
 ## money-named field is never a float, that strategy and risk never read the wall
 ## clock, that SafetyViolation is never caught, that ambiguous trading nouns never
-## become identifiers, and that every feature computation is in the registry the
-## look-ahead probe iterates. .claude/rules/ carries the reasoning for each.
+## become identifiers, that every feature computation is in the registry the
+## look-ahead probe iterates, that no agent schema can express a position size or a
+## host, and that nothing branches on an LLM's free-text rationale. .claude/rules/
+## carries the reasoning for each.
 ##
 ## adr_index is not an AST check -- it reads Markdown front matter -- but it belongs
 ## here for the same reason: a stale decision index is a document that answers a
@@ -72,6 +74,8 @@ checks:  ## Project-specific AST and documentation checks
 	$(UV) run python tools/checks/no_catch_safety.py $(SRC) tests
 	$(UV) run python tools/checks/naming.py $(SRC)
 	$(UV) run python tools/checks/feature_registry.py $(SRC)
+	$(UV) run python tools/checks/agent_schema_fields.py $(SRC)/agents
+	$(UV) run python tools/checks/rationale_untouched.py $(SRC)
 	$(UV) run python tools/checks/adr_index.py docs/adr
 	$(UV) run python tools/corrupt_archive_fixture.py --check
 
@@ -187,3 +191,64 @@ ingest:  ## Backfill the archive into the Parquet corpus; SYMBOLS=... INTERVAL=.
 ## run refuses -- BACKTEST_ENGINE.md owns that decision, this is the input to it.
 data-coverage:  ## Print the coverage and gap report per (market, dataset, symbol)
 	$(UV) run python -m fking.data.backfill coverage
+
+# ---------------------------------------------------------------------------
+# Backtest. BACKTEST_ENGINE.md is the specification.
+# ---------------------------------------------------------------------------
+
+BACKTEST_CONFIG ?= config/backtest.toml
+
+## Resolves the run's market-data window against the Parquet corpus, prints coverage per
+## symbol with the gap ranges, and REFUSES a window it cannot serve from bars that were
+## actually observed -- exit 65, no output beyond the report. Bars are never interpolated:
+## an invented bar is a price that existed nowhere, at a timestamp at which nobody could
+## have traded, and a breakout strategy trades into it and is filled at it
+## (BACKTEST_ENGINE.md section 9).
+##
+## Today the target stops after gating the data and reporting the event-sequence digest;
+## the venue simulator, cost model and validation harness are not yet wired to the stream,
+## and the command says so in its own output rather than leaving a reader to assume.
+backtest:  ## Gate a backtest's data window on coverage; BACKTEST_CONFIG=... to choose the file
+	$(UV) run python -m fking.backtest.feed $(BACKTEST_CONFIG) $(ARGS)
+
+# ---------------------------------------------------------------------------
+# Releases. RELEASE_PROCESS.md is the specification; tools/release/ is the part of
+# it a machine runs.
+# ---------------------------------------------------------------------------
+
+VERSION      ?=
+IRREVERSIBLE ?=
+
+## Refuses on a dirty tree, on any branch but main, on a local main that diverges from
+## origin, on a version that already exists or does not exceed the last one, on a CI
+## verdict that is anything other than green -- including *absent*, which is the normal
+## state of a commit pushed a minute ago and is not a pass -- and on an unmarked
+## irreversible migration in the range. Every refusal is reported, not just the first:
+## a release freeze is a stop-the-world window, and three attempts costs three of them.
+##
+## It creates NO tag. The notes land in CHANGELOG-v<version>.md and carry the rollback
+## procedure that a future incident will be run from; reading that before the immutable
+## object quoting it exists is the entire point of the split. `make release-tag` is the
+## confirming step.
+##
+##   make release VERSION=0.4.0
+##   make release VERSION=0.4.0 IRREVERSIBLE=1
+release:  ## Preflight a release and write its notes. Creates no tag. VERSION=x.y.z
+	@test -n "$(VERSION)" || { echo "VERSION=x.y.z is required"; exit 2; }
+	$(UV) run python -m tools.release cut --version $(VERSION) \
+		$(if $(IRREVERSIBLE),--contains-irreversible-migration,)
+
+## Re-runs every refusal, then creates the annotated tag. It does not push: pushing is
+## what triggers .github/workflows/release.yml, so it stays a deliberate act with a name
+## against it in the reflog. The command to run next is printed.
+release-tag:  ## Create the annotated tag after `make release`. VERSION=x.y.z
+	@test -n "$(VERSION)" || { echo "VERSION=x.y.z is required"; exit 2; }
+	$(UV) run python -m tools.release cut --version $(VERSION) --confirm \
+		$(if $(IRREVERSIBLE),--contains-irreversible-migration,)
+
+## The schema half of the rollback procedure, executed against a real PostgreSQL rather
+## than reasoned about. It proves that `alembic downgrade` cannot walk past the audit
+## substrate -- and, less obviously, that the refusal arrives *after* every revision
+## above it has already been dropped and committed. RELEASE_PROCESS.md 7.
+rollback-drill:  ## Execute the rollback drill against a real database
+	$(UV) run python -m pytest tests/infra/test_release_rollback_drill.py --no-cov -v
