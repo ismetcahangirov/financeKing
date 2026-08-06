@@ -1,0 +1,9 @@
+_recording:
+  body_sha256: 1ffdd81336773828e27c2959ada6762172dd5fef688553bc4bcb54b921fca896
+  captured_at_utc: 2026-08-06T07-25-17Z
+  derivation: null
+  endpoint: GET /api/v3/openOrders
+  http_status: 400
+  request_url: https://testnet.binance.vision/api/v3/openOrders
+  venue: binance-spot-testnet
+body: '{"code":-1102,"msg":"Mandatory parameter ''signature'' was not sent, was empty/null, or malformed."}'
