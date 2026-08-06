@@ -32,6 +32,8 @@ from fking.platform.logging import (
     EVENT_KEY,
     KEY_MATERIAL_MARKERS,
     ORPHAN,
+    PAYLOAD_KEYS,
+    LoggedPayloadError,
     LoggedSecretError,
     build_processor_chain,
     configure_logging,
@@ -165,6 +167,26 @@ def test_key_material_nested_inside_the_boot_config_raises(marker: str) -> None:
     top-level values would report it clean."""
     with correlation_scope(CORRELATION_ID), pytest.raises(LoggedSecretError, match="binance"):
         _render({"config": {"exchange": {"binance": {"spot_ed25519_key": marker}}}})
+
+
+@pytest.mark.parametrize("payload_key", sorted(PAYLOAD_KEYS))
+def test_an_llm_payload_raises_and_points_the_author_at_the_audit_row(payload_key: str) -> None:
+    """Prompts and responses belong in `agent_call`, never in the log stream.
+
+    Raising rather than dropping is the whole point of running this before the allowlist:
+    a silently dropped prompt produces a record that looks fine, so the author keeps
+    writing the same call, and the payload it carries is one that log retention will
+    expire long before an investigation needs it (OBSERVABILITY.md section 1).
+    """
+    with correlation_scope(CORRELATION_ID), pytest.raises(LoggedPayloadError, match="audit_ref"):
+        _render({payload_key: "You are an analyst. <untrusted>...</untrusted>"})
+
+
+def test_the_audit_row_reference_itself_is_emittable() -> None:
+    """Guards the test above: a chain that refused everything would also pass it."""
+    with correlation_scope(CORRELATION_ID):
+        record = _render({"audit_ref": "41822"})
+    assert record["audit_ref"] == "41822"
 
 
 def test_a_decimal_is_rendered_as_its_exact_string_not_a_float() -> None:

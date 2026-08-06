@@ -47,8 +47,22 @@ KEY_MATERIAL_MARKERS: Final[tuple[str, ...]] = (
 )
 
 
+# Field names that carry an LLM payload. These belong in `agent_call`, never in the log
+# stream, for two separate reasons: a research prompt with fenced market data runs to tens
+# of kilobytes and evicts the operational history an incident needs, and log retention
+# *expires* while `ARCHITECTURE.md` section 11 needs the exact prompt months later. A
+# payload in Loki is a payload you will not have.
+PAYLOAD_KEYS: Final[frozenset[str]] = frozenset(
+    {"prompt", "prompt_text", "response", "response_text", "completion", "messages"}
+)
+
+
 class LoggedSecretError(RuntimeError):
     """Key material reached the renderer. Never caught; the record is not emitted."""
+
+
+class LoggedPayloadError(RuntimeError):
+    """An LLM payload was offered to the log stream. The record is not emitted."""
 
 
 def bind_service_identity(settings: TelemetrySettings) -> Processor:
@@ -124,6 +138,26 @@ def require_correlation_id(*, strict: bool) -> Processor:
         return event_dict
 
     return processor
+
+
+def refuse_agent_payload(
+    _logger: WrappedLogger, _method_name: str, event_dict: EventDict
+) -> EventDict:
+    """Raise if a prompt or a response was passed to a log call.
+
+    Runs *before* the allowlist, which is the whole point. The allowlist would drop these
+    fields silently and count them, and a counted drop teaches nobody: the author sees a
+    record that looks fine and keeps writing the same call. Raising names the field and
+    points at `audit_ref`, which is the only thing from an agent payload that belongs in
+    a log line (`.claude/rules/logging-rules.md` clause 7).
+    """
+    offending = sorted(PAYLOAD_KEYS.intersection(event_dict))
+    if offending:
+        raise LoggedPayloadError(
+            f"{offending} belong in the agent_call audit row, not in the log stream; "
+            f"log audit_ref -- the audit row id -- and nothing else from the payload"
+        )
+    return event_dict
 
 
 def redact_to_allowlist(allowlist: Collection[str]) -> Processor:

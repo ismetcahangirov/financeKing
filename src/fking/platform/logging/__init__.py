@@ -30,12 +30,15 @@ from fking.platform.correlation import MissingCorrelationIdError
 from fking.platform.logging._processors import (
     KEY_MATERIAL_MARKERS,
     ORPHAN,
+    PAYLOAD_KEYS,
+    LoggedPayloadError,
     LoggedSecretError,
     assert_no_key_material,
     bind_correlation_id,
     bind_otel_context,
     bind_service_identity,
     redact_to_allowlist,
+    refuse_agent_payload,
     require_correlation_id,
 )
 
@@ -84,6 +87,8 @@ def build_processor_chain(settings: TelemetrySettings, *, strict: bool) -> list[
        `message` and would otherwise drop the event name itself.
     3. `assert_no_key_material` runs *after* the allowlist, so it inspects exactly what is
        about to be serialised rather than what was offered.
+    4. `refuse_agent_payload` runs *before* the allowlist, for the opposite reason: a
+       prompt dropped silently teaches nobody, and the author keeps writing the call.
     """
     return [
         structlog.processors.add_log_level,
@@ -94,6 +99,7 @@ def build_processor_chain(settings: TelemetrySettings, *, strict: bool) -> list[
         bind_otel_context,
         require_correlation_id(strict=strict),
         structlog.processors.EventRenamer(EVENT_KEY),
+        refuse_agent_payload,
         redact_to_allowlist(settings.log_field_allowlist),
         assert_no_key_material,
         # sort_keys so two processes emitting the same record emit the same bytes, which
@@ -139,6 +145,8 @@ __all__ = [
     "EVENT_KEY",
     "KEY_MATERIAL_MARKERS",
     "ORPHAN",
+    "PAYLOAD_KEYS",
+    "LoggedPayloadError",
     "LoggedSecretError",
     "MissingCorrelationIdError",
     "build_processor_chain",
