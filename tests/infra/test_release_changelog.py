@@ -161,14 +161,21 @@ def test_a_safety_critical_release_cannot_produce_a_changelog_that_omits_it(
         99, title="feat(platform): add bybit testnet host", labels=(type_label, "safety:critical")
     )
     noise = tuple(pull_request(number) for number in range(100, 140))
+    # The diff body is a sentinel rather than a real host literal. What is under test is
+    # that the kernel diff is inlined verbatim, and the content is irrelevant to that --
+    # but `assert "<hostname>" in text` is the exact shape of the incomplete-URL-
+    # sanitization defect this project bans in production code, and a test that models
+    # it teaches the pattern to whoever copies this file next.
     rendered = render(
-        notes(pull_requests=(*noise, critical), safety_diff="+    'api-testnet.bybit.com',")
+        notes(pull_requests=(*noise, critical), safety_diff="+    'ALLOWLIST-ENTRY-SENTINEL',")
     )
 
     _, remainder = rendered.split("## Safety-relevant changes", 1)
     leading_section = remainder.split("\n## ", 1)[0]
     assert "#99" in leading_section, "the safety entry is not in the leading section"
-    assert "api-testnet.bybit.com" in leading_section, "the kernel diff is inlined, not summarised"
+    assert "ALLOWLIST-ENTRY-SENTINEL" in leading_section, (
+        "the kernel diff is inlined, not summarised"
+    )
 
 
 def test_a_safety_critical_entry_also_appears_in_its_type_section() -> None:
