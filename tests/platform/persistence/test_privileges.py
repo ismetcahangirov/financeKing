@@ -26,9 +26,9 @@ from __future__ import annotations
 import asyncio
 import secrets
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 from datetime import UTC, datetime
-from typing import cast
+from typing import Final, cast
 
 import pytest
 import pytest_asyncio
@@ -59,6 +59,10 @@ from tests.conftest import alembic_config
 from tests.support.roles import engine_as
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
+
+# The revision that establishes the grant matrix. Pinned rather than `head` so the
+# re-application test never has to walk an irreversible migration to get below it.
+_GRANT_MATRIX_REVISION: Final[str] = "0008_least_privilege"
 
 
 @pytest_asyncio.fixture
@@ -437,7 +441,7 @@ async def test_public_holds_nothing_on_any_table(engine: AsyncEngine) -> None:
     assert list(granted_to_public) == []
 
 
-async def _application_privileges(dsn: str) -> dict[str, set[str]]:
+async def _application_privileges(dsn: str, tables: Collection[str]) -> dict[str, set[str]]:
     engine = create_async_engine(dsn)
     try:
         async with engine.connect() as connection:
@@ -450,30 +454,66 @@ async def _application_privileges(dsn: str) -> dict[str, set[str]]:
                         {"role": APP_ROLE, "table": table, "privilege": privilege},
                     )
                 }
-                for table in sorted(CLASSIFICATION)
+                for table in sorted(tables)
             }
     finally:
         await engine.dispose()
 
 
-def test_the_grant_matrix_survives_a_downgrade_and_a_second_upgrade(migrated_dsn: str) -> None:
-    """Idempotence, asserted by re-running the migration rather than by reading it.
+async def _tables_present(dsn: str) -> set[str]:
+    """The tables that actually exist, so the assertion can be scoped to a revision.
+
+    `has_table_privilege` raises on a relation that does not exist, so a test that
+    stops below `head` cannot iterate the whole classification.
+    """
+    engine = create_async_engine(dsn)
+    try:
+        async with engine.connect() as connection:
+            rows = await connection.execute(
+                sa.text(
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+                )
+            )
+            return set(rows.scalars().all())
+    finally:
+        await engine.dispose()
+
+
+def test_the_grant_matrix_survives_a_downgrade_and_a_second_upgrade(scratch_dsn: str) -> None:
+    """Idempotence of 0008, asserted by re-running it rather than by reading it.
 
     `alembic upgrade head` against a database already at head runs nothing, so it cannot
     tell you whether 0008 is safe to re-apply. Stepping down and back up is what does,
     and it exercises the downgrade path at the same time -- otherwise dead code that
     nobody notices is broken until the incident in which somebody needs it.
 
+    It runs on a `scratch_dsn` upgraded only as far as 0008, rather than stepping a
+    `head` database down to 0007, and that is the load-bearing detail. Reaching 0007
+    from head means passing through every revision above it, and audit migrations
+    refuse to downgrade by design (`.claude/rules/append-only-audit.md` clause 4).
+    The old form therefore carried an undeclared requirement that every migration ever
+    added above 0008 stay reversible -- a requirement nothing stated and nobody could
+    satisfy, which 0015 was simply the first to break.
+
+    Scoping to 0008 also makes the test's subject exact. The full head grant matrix is
+    already asserted, table by table and role by role, in
+    `test_live_grants_equal_the_declared_matrix`; the unique thing proven here is
+    re-application, and proving it does not require head.
+
     Synchronous, unlike everything else in this file: `migrations/env.py` calls
     `asyncio.run()` itself, which raises from inside a running loop. Alembic drives its
     own event loop and a test that wants to invoke it has to stay outside one.
     """
-    config = alembic_config(migrated_dsn)
+    config = alembic_config(scratch_dsn)
+    command.upgrade(config, _GRANT_MATRIX_REVISION)
     command.downgrade(config, "0007_processed_events")
-    command.upgrade(config, "head")
+    command.upgrade(config, _GRANT_MATRIX_REVISION)
 
-    held = asyncio.run(_application_privileges(migrated_dsn))
-    for table in sorted(CLASSIFICATION):
+    classified_and_present = asyncio.run(_tables_present(scratch_dsn)) & set(CLASSIFICATION)
+    assert classified_and_present, "0008 created no classified table; the scope is wrong"
+
+    held = asyncio.run(_application_privileges(scratch_dsn, classified_and_present))
+    for table in sorted(classified_and_present):
         assert held[table] == set(granted_privileges(table, APP_ROLE)), table
 
 
