@@ -33,6 +33,17 @@ def genesis() -> LifecycleEvent:
     return build_genesis("strat-unit")
 
 
+def first_scored_event(genesis: LifecycleEvent) -> LifecycleEvent:
+    """The earliest event that must carry evidence, reached by the real path.
+
+    `proposed -> validated` is not an edge, so the shortcut a test would otherwise take
+    to reach a scored state is refused by the same table the production path walks.
+    """
+    return next_transition(
+        next_transition(genesis, LifecycleState.BACKTESTED), LifecycleState.VALIDATED
+    )
+
+
 def test_a_transition_to_the_state_already_held_is_not_a_transition() -> None:
     with pytest.raises(LifecycleTransitionError, match="nothing moved"):
         require_permitted_transition(LifecycleState.PAPER, LifecycleState.PAPER)
@@ -94,7 +105,7 @@ def test_a_family_ahead_of_the_global_count_means_a_counter_was_reset(
 
 
 def test_a_survival_score_outside_zero_to_one_is_refused(genesis: LifecycleEvent) -> None:
-    validated = next_transition(genesis, LifecycleState.VALIDATED)
+    validated = first_scored_event(genesis)
     with pytest.raises(LifecycleTransitionError, match="fraction on"):
         replace(validated, survival_score=Decimal("1.4"))
 
@@ -102,7 +113,7 @@ def test_a_survival_score_outside_zero_to_one_is_refused(genesis: LifecycleEvent
 def test_entering_a_scored_state_requires_a_score_and_its_components(
     genesis: LifecycleEvent,
 ) -> None:
-    validated = next_transition(genesis, LifecycleState.VALIDATED)
+    validated = first_scored_event(genesis)
     with pytest.raises(LifecycleTransitionError, match="requires a survival score"):
         replace(validated, survival_score=None)
     with pytest.raises(LifecycleTransitionError, match="requires a survival score"):
@@ -111,7 +122,7 @@ def test_entering_a_scored_state_requires_a_score_and_its_components(
 
 def test_entering_a_scored_state_requires_a_sample(genesis: LifecycleEvent) -> None:
     """Zero independent episodes is INSUFFICIENT_SAMPLE, not a low score."""
-    validated = next_transition(genesis, LifecycleState.VALIDATED)
+    validated = first_scored_event(genesis)
     with pytest.raises(LifecycleTransitionError, match="INSUFFICIENT_SAMPLE"):
         replace(validated, independent_episode_count=0)
 
@@ -120,7 +131,7 @@ def test_entering_a_scored_state_requires_a_trial_count_that_was_read(
     genesis: LifecycleEvent,
 ) -> None:
     """Zero never means 'nothing was tried, so no deflation was needed'."""
-    validated = next_transition(genesis, LifecycleState.VALIDATED)
+    validated = first_scored_event(genesis)
     with pytest.raises(LifecycleTransitionError, match="trial count that was actually"):
         replace(validated, global_trial_index=0, family_trial_index=0)
 
@@ -138,7 +149,7 @@ def test_score_components_are_copied_so_a_caller_cannot_edit_a_recorded_event(
     genesis: LifecycleEvent,
 ) -> None:
     mutable = {"deflated_sharpe": Decimal("0.96")}
-    event = replace(next_transition(genesis, LifecycleState.VALIDATED), score_components=mutable)
+    event = replace(first_scored_event(genesis), score_components=mutable)
 
     mutable["deflated_sharpe"] = Decimal("0.10")
 
