@@ -208,6 +208,14 @@ ignore = [
 # would take away.
 # DTZ001: one deliberate naive datetime, in the test asserting the writer refuses one.
 "tests/data/test_parquet_layout.py" = ["S101", "S311", "S608", "DTZ001"]
+# S311: the overfitting gate's tests need a zero-edge search to reject, and a zero-edge
+# search is a draw from a generator. It must be the *same* draw on every machine and under
+# every `pytest-randomly` shuffle, or the assertions become a coin flip on run order --
+# which is exactly what a cryptographic generator would guarantee. Each file constructs its
+# own `random.Random(20260801)` rather than touching the module-level one for the same
+# reason: pytest-randomly reseeds that per test.
+"tests/backtest/test_overfit_rejection.py" = ["S101", "S311"]
+"tests/backtest/test_pbo.py" = ["S101", "S311"]
 # S311: the reconnect backoff is seeded here on purpose. Production uses SystemRandom --
 # jitter across replicas is the entire point of full jitter -- but a *test* of a
 # schedule must be reproducible, and a cryptographic generator is exactly what takes
@@ -286,6 +294,7 @@ module = [
     "fking.backtest.costs._latency",
     "fking.backtest.costs._model",
     "fking.backtest.costs._spread",
+    "fking.backtest.validation._deflated",
     "fking.data.live.frames",
     "fking.execution.models",
     "fking.execution.venue_profile",

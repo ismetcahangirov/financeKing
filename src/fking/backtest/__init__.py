@@ -12,8 +12,11 @@ What exists today is the deterministic event loop and the run identity built on 
 totally-ordered queue, simulated time, the content-hashed `RunConfig`, and the trace two
 runs are compared on -- plus the market-data source in `fking.backtest.feed`, which turns
 the Parquet archive into that loop's event stream and refuses a window it cannot serve
-without inventing bars. The venue simulator, the cost model and the validation harness
-arrive in their own pull requests and hang off this loop.
+without inventing bars, the cost model in `fking.backtest.costs`, and the overfitting gate
+in `fking.backtest.validation`, which discounts an observed Sharpe by the number of
+configurations searched to find it and refuses a search whose in-sample ranking carries no
+out-of-sample information. The venue simulator and the portfolio metric suite arrive in
+their own pull requests and hang off this loop.
 
 A backtest that is not bit-reproducible is not evidence, it is an anecdote with a number
 attached -- so **a result that differs between two runs of the same `config_hash`
@@ -90,9 +93,28 @@ from fking.backtest.feed import (
     SeriesRequest,
     WarmupGate,
 )
+from fking.backtest.validation import (
+    MAX_PROBABILITY_OF_BACKTEST_OVERFITTING,
+    MIN_DEFLATED_SHARPE,
+    OverfittingProbability,
+    PathSplit,
+    PathSplitMalformedError,
+    SharpeEvidence,
+    SharpeEvidenceUnusableError,
+    TrialCountUnavailableError,
+    ValidationGateError,
+    ValidationRefusal,
+    ValidationReport,
+    assess_validation,
+    deflated_sharpe_ratio,
+    expected_max_sharpe,
+    probability_of_backtest_overfitting,
+)
 
 __all__ = [
     "DEFAULT_EVENT_BUDGET",
+    "MAX_PROBABILITY_OF_BACKTEST_OVERFITTING",
+    "MIN_DEFLATED_SHARPE",
     "MIN_EDGE_TO_COST_RATIO",
     "BacktestError",
     "CalibrationProvenanceError",
@@ -124,7 +146,10 @@ __all__ = [
     "MarketDataEvent",
     "MarketDataFeed",
     "OrderAckEvent",
+    "OverfittingProbability",
     "PartialFillProfile",
+    "PathSplit",
+    "PathSplitMalformedError",
     "QueuedEvent",
     "ReconciliationEvent",
     "RejectEvent",
@@ -137,6 +162,8 @@ __all__ = [
     "RunCostReport",
     "RunTrace",
     "SeriesRequest",
+    "SharpeEvidence",
+    "SharpeEvidenceUnusableError",
     "SimulationClock",
     "SpreadObservation",
     "SpreadQuantile",
@@ -144,13 +171,21 @@ __all__ = [
     "SymbolSpreadProfile",
     "TimerEvent",
     "TraceEntry",
+    "TrialCountUnavailableError",
+    "ValidationGateError",
+    "ValidationRefusal",
+    "ValidationReport",
     "WarmupGate",
     "assess_run",
+    "assess_validation",
     "calibrate_spread_profile",
     "canonical_digest",
     "charge_leg",
     "charge_round_trip",
     "config_hash",
+    "deflated_sharpe_ratio",
     "derive_seed",
+    "expected_max_sharpe",
+    "probability_of_backtest_overfitting",
     "walk_depth",
 ]
