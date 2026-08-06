@@ -10,8 +10,10 @@ testnet -- testnet's measured spread is roughly fifty times production's.
 
 What exists today is the deterministic event loop and the run identity built on it: the
 totally-ordered queue, simulated time, the content-hashed `RunConfig`, and the trace two
-runs are compared on. The market-data source, the venue simulator, the cost model and
-the validation harness arrive in their own pull requests and hang off this loop.
+runs are compared on -- plus the market-data source in `fking.backtest.feed`, which turns
+the Parquet archive into that loop's event stream and refuses a window it cannot serve
+without inventing bars. The venue simulator, the cost model and the validation harness
+arrive in their own pull requests and hang off this loop.
 
 A backtest that is not bit-reproducible is not evidence, it is an anecdote with a number
 attached -- so **a result that differs between two runs of the same `config_hash`
@@ -79,6 +81,15 @@ from fking.backtest.costs import (
     charge_round_trip,
     walk_depth,
 )
+from fking.backtest.feed import (
+    CoverageRefusedError,
+    CoverageReport,
+    FeedRequest,
+    FeedSlice,
+    MarketDataFeed,
+    SeriesRequest,
+    WarmupGate,
+)
 
 __all__ = [
     "DEFAULT_EVENT_BUDGET",
@@ -92,6 +103,8 @@ __all__ = [
     "CostModelError",
     "CostTerm",
     "CostVerdict",
+    "CoverageRefusedError",
+    "CoverageReport",
     "DepthProfile",
     "DepthWalk",
     "Event",
@@ -102,11 +115,14 @@ __all__ = [
     "EventQueue",
     "ExecutionLeg",
     "FeeSchedule",
+    "FeedRequest",
+    "FeedSlice",
     "FillEvent",
     "FundingEvent",
     "FundingExposure",
     "LatencyProfile",
     "MarketDataEvent",
+    "MarketDataFeed",
     "OrderAckEvent",
     "PartialFillProfile",
     "QueuedEvent",
@@ -120,6 +136,7 @@ __all__ = [
     "RunContext",
     "RunCostReport",
     "RunTrace",
+    "SeriesRequest",
     "SimulationClock",
     "SpreadObservation",
     "SpreadQuantile",
@@ -127,6 +144,7 @@ __all__ = [
     "SymbolSpreadProfile",
     "TimerEvent",
     "TraceEntry",
+    "WarmupGate",
     "assess_run",
     "calibrate_spread_profile",
     "canonical_digest",

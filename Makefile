@@ -11,7 +11,7 @@ ARGS ?=
 COMPOSE ?= docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help check lint format types imports checks corrupt-fixtures adr-index test cover secrets audit up down logs ps config migrate migrate-down migrate-sql seed ingest data-coverage release release-tag rollback-drill
+.PHONY: help check lint format types imports checks corrupt-fixtures adr-index test cover secrets audit up down logs ps config migrate migrate-down migrate-sql seed ingest data-coverage backtest release release-tag rollback-drill
 
 help:  ## Show the available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -187,6 +187,25 @@ ingest:  ## Backfill the archive into the Parquet corpus; SYMBOLS=... INTERVAL=.
 ## run refuses -- BACKTEST_ENGINE.md owns that decision, this is the input to it.
 data-coverage:  ## Print the coverage and gap report per (market, dataset, symbol)
 	$(UV) run python -m fking.data.backfill coverage
+
+# ---------------------------------------------------------------------------
+# Backtest. BACKTEST_ENGINE.md is the specification.
+# ---------------------------------------------------------------------------
+
+BACKTEST_CONFIG ?= config/backtest.toml
+
+## Resolves the run's market-data window against the Parquet corpus, prints coverage per
+## symbol with the gap ranges, and REFUSES a window it cannot serve from bars that were
+## actually observed -- exit 65, no output beyond the report. Bars are never interpolated:
+## an invented bar is a price that existed nowhere, at a timestamp at which nobody could
+## have traded, and a breakout strategy trades into it and is filled at it
+## (BACKTEST_ENGINE.md section 9).
+##
+## Today the target stops after gating the data and reporting the event-sequence digest;
+## the venue simulator, cost model and validation harness are not yet wired to the stream,
+## and the command says so in its own output rather than leaving a reader to assume.
+backtest:  ## Gate a backtest's data window on coverage; BACKTEST_CONFIG=... to choose the file
+	$(UV) run python -m fking.backtest.feed $(BACKTEST_CONFIG) $(ARGS)
 
 # ---------------------------------------------------------------------------
 # Releases. RELEASE_PROCESS.md is the specification; tools/release/ is the part of
