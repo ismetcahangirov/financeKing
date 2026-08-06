@@ -110,6 +110,12 @@ SCHEDULER_JOB_OUTCOMES: Final[tuple[str, ...]] = ("succeeded", "failed", "abando
 # `test_schema_contract.py`. A source id that reaches this table without a registered
 # declaration is a row whose availability lag nobody stated, which is the one property the
 # alternative-source contract exists to guarantee.
+# Mirrors `fking.evolution.trials.TrialOutcome`, and asserted equal to it in
+# `test_schema_contract.py`. All three count identically toward the trial charge: the
+# column records what became of a run so it can be reconstructed, and nothing filters on
+# it. `abandoned` is distinct from `failed` for the same reason as in the scheduler -- a
+# run that failed told us something about the world, a run whose process died did not.
+TRIAL_EXECUTION_OUTCOMES: Final[tuple[str, ...]] = ("completed", "failed", "abandoned")
 ALT_SOURCE_IDS: Final[tuple[str, ...]] = (
     "alternative.me.fearGreed",
     "binance.fundingRate",
@@ -1182,6 +1188,45 @@ trial_ledger = sa.Table(
     ),
 )
 
+# The execution half of the charge. `trial_ledger` records what was declared before any
+# data was read; this records what was actually run, one row per configuration, and the
+# `trial_charge` view charges the larger of the two. Neither number alone closes both
+# evasions: a declaration prices an abandoned grid correctly and an execution count
+# prices an undeclared search correctly (.claude/rules/overfitting-defences.md clause 3).
+trial_execution = sa.Table(
+    "trial_execution",
+    METADATA,
+    sa.Column("seq", sa.BigInteger(), sa.Identity(always=True), primary_key=True),
+    sa.Column(
+        "spec_hash",
+        postgresql.BYTEA(),
+        sa.ForeignKey("trial_ledger.spec_hash"),
+        nullable=False,
+    ),
+    # A CPCV path id, a grid point, a fold -- whatever identifies this configuration
+    # within its specification. Stable across a retry, which is what makes the
+    # uniqueness below a deduplication rather than a collision.
+    sa.Column("execution_key", identifier(), nullable=False),
+    sa.Column("executed_at_utc", utc_timestamp(), nullable=False),
+    _recorded_at_utc(),
+    sa.Column("correlation_id", postgresql.UUID(as_uuid=True), nullable=False),
+    sa.Column("reported_by", identifier(), nullable=False),
+    # Recorded so a run's fate is reconstructable, never filtered on. A failed
+    # configuration was still a configuration that was tried, and
+    # `EvolutionSettings.trial_ledger_counts_failed_runs` is a `Literal[True]` for
+    # exactly that reason.
+    sa.Column("outcome", identifier(), nullable=False),
+    sa.Column("prev_hash", postgresql.BYTEA(), nullable=False),
+    sa.Column("row_hash", postgresql.BYTEA(), nullable=False),
+    sa.Index("ix_trial_execution_correlation_id", "correlation_id"),
+    # The idempotency arbiter. Redelivery of a completed path is the normal case on a
+    # bus with at-least-once delivery, and a second row would charge a trial nobody ran
+    # -- in an append-only table, so it could never be taken back.
+    sa.UniqueConstraint("spec_hash", "execution_key"),
+    sa.CheckConstraint("length(execution_key) > 0", name="execution_key_is_stated"),
+    _one_of("outcome", TRIAL_EXECUTION_OUTCOMES),
+)
+
 # ---------------------------------------------------------------------------
 # Event bus
 # ---------------------------------------------------------------------------
@@ -1277,6 +1322,7 @@ APPEND_ONLY_TABLES: Final[frozenset[str]] = frozenset(
     {
         "audit_log",
         "trial_ledger",
+        "trial_execution",
         "agent_call",
         "fill",
         "risk_decision",
@@ -1291,10 +1337,14 @@ APPEND_ONLY_TABLES: Final[frozenset[str]] = frozenset(
 )
 
 # The subset that additionally carries a per-row hash chain, and whose migration is
-# irreversible. These two are the ledgers every other claim in the system is checked
-# against: the audit log answers "why did this trade happen", and the trial ledger is
-# the denominator of every deflated Sharpe the project reports.
-HASH_CHAINED_TABLES: Final[frozenset[str]] = frozenset({"audit_log", "trial_ledger"})
+# irreversible. These are the ledgers every other claim in the system is checked
+# against: the audit log answers "why did this trade happen", and the two trial tables
+# are the denominator of every deflated Sharpe the project reports -- `trial_ledger`
+# carrying what was declared before any data was read, `trial_execution` what was
+# actually run.
+HASH_CHAINED_TABLES: Final[frozenset[str]] = frozenset(
+    {"audit_log", "trial_ledger", "trial_execution"}
+)
 
 # What `test_schema_contract.py` and the information_schema scan key on. A column named
 # `price` would be invisible to both, which is why .claude/rules/naming.md bans the bare

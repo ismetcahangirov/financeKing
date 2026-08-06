@@ -17,6 +17,10 @@ __all__ = [
     "LifecycleTransitionError",
     "LineageCycleError",
     "LineageError",
+    "SpecificationAlreadyRegisteredError",
+    "SpecificationNotRegisteredError",
+    "TrialLedgerError",
+    "TrialSpecificationError",
 ]
 
 
@@ -56,4 +60,48 @@ class LifecycleTransitionError(EvolutionError):
     transition to the state it is already in. The database enforces all three as well;
     this raises first so that the caller gets a message naming the states rather than a
     constraint name.
+    """
+
+
+class TrialSpecificationError(EvolutionError):
+    """A search was declared in a shape the ledger cannot charge.
+
+    Raised at construction, before anything is written. A specification with an empty
+    grid axis, a non-positive symbol count, or a holdout request with nobody's name
+    against it would still produce a `spec_hash`, and that digest would then be a stable
+    identity for a search whose charge is meaningless -- after which every deflated
+    Sharpe computed against it is wrong in the flattering direction.
+    """
+
+
+class TrialLedgerError(EvolutionError):
+    """The trial ledger refused a write, or could not answer a read.
+
+    Distinct from `TrialSpecificationError` because the caller's options differ: a
+    malformed specification is fixed by the caller, and a ledger that will not answer is
+    a halt condition. Nothing may be promoted against an unreadable ledger, because a
+    trial count of zero is indistinguishable from "nothing has been tried" and would
+    report a searched result as an unsearched one.
+    """
+
+
+class SpecificationAlreadyRegisteredError(TrialLedgerError):
+    """This exact search has already been charged.
+
+    A refusal rather than a no-op, and the distinction is not pedantic. Two registrations
+    of one grid mean either a duplicate charge -- which the ledger is monotone, so it
+    could never be undone -- or a caller that believes it registered something it did
+    not. The charge already recorded is reported in the message, so a retry after an
+    ambiguous failure can tell the two apart without writing anything.
+    """
+
+
+class SpecificationNotRegisteredError(TrialLedgerError):
+    """An execution was reported against a `spec_hash` that was never declared.
+
+    The anti-HARKing gate seen from below: registration happens before any data access,
+    so an execution with no declaration behind it is a search that was run and then
+    described. A foreign key refuses it in the database, one layer under whichever caller
+    did the reporting, so the refusal does not depend on that caller being the backtest
+    engine.
     """

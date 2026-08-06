@@ -207,6 +207,11 @@ CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
         # one list silently defining the other.
         "audit_log": PrivilegeClass.APPEND_ONLY,
         "trial_ledger": PrivilegeClass.APPEND_ONLY,
+        # The execution half of the trial charge. Append-only for a sharper reason than
+        # most: the charge is max(declared, executed), so a DELETE here does not lose
+        # history, it *lowers the denominator of every deflated Sharpe* computed
+        # afterwards -- silently, and in the flattering direction.
+        "trial_execution": PrivilegeClass.APPEND_ONLY,
         "agent_call": PrivilegeClass.APPEND_ONLY,
         "fill": PrivilegeClass.APPEND_ONLY,
         "risk_decision": PrivilegeClass.APPEND_ONLY,
@@ -227,6 +232,10 @@ CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
 VIEW_PRIVILEGES: Final[Mapping[str, Mapping[str, frozenset[str]]]] = MappingProxyType(
     {
         "global_trial_count": MappingProxyType({APP_ROLE: _READ, INGEST_ROLE: _NONE}),
+        # The per-specification charge the global count sums. Readable because a report
+        # that quotes a deflated Sharpe has to be able to show which searches paid for
+        # it; the arithmetic itself lives in the view and nowhere else.
+        "trial_charge": MappingProxyType({APP_ROLE: _READ, INGEST_ROLE: _NONE}),
         # `backtest` reads this before every run to decide whether its window contains a
         # gap, so the application role reads it. The ingest role reads the underlying
         # tables directly and has no use for the aggregate.
