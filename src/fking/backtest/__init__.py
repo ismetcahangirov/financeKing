@@ -15,8 +15,11 @@ the Parquet archive into that loop's event stream and refuses a window it cannot
 without inventing bars, the cost model in `fking.backtest.costs`, and the overfitting gate
 in `fking.backtest.validation`, which discounts an observed Sharpe by the number of
 configurations searched to find it and refuses a search whose in-sample ranking carries no
-out-of-sample information. The venue simulator and the portfolio metric suite arrive in
-their own pull requests and hang off this loop.
+out-of-sample information, and the walk-forward harness in `fking.backtest.walkforward`,
+which schedules anchored and rolling re-fits with a purge and embargo derived from the
+declared label horizon and reports out-of-sample performance as a decay slope rather than
+a mean. The venue simulator and the portfolio metric suite arrive in their own pull
+requests and hang off this loop.
 
 A backtest that is not bit-reproducible is not evidence, it is an anecdote with a number
 attached -- so **a result that differs between two runs of the same `config_hash`
@@ -110,10 +113,34 @@ from fking.backtest.validation import (
     expected_max_sharpe,
     probability_of_backtest_overfitting,
 )
+from fking.backtest.walkforward import (
+    MINIMUM_FOLDS,
+    DecayPoint,
+    DecayReport,
+    DecayReportError,
+    Fold,
+    FoldEvaluationError,
+    FoldFailure,
+    OutOfSampleObservation,
+    ScheduleRefusedError,
+    WalkForwardConfigError,
+    WalkForwardDeclaration,
+    WalkForwardError,
+    WalkForwardPlan,
+    WalkForwardReport,
+    WalkForwardSchedule,
+    WalkForwardScheme,
+    build_schedule,
+    decay_report,
+    run_walk_forward,
+    schedule_table,
+    segment_windows,
+)
 
 __all__ = [
     "DEFAULT_EVENT_BUDGET",
     "MAX_PROBABILITY_OF_BACKTEST_OVERFITTING",
+    "MINIMUM_FOLDS",
     "MIN_DEFLATED_SHARPE",
     "MIN_EDGE_TO_COST_RATIO",
     "BacktestError",
@@ -127,6 +154,9 @@ __all__ = [
     "CostVerdict",
     "CoverageRefusedError",
     "CoverageReport",
+    "DecayPoint",
+    "DecayReport",
+    "DecayReportError",
     "DepthProfile",
     "DepthWalk",
     "Event",
@@ -140,12 +170,16 @@ __all__ = [
     "FeedRequest",
     "FeedSlice",
     "FillEvent",
+    "Fold",
+    "FoldEvaluationError",
+    "FoldFailure",
     "FundingEvent",
     "FundingExposure",
     "LatencyProfile",
     "MarketDataEvent",
     "MarketDataFeed",
     "OrderAckEvent",
+    "OutOfSampleObservation",
     "OverfittingProbability",
     "PartialFillProfile",
     "PathSplit",
@@ -161,6 +195,7 @@ __all__ = [
     "RunContext",
     "RunCostReport",
     "RunTrace",
+    "ScheduleRefusedError",
     "SeriesRequest",
     "SharpeEvidence",
     "SharpeEvidenceUnusableError",
@@ -175,17 +210,29 @@ __all__ = [
     "ValidationGateError",
     "ValidationRefusal",
     "ValidationReport",
+    "WalkForwardConfigError",
+    "WalkForwardDeclaration",
+    "WalkForwardError",
+    "WalkForwardPlan",
+    "WalkForwardReport",
+    "WalkForwardSchedule",
+    "WalkForwardScheme",
     "WarmupGate",
     "assess_run",
     "assess_validation",
+    "build_schedule",
     "calibrate_spread_profile",
     "canonical_digest",
     "charge_leg",
     "charge_round_trip",
     "config_hash",
+    "decay_report",
     "deflated_sharpe_ratio",
     "derive_seed",
     "expected_max_sharpe",
     "probability_of_backtest_overfitting",
+    "run_walk_forward",
+    "schedule_table",
+    "segment_windows",
     "walk_depth",
 ]

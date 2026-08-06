@@ -61,4 +61,5 @@ Thumbs.db
 # and CLAUDE.md 7 requires the evidence be re-run rather than read from a file.
 /.claude/worktrees/
 /check_baseline.log
+/check.log
 /*.tmp.json
