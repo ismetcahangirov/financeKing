@@ -53,3 +53,12 @@ htmlcov/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Agent worktrees and scratch output. Sessions that orchestrate subagents create a
+# git worktree per agent under .claude/worktrees/ and leave gate transcripts behind.
+# These are per-session artefacts of *how* the work was produced, not the work: a
+# committed `make check` log is a stale claim about a tree that has since moved on,
+# and CLAUDE.md 7 requires the evidence be re-run rather than read from a file.
+/.claude/worktrees/
+/check_baseline.log
+/*.tmp.json
