@@ -1,0 +1,9 @@
+_recording:
+  body_sha256: 2f0bae061fbb60e2399f4ab76a60a1c4a6dd55408a13776bee39cd0e3ad1eac3
+  captured_at_utc: 2026-08-05T11-49-36Z
+  derivation: null
+  endpoint: GET /fapi/v1/time
+  http_status: 200
+  request_url: https://testnet.binancefuture.com/fapi/v1/time
+  venue: binance-futures-testnet
+body: '{"serverTime":1785930575804}'

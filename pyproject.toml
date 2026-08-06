@@ -17,12 +17,27 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.14",
     "asyncpg>=0.30",
+    # The only exchange client (#5, ADR-0008, ARCHITECTURE.md 7). >= 4.5.70 is a floor
+    # rather than a preference: it is the first release correct on *both* halves of the
+    # current Binance surface -- the spot/futures endpoint split, and the post-listenKey
+    # user-data model, where `POST /api/v3/userDataStream` returns 410 Gone and spot
+    # authenticates with an Ed25519 `session.logon` instead. python-binance is broken on
+    # that path, binance-connector is frozen, and the official binance-sdk-* packages
+    # shipped 11 and 16 major versions in twelve months, which is disqualifying for a
+    # system that runs unattended.
+    #
+    # It brings aiohttp transitively, which is why aiohttp is now named in the
+    # network-client contract below. ccxt builds its own transport by default, so it is
+    # constructed only by fking.platform.safety.guarded_ccxt, which injects a guarded
+    # session and re-validates the sandbox URL map.
+    "ccxt>=4.5.70",
     # Parquet corpus and its read path (#24, DATA_PIPELINE.md 6). duckdb is the scan
     # engine because it pushes hive partition predicates down into *file selection*, so
     # a filtered query over a thousand-symbol corpus opens only the files that can
     # contribute -- which is the entire return on the partition layout. pyarrow is the
     # writer: it is the only way to declare `decimal128(38, 18)` explicitly, and an
     # inferred schema is how an OHLCV column becomes a double.
+    "ccxt>=4.5.70",
     "duckdb>=1.1",
     "httpx>=0.28.1",
     # Telemetry (#18). The SDK plus the OTLP/gRPC exporter is the whole pipeline into
@@ -258,6 +273,8 @@ warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = [
     "fking.data.live.frames",
+    "fking.execution.models",
+    "fking.execution.venue_profile",
     "fking.platform.bus._envelope",
     "fking.platform.config.settings",
     "tests.platform.bus.test_registry",
@@ -353,11 +370,11 @@ source_modules = [
 # Top-level names only: import-linter rejects subpackages of external packages, so
 # this is `urllib` rather than `urllib.request`.
 #
-# httpx and websockets are named here because #11 made them real dependencies, and
-# redis because #18 did. Before that they were absent from the analysed graph, and a
-# module that is not in the graph can never be found in a chain -- so listing it was
-# decoration, not a check. aiohttp and requests are still absent and still omitted for
-# the same reason; aiohttp joins the list with ccxt in #5.
+# httpx and websockets are named here because #11 made them real dependencies, redis
+# because #18 did, and aiohttp because #5 did -- ccxt brings it. Before that they were
+# absent from the analysed graph, and a module that is not in the graph can never be
+# found in a chain, so listing it was decoration rather than a check. requests is still
+# absent and still omitted for the same reason.
 #
 # redis is here for a different reason from the others. It is not an egress risk -- it
 # addresses local infrastructure, not a venue -- but a consumer that opens its own
@@ -366,10 +383,39 @@ source_modules = [
 #
 # fking.platform is deliberately not a source module: the sanctioned path runs
 # through fking.platform.safety, which must be able to import these.
-forbidden_modules = ["http", "httpx", "redis", "socket", "urllib", "websockets"]
+forbidden_modules = ["aiohttp", "http", "httpx", "redis", "socket", "urllib", "websockets"]
 # The sanctioned path is fking.execution -> fking.platform.safety -> httpx, which is
 # an indirect import and must stay legal. Leaving this at the default false would
 # fail the contract on the correct architecture.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Only the safety kernel constructs a ccxt exchange"
+type = "forbidden"
+# ccxt needs its own contract rather than a line in the one above, because it is not a
+# transport -- it *contains* one. A module holding `ccxt` can write
+# `ccxt.binance({...})` and get an exchange with an unguarded aiohttp session, and the
+# network-client contract would see `fking.execution -> ccxt` and pass: the forbidden
+# import is two hops away and indirect chains are deliberately allowed there.
+#
+# So the adapter never names ccxt at all. It holds `GuardedExchange`, a Protocol in the
+# kernel whose one implementation carries an injected session and re-validates the URL
+# map that `set_sandbox_mode(True)` installs (ADR-0008, .claude/rules/safety-kernel.md).
+#
+# fking.platform is not a source module: fking.platform.safety.exchange is the one place
+# that may hold it, and that module is inside the kernel's 100% coverage floor.
+source_modules = [
+    "fking.agents",
+    "fking.api",
+    "fking.backtest",
+    "fking.data",
+    "fking.domain",
+    "fking.evolution",
+    "fking.execution",
+    "fking.risk",
+    "fking.strategy",
+]
+forbidden_modules = ["ccxt"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]

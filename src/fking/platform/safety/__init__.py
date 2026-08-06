@@ -21,12 +21,30 @@ from fking.platform.safety.client import (
     guarded_ws_connect,
     verify_endpoints_or_abort,
 )
+from fking.platform.safety.exchange import (
+    GuardedExchange,
+    UnknownVenueEndpointError,
+    VenueTransportError,
+    assert_sandbox_urls_permitted,
+    guarded_aiohttp_session,
+    guarded_ccxt,
+)
 
+# `fking.platform.safety.archive` is deliberately absent: an importer has to name that
+# module, which is what makes the contract forbidding `fking.execution` from reaching it
+# enforceable. The exchange path is the opposite case -- `fking.execution` is supposed
+# to reach it, and is supposed to have no other way of obtaining an exchange object.
 __all__ = [
     "PERMITTED_HOSTS",
     "TRANSPORT_ERRORS",
+    "GuardedExchange",
     "SafetyViolation",
+    "UnknownVenueEndpointError",
+    "VenueTransportError",
     "assert_host_permitted",
+    "assert_sandbox_urls_permitted",
+    "guarded_aiohttp_session",
+    "guarded_ccxt",
     "guarded_client",
     "guarded_ws_connect",
     "verify_endpoints_or_abort",

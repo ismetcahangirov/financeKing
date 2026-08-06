@@ -27,6 +27,7 @@ import httpx
 import structlog
 
 from fking.platform.safety._archive_allowlist import ARCHIVE_HOSTS
+from fking.platform.safety._archive_errors import ArchiveUnavailableError
 from fking.platform.safety._hostcheck import assert_permitted
 
 __all__ = [
@@ -50,21 +51,6 @@ DEFAULT_ARCHIVE_TIMEOUT_SECONDS: Final[float] = 30.0
 # 1 MiB. Large enough that a 200 MB trades archive is ~200 iterations rather than
 # ~50,000, small enough that a chunk never dominates resident memory.
 _CHUNK_BYTES: Final[int] = 1024 * 1024
-
-
-class ArchiveUnavailableError(Exception):
-    """The archive host answered, but not with the file.
-
-    A distinct condition from a checksum mismatch and from a transport failure: a 404
-    usually means the symbol did not exist on that date, or that a monthly archive has
-    not been published yet, and both are ordinary answers a backfill must be able to
-    act on rather than crash under.
-
-    Not a member of `FkingError`: this module must stay importable without pulling in
-    `fking.platform.errors`, which imports the trading kernel. `fking.platform.errors`
-    re-exports the name instead, so the taxonomy is complete from a reader's side
-    without an import edge in the direction that matters.
-    """
 
 
 def assert_archive_host_permitted(url: str | httpx.URL) -> str:
