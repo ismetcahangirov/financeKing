@@ -5,12 +5,15 @@ run that charges once for a twelve-configuration search understates the selectio
 an order of magnitude and deflates nothing, and a run that drops its crashed folds reports
 a fold count conditioned on success.
 
-The charger here records fold indices in a list rather than writing to Postgres. The
-binding to the real `trial_ledger` -- and the assertion that twelve folds leave twelve
-rows in it -- belongs to `BacktestEngine.run()`'s ledger enforcement in issue #39, which
-has not landed. What this file proves is the property that enforcement will depend on:
-`run_walk_forward` invokes the charge exactly once per planned fold, before the evaluator,
-whatever the evaluator does.
+The charger here records fold indices in a list rather than writing to Postgres, so these
+are unit tests of the accounting: `run_walk_forward` invokes the charge exactly once per
+planned fold, before the evaluator, whatever the evaluator does.
+
+The binding to the real `trial_ledger` -- twelve folds leaving twelve rows that no crash
+can refund -- is `tests/backtest/test_walk_forward_ledger_charges.py`, against real
+Postgres. Both files are needed and neither subsumes the other: a list can show the call
+count without showing durability, and the database test is too slow to carry the dozen
+edge cases below.
 """
 
 from __future__ import annotations
