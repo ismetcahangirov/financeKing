@@ -11,7 +11,7 @@ ARGS ?=
 COMPOSE ?= docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help check lint format types imports checks corrupt-fixtures adr-index test cover secrets audit up down logs ps config migrate migrate-down migrate-sql seed ingest data-coverage backtest release release-tag rollback-drill backup backup-list backup-prune
+.PHONY: help check lint format types imports checks corrupt-fixtures adr-index test cover secrets audit up down logs ps config migrate migrate-down migrate-sql seed ingest data-coverage backtest release release-tag rollback-drill restore-drill backup backup-list backup-prune
 
 help:  ## Show the available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -281,3 +281,12 @@ backup-list:  ## List the backups present, newest first
 backup-prune:  ## Apply retention; KEEP_DAYS=30 APPLY=1 to act
 	$(UV) run python -m tools.backup --directory $(BACKUP_DIR) prune \
 		--keep-days $(KEEP_DAYS) $(if $(APPLY),--apply,)
+
+## A backup nobody has restored is a hypothesis. This target is the experiment: it dumps
+## a live database, restores it into a scratch one, and verifies both hash chains against
+## the tips its own manifest recorded -- then proves a backup missing its tail fails at
+## the exact seq, and that a dump taken under the previous schema upgrades cleanly.
+## .github/workflows/restore-drill.yml runs it nightly, because a drill that waits for
+## somebody to remember it is a documented intention.
+restore-drill:  ## Execute the backup/restore drill against a real database
+	$(UV) run python -m pytest tests/infra/test_backup_restore_drill.py --no-cov -v

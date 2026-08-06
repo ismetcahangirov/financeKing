@@ -1,0 +1,86 @@
+name: Restore drill
+
+# A backup nobody has restored is a hypothesis. This workflow is what turns it into a
+# measurement, on a schedule, so the answer does not depend on somebody remembering.
+#
+# It is scheduled rather than part of the PR gate because the thing it detects does not
+# arrive in a diff. The `pg_dump` that cannot be restored is broken by a base-image
+# bump, a new migration that creates an object the restore ordering cannot handle, or a
+# TimescaleDB release -- none of which touch a file in the pull request that exposes
+# them. The PR gate runs the drill too (it is an ordinary `slow` integration test), but
+# the scheduled run is the half that catches the environment moving underneath us.
+#
+# It opens an issue rather than leaving a red X, for the reason nightly-security.yml
+# gives: nobody is watching a scheduled workflow at 04:23, and a failed restore needs a
+# human to decide whether it is the dump, the schema or the image.
+
+on:
+  schedule:
+    # 04:23 UTC, off the hour: GitHub queues the top of every hour heavily enough that
+    # a run's start time drifts, and a drift makes a failure uncorrelatable.
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: restore-drill
+  cancel-in-progress: false
+
+env:
+  # Matches .python-version, ci.yml and the app image. A drill run on a different
+  # interpreter is a drill of a system nobody runs.
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  drill:
+    name: Backup, restore, verify both hash chains
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen
+
+      - name: Execute the drill
+        # FKING_REQUIRE_DB turns a missing database into a failure rather than a skip.
+        # A drill that silently skipped would report green forever, which is a worse
+        # outcome than no drill at all -- it is a claim rather than an absence of one.
+        env:
+          FKING_REQUIRE_DB: "1"
+        run: make restore-drill
+
+      - name: Open an issue when the drill fails
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          existing="$(gh issue list --label needs-human --label area:infra \
+            --state open --search 'restore drill in:title' --json number --jq '.[0].number')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Drill failed again: $RUN_URL"
+            exit 0
+          fi
+          gh issue create \
+            --title "Restore drill failed" \
+            --label needs-human --label area:infra --label P1-high \
+            --body "$(printf '%s\n' \
+              "\`make restore-drill\` failed on the scheduled run." \
+              "" \
+              "Run: $RUN_URL" \
+              "" \
+              "This means the most recent backup format may not be restorable, or a" \
+              "hash chain did not verify after restore. A chain break after a restore" \
+              "is a live risk incident, not a data-quality ticket" \
+              "(.claude/rules/append-only-audit.md)." \
+              "" \
+              "DEPLOYMENT.md section 6 carries the procedure this drill rehearses.")"
