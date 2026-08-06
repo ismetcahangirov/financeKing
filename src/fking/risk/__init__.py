@@ -22,15 +22,39 @@ from fking.risk.ceilings import (
     assert_above_floors,
     assert_within_ceilings,
 )
+from fking.risk.exposure import (
+    EXPOSURE_HARD_CEILINGS,
+    EXPOSURE_HARD_FLOORS,
+    ExposureAssessment,
+    ExposureLimits,
+    LimitEvaluation,
+    PortfolioExposure,
+    PreTradeContext,
+    Rejection,
+    ViolationTally,
+    portfolio_exposure,
+    validate_pre_trade,
+)
 from fking.risk.limits import GATE_FIELDS, RiskLimits
 
 __all__: tuple[str, ...] = (
+    "EXPOSURE_HARD_CEILINGS",
+    "EXPOSURE_HARD_FLOORS",
     "GATE_FIELDS",
     "HARD_CEILINGS",
     "HARD_FLOORS",
     "Ceiling",
+    "ExposureAssessment",
+    "ExposureLimits",
     "Floor",
+    "LimitEvaluation",
+    "PortfolioExposure",
+    "PreTradeContext",
+    "Rejection",
     "RiskLimits",
+    "ViolationTally",
     "assert_above_floors",
     "assert_within_ceilings",
+    "portfolio_exposure",
+    "validate_pre_trade",
 )
