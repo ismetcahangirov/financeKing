@@ -262,7 +262,7 @@ python_version = "3.12"
 # migrations/ is included: a migration is code that runs against the production
 # database with no test around most of it, so it is the last place to accept an
 # unchecked signature.
-files = ["src", "tests", "tools", "migrations"]
+files = ["src", "tests", "tools", "migrations", "scripts"]
 strict = true
 # tests/support/ is a package while tests/ deliberately is not, so mypy resolves the
 # same file as both `support.domain_factory` and `tests.support.domain_factory` and
