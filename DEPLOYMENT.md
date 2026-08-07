@@ -425,33 +425,57 @@ Rows 1–3 are backed up. Rows 4–6 are not, and being explicit about that is w
 ### Backup
 
 ```bash
-make backup    # writes backups/<UTC-timestamp>/
+make backup                       # writes backups/fking-<UTC>.dump + .manifest.json
+make backup-list                  # newest first
+make backup-prune KEEP_DAYS=30    # dry run; add APPLY=1 to act
 ```
 
-1. `pg_dump --format=custom --compress=9` of the whole database. Custom format because it supports selective restore, which matters when you want audit tables back but not stale operational state.
-2. `tar` of `fking_parquet` — **or, preferably, nothing**, because Parquet files carry their own verified checksums and a manifest of `(path, sha256, source_url)` is enough to reconstruct from upstream. The manifest is a few hundred kilobytes; the archive is hundreds of gigabytes.
-3. SHA-256 of every artefact, written alongside.
-4. The `config_hash` and git SHA of the running system, so a restore can be matched to the code that wrote it.
+`tools/backup` writes two files per run:
+
+1. **The dump.** `pg_dump --format=custom --compress=6 --no-owner --no-privileges`. Custom format because `pg_restore` can then reorder, and reordering is not optional on TimescaleDB — a plain-SQL dump replays in file order and hypertable chunks arrive before the extension has finished creating the parent, failing with an error that names a chunk table nobody wrote. `--no-owner`/`--no-privileges` because roles are created by migration `0008_least_privilege`, not by the dump; without them a restore into an environment where `fking_app` does not yet exist fails on every `ALTER ... OWNER TO`.
+2. **The manifest**, carrying what the dump file cannot: the SHA-256 of the dump, the Alembic revision it was taken at, the server version and image digest, and — the load-bearing entry — **the hash-chain tip of `audit_log` and `trial_ledger`**.
+
+The chain tips are why the manifest exists. Truncate a chain and what remains verifies end to end, because a prefix of a valid chain is a valid chain. Nothing *inside* a restored database can distinguish "complete" from "complete up to seq 41,822", so the tip is recorded out of band at dump time and compared after restore. That is also the line between archival and truncation: an archival job that moves old partitions out is legitimate exactly when the chain still links back to what it moved.
+
+The client binary is version-matched to the server — `FKING_PG_BIN`, else a PATH `pg_dump` whose major matches, else the pinned TimescaleDB image via `docker run`. A `pg_restore` from a different major omits objects it does not understand **and still exits 0**.
 
 Backups go to a **different physical device**. A backup on the same disk as the database protects against exactly one failure mode — accidental deletion — and not the one that actually happens.
 
+Retention keeps the three newest copies regardless of age (`MINIMUM_RETAINED`), so retention can never remove the last restorable backup.
+
 ### Restore
 
-```bash
-make restore FROM=backups/2026-08-01T03-00-00Z
-```
+There is deliberately no `make restore` that writes over a live database. Restoring is `tools.backup.dump.restore_into` against a **fresh** database, driven by the drill or by hand:
 
 1. Stop the stack (`make down` — **never `-v`**).
-2. Verify the backup's checksums before touching anything. A restore from a corrupt backup destroys a working system to install a broken one.
-3. Restore Postgres into a **fresh volume**, not over the existing one, so a failed restore is a no-op rather than a loss.
-4. Restore or re-download Parquet, verifying every checksum.
-5. Start the stack.
-6. **Reconcile against the exchange immediately.** Restored operational state is a snapshot; exchange state is the truth, and local state converges to it (`ARCHITECTURE.md` §7).
-7. Run the reconstruction test against a fill from before the backup point. That is the check that the restore preserved the property the backup existed for.
+2. `restore_into` verifies the dump's SHA-256 against its manifest **before** opening it. A restore from a corrupt backup destroys a working system to install a broken one.
+3. Restore into a **new** database, not over the existing one, so a failed restore is a no-op rather than a loss. `pg_restore --exit-on-error`: the default continues past errors and exits 0 with a warning count, which is the most effective way to end up believing a partial restore succeeded.
+4. If the dump predates `head`, `alembic upgrade head` — the drill proves this path.
+5. **Verify both hash chains against the manifest tips** (`fking.platform.persistence.chain.verify_chain`). A chain break after a restore is a live risk incident, not a data-quality ticket.
+6. Restore or re-download Parquet, verifying every checksum.
+7. Start the stack, and **reconcile against the exchange immediately.** Restored operational state is a snapshot; exchange state is the truth (`ARCHITECTURE.md` §7).
 
 ### Restore is tested, not assumed
 
-A backup that has never been restored is a hypothesis. **Quarterly: restore into a scratch stack and run the reconstruction test.** A restore procedure discovered to be broken during an incident is a restore procedure that does not exist.
+```bash
+make restore-drill
+```
+
+The drill dumps a live database, restores it into a scratch one, and asserts: both chains verify against their manifest tips; a backup missing its tail fails **at the exact first missing seq**; a corrupted archive is refused before restore; and a dump taken under the previous schema revision upgrades cleanly to `head`. It runs nightly in `.github/workflows/restore-drill.yml`, because a drill that waits for somebody to remember it is a documented intention.
+
+**Measured, 2026-08-07**, on the developer machine (Windows 11, Docker Desktop 28.5.2, `pg_dump`/`pg_restore` from the pinned `timescale/timescaledb-ha` image, TimescaleDB container started per session):
+
+```
+tests/infra/test_backup_restore_drill.py::test_a_backup_missing_its_tail_fails_the_drill_at_the_first_missing_seq PASSED [ 20%]
+tests/infra/test_backup_restore_drill.py::test_a_corrupted_archive_is_refused_before_it_is_restored PASSED [ 40%]
+tests/infra/test_backup_restore_drill.py::test_a_dump_restores_and_both_chains_verify_against_their_manifest_tips PASSED [ 60%]
+tests/infra/test_backup_restore_drill.py::test_the_pg_client_is_version_matched_to_the_server PASSED [ 80%]
+tests/infra/test_backup_restore_drill.py::test_a_dump_taken_under_the_previous_schema_upgrades_cleanly PASSED [100%]
+
+============================= 5 passed in 44.58s ==============================
+```
+
+**44.58 s wall clock** for four dump/restore cycles including container start and three full migration chains. An earlier run of the same drill on a cold image pull took 69.63 s; the spread is image and container startup, not the restore. So a single restore of a schema-only database is a few seconds — and the number that actually matters, a restore of a database carrying real audit volume, has not been measured yet and is deliberately not extrapolated here.
 
 ### Audit data is never deleted
 
