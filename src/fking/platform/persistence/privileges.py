@@ -215,6 +215,10 @@ CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
         # one list silently defining the other.
         "audit_log": PrivilegeClass.APPEND_ONLY,
         "trial_ledger": PrivilegeClass.APPEND_ONLY,
+        # The executed half of max(declared, executed). Append-only for the same reason
+        # the ledger is: a deleted execution row lowers the count of what was run, which
+        # is the one direction the reconciliation can be evaded in.
+        "trial_execution": PrivilegeClass.APPEND_ONLY,
         "agent_call": PrivilegeClass.APPEND_ONLY,
         "fill": PrivilegeClass.APPEND_ONLY,
         "risk_decision": PrivilegeClass.APPEND_ONLY,
@@ -235,6 +239,12 @@ CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
 VIEW_PRIVILEGES: Final[Mapping[str, Mapping[str, frozenset[str]]]] = MappingProxyType(
     {
         "global_trial_count": MappingProxyType({APP_ROLE: _READ, INGEST_ROLE: _NONE}),
+        # The two figures a deflated Sharpe is computed from: the context-wide count that
+        # feeds SR*, and the per-lineage count that feeds the family term. Readable by
+        # the application while `trial_ledger` itself stays unreadable-for-write, by the
+        # same view-owner mechanism `global_trial_count` uses.
+        "trial_context_totals": MappingProxyType({APP_ROLE: _READ, INGEST_ROLE: _NONE}),
+        "trial_lineage_totals": MappingProxyType({APP_ROLE: _READ, INGEST_ROLE: _NONE}),
         # `backtest` reads this before every run to decide whether its window contains a
         # gap, so the application role reads it. The ingest role reads the underlying
         # tables directly and has no use for the aggregate.

@@ -130,3 +130,33 @@ def test_a_larger_trial_count_never_raises_the_deflated_sharpe(
     )
 
     assert _deflated_or_skip(searched_harder) <= _deflated_or_skip(evidence)
+
+
+@given(evidence=evidence_records)
+def test_a_larger_trial_count_strictly_lowers_an_unsaturated_deflated_sharpe(
+    evidence: SharpeEvidence,
+) -> None:
+    """Strictly, wherever the probability is not already sitting at a bound.
+
+    The strict form is the one the ledger's correctness rests on. `<=` would still hold
+    if `trials_at_time_of_run` were ignored entirely -- an equality passes it every time
+    -- so a refactor that dropped the trial count out of the numerator would leave the
+    previous property green. Conditioning on an unsaturated baseline is what makes the
+    difference representable: past a statistic of about seven the normal CDF is 1 to
+    twelve places, and no amount of further searching can move it.
+
+    The count is doubled twice rather than once, because `SR*` grows as `sqrt(2 ln K)`
+    and a single doubling near the twelfth decimal place can quantise to the same value.
+    A fourfold increase in search effort is a change the reported figure must show.
+    """
+    baseline = _deflated_or_skip(evidence)
+    assume(Decimal("0.01") < baseline < Decimal("0.99"))
+    # Above the benchmark, so that raising SR* lowers a positive numerator rather than
+    # pulling a negative one up toward zero.
+    _assume_above_the_selection_benchmark(evidence)
+
+    searched_harder = evidence.model_copy(
+        update={"trials_at_time_of_run": evidence.trials_at_time_of_run * 4}
+    )
+
+    assert _deflated_or_skip(searched_harder) < baseline

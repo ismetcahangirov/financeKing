@@ -51,6 +51,23 @@ class CausalityError(BacktestError):
     """
 
 
+class UnregisteredSpecificationError(BacktestError):
+    """The run's specification was never charged to the trial ledger.
+
+    The engine is the enforcement point for the trial counter, not its accountant. The
+    `quant` agent registers a specification before any data is read and the ledger owns
+    the arithmetic; what this class closes is the third evasion, which neither of those
+    can see: running sixty configurations without registering anything and reporting the
+    best. A counter the caller maintains voluntarily is a counter that will be wrong, so
+    a run whose `spec_hash` has no ledger row does not execute and produces no result
+    object at all -- an empty trace would be a result somebody could still report.
+
+    Refused rather than auto-registered. Registering here would charge the grid at the
+    moment of execution, which is precisely the charge point
+    `.claude/rules/overfitting-defences.md` rejects: it prices optional stopping at zero.
+    """
+
+
 class EventBudgetExhaustedError(BacktestError):
     """The run dispatched more events than its configuration declared it would.
 

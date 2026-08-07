@@ -28,6 +28,13 @@ pytestmark = [pytest.mark.integration, pytest.mark.slow]
 # never loaded them, where every hypertable statement silently produces a plain table.
 REQUIRED_EXTENSIONS = ("timescaledb", "pgcrypto")
 
+# The newest revision whose `downgrade()` does not raise. Named rather than derived,
+# because "does not raise" cannot be discovered without running it, and a test that
+# discovers the boundary by stepping down until something breaks would leave a database
+# in whatever state the break happened in. Move this forward when a reversible migration
+# lands above it; do not move it forward to reach an audit migration.
+_LAST_REVERSIBLE_REVISION = "0017_risk_drawdown_state"
+
 
 @pytest.mark.unit
 def test_the_revision_history_is_a_single_line_ending_at_head() -> None:
@@ -54,12 +61,22 @@ async def _applied_revision(dsn: str) -> str | None:
 def test_upgrade_then_downgrade_one_step_then_upgrade_again(scratch_dsn: str) -> None:
     """`make migrate`, `make migrate-down`, `make migrate`. The loop an operator runs.
 
+    The step down is taken from the newest *reversible* revision rather than from head,
+    and that is a property of the schema rather than a convenience. Audit migrations
+    refuse to downgrade by design (`.claude/rules/append-only-audit.md` clause 4), so
+    whenever head happens to be one of them -- 0018 extends the trial ledger, and
+    dropping its columns would leave charges nobody can attribute to a search -- there is
+    no one-step-down from head to take. Scoping to the last reversible revision keeps the
+    subject exact: what is under test is that a step down and back up leaves the database
+    at head, not that every migration is reversible, which is a thing this repository
+    deliberately does not promise.
+
     Synchronous on purpose. `migrations/env.py` calls `asyncio.run`, which cannot be
     reached from inside a running event loop -- so an `async def` test driving Alembic
     fails with a never-awaited coroutine rather than with anything about migrations.
     """
     config = alembic_config(scratch_dsn)
-    command.upgrade(config, "head")
+    command.upgrade(config, _LAST_REVERSIBLE_REVISION)
     command.downgrade(config, "-1")
     command.upgrade(config, "head")
 
@@ -76,6 +93,21 @@ def test_downgrading_past_the_audit_substrate_refuses(scratch_dsn: str) -> None:
     command.upgrade(config, "head")
     with pytest.raises(RuntimeError, match="irreversible"):
         command.downgrade(config, "base")
+
+
+def test_downgrading_the_trial_ledgers_search_context_refuses(scratch_dsn: str) -> None:
+    """0018 raises too, and for a reason the message has to carry.
+
+    Dropping `trial_execution` discards the record of which configurations were actually
+    run; dropping the search-context columns is worse, because the charges survive and
+    can no longer be attributed to a search, which silently collapses every per-context
+    and per-lineage count into the global one. A schema rollback that quietly changes
+    what a number means is a data-destruction operation dressed as a schema operation.
+    """
+    config = alembic_config(scratch_dsn)
+    command.upgrade(config, "head")
+    with pytest.raises(RuntimeError, match="irreversible"):
+        command.downgrade(config, "-1")
 
 
 @pytest.mark.parametrize("extension", REQUIRED_EXTENSIONS)

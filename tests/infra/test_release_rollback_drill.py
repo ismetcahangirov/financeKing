@@ -90,12 +90,19 @@ def _stamped_revision(dsn: str) -> str | None:
 
 
 def test_the_schema_refuses_to_roll_back_past_the_audit_substrate(scratch_dsn: str) -> None:
-    """The drill. Executed, not asserted from the source."""
+    """The drill. Executed, not asserted from the source.
+
+    Nothing here requires the floor to sit *below* head, and an earlier version of this
+    test asserted exactly that. It was wrong in the same direction `_rollback_floor`
+    warns about: when head is itself an audit migration the floor equals head, the
+    refusal comes at the first step, and nothing above it is torn down at all. That is
+    the strictly safer arrangement, and a test that treated it as a regression would
+    argue against making the newest migration irreversible.
+    """
     config = alembic_config(scratch_dsn)
     command.upgrade(config, "head")
     head = _stamped_revision(scratch_dsn)
     assert head is not None
-    assert head != _rollback_floor()
 
     # A genuine rollback attempt, which is what `make migrate-down` repeated does.
     with pytest.raises(RuntimeError, match="irreversible"):

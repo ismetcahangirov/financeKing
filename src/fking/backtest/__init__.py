@@ -38,12 +38,20 @@ from fking.backtest._config import (
     config_hash,
     derive_seed,
 )
-from fking.backtest._engine import EventHandler, EventLoop, RunContext, RunTrace, TraceEntry
+from fking.backtest._engine import (
+    EventHandler,
+    EventLoop,
+    RunContext,
+    RunTrace,
+    SpecRegistration,
+    TraceEntry,
+)
 from fking.backtest._errors import (
     BacktestError,
     CausalityError,
     EventBudgetExhaustedError,
     RunConfigError,
+    UnregisteredSpecificationError,
 )
 from fking.backtest._events import (
     Event,
@@ -200,6 +208,7 @@ __all__ = [
     "SharpeEvidence",
     "SharpeEvidenceUnusableError",
     "SimulationClock",
+    "SpecRegistration",
     "SpreadObservation",
     "SpreadQuantile",
     "SpreadQuantiles",
@@ -207,6 +216,7 @@ __all__ = [
     "TimerEvent",
     "TraceEntry",
     "TrialCountUnavailableError",
+    "UnregisteredSpecificationError",
     "ValidationGateError",
     "ValidationRefusal",
     "ValidationReport",
