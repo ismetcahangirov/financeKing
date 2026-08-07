@@ -111,11 +111,17 @@ async def _seed_chains(dsn: str) -> None:
                             charged_at_utc, correlation_id, spec_hash, registered_by,
                             statement, parameter_grid, n_parameters, n_symbols,
                             n_variants, trials_charged, cumulative_trials,
-                            prev_hash, row_hash
+                            prev_hash, row_hash,
+                            search_context_hash, lineage_id, entry_kind
                         ) VALUES (
                             now(), gen_random_uuid(), :spec, 'drill',
                             'rehearsal grid', '{"fast": [1, 2]}'::jsonb, 1, 1,
-                            1, 2, 0, '\\x00'::bytea, '\\x00'::bytea
+                            1, 2, 0, '\\x00'::bytea, '\\x00'::bytea,
+                            -- 0018 makes the search context mandatory on every new row.
+                            -- One context for the whole rehearsal: the drill is about
+                            -- whether the chain survives a dump and restore, not about
+                            -- which search the charges belong to.
+                            decode(repeat('33', 32), 'hex'), 'lin-drill', 'registration'
                         )
                         """
                     ),
