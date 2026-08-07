@@ -107,7 +107,7 @@ def test_a_trip_timestamp_that_is_not_aware_utc_is_refused(
 def test_a_trip_identifier_that_is_not_a_uuid_is_refused() -> None:
     with pytest.raises(DomainError, match="event_id must be a UUID"):
         TripEvent(
-            event_id=cast("UUID", "not-a-uuid"),
+            event_id=cast(UUID, "not-a-uuid"),
             incident_id=uuid4(),
             correlation_id=uuid4(),
             occurred_at_utc=MOMENT,
