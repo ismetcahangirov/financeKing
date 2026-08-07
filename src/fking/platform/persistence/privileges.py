@@ -202,6 +202,14 @@ CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
         # cannot express "these three columns". DELETE is granted and unused; retention
         # on this table is a decision nobody has had to take yet (ADR-0019).
         "scheduler_job_run": PrivilegeClass.APP_MUTABLE,
+        # The high-water mark and the day anchor are read at startup and advanced on
+        # every mark, so this is state rather than a record -- the record of *why* a
+        # limit tripped is `limit_breach`, which is append-only. DELETE is required
+        # because closing a subject removes its row, and the trailing window CASCADEs
+        # with it: a window without its state row is a set of equity readings nothing
+        # can interpret.
+        "risk_drawdown_state": PrivilegeClass.APP_MUTABLE,
+        "risk_drawdown_mark": PrivilegeClass.APP_MUTABLE,
         # Append-only: the 12 tables in schema.APPEND_ONLY_TABLES, repeated here rather
         # than derived, so that the two lists disagreeing is a test failure instead of
         # one list silently defining the other.

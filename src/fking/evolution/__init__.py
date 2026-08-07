@@ -11,8 +11,12 @@ The public surface today is the lineage store and the identity it is keyed on:
   hypothesis *is*; `structure_hash` is what it is *about*, and `lineage_id_for` derives
   the family from the second so a parameter-only mutation cannot mint a fresh lineage and
   escape its parent's accumulated trial count.
-- `fking.evolution.lifecycle` -- states, the append-only events that move between them,
-  and the current state derived from those events. There is no state column anywhere.
+- `fking.evolution.lifecycle` -- states, the edges between them, the capital each state
+  is allowed to move, the append-only events that record a move, and the current state
+  derived from those events. There is no state column anywhere.
+- `fking.evolution.contract_gate` -- the deterministic, score-free admission check. A
+  genome that fails it is retired as a `defect` rather than scored badly, because a
+  hypothesis that cannot run is not a weak hypothesis.
 - `fking.evolution.lineage` -- the pure genealogy graph: ancestry, descendants, and the
   collapse report that escalates diversity pressure regardless of what the measured
   correlations say.
@@ -22,11 +26,23 @@ Modules whose names begin with `_` are internal and carry no compatibility promi
 """
 
 from fking.evolution._errors import (
+    ContractGateError,
     EvolutionError,
     GenomeError,
+    IllegalTransitionError,
     LifecycleTransitionError,
     LineageCycleError,
     LineageError,
+)
+from fking.evolution.contract_gate import (
+    COMPILED_THRESHOLD_FLOORS,
+    ContractCheck,
+    ContractGateThresholds,
+    ContractGateVerdict,
+    ContractViolation,
+    GenomeProposal,
+    ParentThesis,
+    evaluate_contract_gate,
 )
 from fking.evolution.genome import (
     ExpressionNode,
@@ -39,12 +55,18 @@ from fking.evolution.genome import (
     structure_hash,
 )
 from fking.evolution.lifecycle import (
+    CAPITAL_AUTHORITY,
     LIVE_STATES,
+    PERMITTED_TRANSITIONS,
     SCORED_STATES,
+    CapitalAuthority,
+    CapitalPosture,
     LifecycleEvent,
     LifecycleState,
     ReasonClass,
+    capital_authority_for,
     derive_current_state,
+    is_permitted_transition,
     require_permitted_transition,
 )
 from fking.evolution.lineage import (
@@ -57,17 +79,29 @@ from fking.evolution.lineage import (
 from fking.evolution.store import ChainVerification, GenomeRecord, LineageStore
 
 __all__: tuple[str, ...] = (
+    "CAPITAL_AUTHORITY",
+    "COMPILED_THRESHOLD_FLOORS",
     "DEFAULT_COLLAPSE_MAX_GENERATIONS",
     "DEFAULT_COLLAPSE_THRESHOLD_FRACTION",
     "LIVE_STATES",
+    "PERMITTED_TRANSITIONS",
     "SCORED_STATES",
+    "CapitalAuthority",
+    "CapitalPosture",
     "ChainVerification",
+    "ContractCheck",
+    "ContractGateError",
+    "ContractGateThresholds",
+    "ContractGateVerdict",
+    "ContractViolation",
     "EvolutionError",
     "ExpressionNode",
     "ExpressionType",
     "Genome",
     "GenomeError",
+    "GenomeProposal",
     "GenomeRecord",
+    "IllegalTransitionError",
     "LifecycleEvent",
     "LifecycleState",
     "LifecycleTransitionError",
@@ -78,9 +112,13 @@ __all__: tuple[str, ...] = (
     "LineageStore",
     "MutationOperator",
     "NodeKind",
+    "ParentThesis",
     "ReasonClass",
+    "capital_authority_for",
     "derive_current_state",
+    "evaluate_contract_gate",
     "genome_hash",
+    "is_permitted_transition",
     "lineage_collapse_report",
     "lineage_id_for",
     "require_permitted_transition",
