@@ -76,12 +76,24 @@ async def _server_is_reachable(dsn: str) -> str | None:
     return None
 
 
-async def _create_database(dsn: str, name: str) -> None:
+async def _create_database(dsn: str, name: str, *, template: str | None = None) -> None:
+    """Create `name`, optionally from an explicit template.
+
+    `template` matters for one caller and is worth the parameter. `CREATE DATABASE`
+    defaults to `template1`, and the TimescaleDB image installs its extension there, so
+    every database created this way arrives with `_timescaledb_catalog` already
+    populated. That is invisible until something restores a dump *into* one, at which
+    point `pg_restore` replays the dumped catalog on top of the inherited one and
+    `COPY metadata` fails on a duplicate `exported_uuid`. `template0` is the empty
+    template that exists precisely so a restore target can be free of local
+    installations.
+    """
     engine = create_async_engine(dsn, isolation_level="AUTOCOMMIT")
+    clause = f' TEMPLATE "{template}"' if template is not None else ""
     try:
         async with engine.connect() as connection:
             await connection.execute(sa.text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
-            await connection.execute(sa.text(f'CREATE DATABASE "{name}"'))
+            await connection.execute(sa.text(f'CREATE DATABASE "{name}"{clause}'))
     finally:
         await engine.dispose()
 
