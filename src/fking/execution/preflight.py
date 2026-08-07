@@ -56,7 +56,7 @@ from fking.platform.logging import get_logger
 from fking.platform.safety import PERMITTED_HOSTS, assert_host_permitted
 
 __all__ = [
-    "PRODUCTION_PROVENANCE_PREFIX",
+    "PRODUCTION_PROVENANCE_FORBIDDEN_SUBSTRING",
     "CheckOutcome",
     "ClockDriftError",
     "ClockSkewMonitor",
@@ -77,12 +77,21 @@ __all__ = [
 
 _LOG: Final = get_logger(__name__)
 
-# A cost-parameter set may only be loaded when its provenance names a *production*
-# calibration. Futures testnet measured a 7.5bp spread against production's 0.16bp with
-# roughly 10x inflated volume, so a model built here looks conservative and is fiction
-# (CLAUDE.md section 2). The prefix is checked rather than a boolean flag because the
-# provenance id is what an audit row carries months later, and a boolean records nothing.
-PRODUCTION_PROVENANCE_PREFIX: Final[str] = "production:"
+# A cost-parameter set may only be loaded when its provenance does not name testnet.
+# Futures testnet measured a 7.5bp spread against production's 0.16bp with roughly 10x
+# inflated volume, so a model built there looks conservative and is fiction (CLAUDE.md
+# section 2). A provenance *string* is checked rather than a boolean flag because the id
+# is what an audit row carries months later, and a boolean records nothing.
+#
+# This is the third site running the same rule, after `CostModel`'s validator and
+# `fking.backtest.costs.calibrate`, and the duplication is deliberate for the reason
+# `_calibrate.py` states: each site stops the fiction at a different moment. This one
+# stops it from being *loaded into the demo runtime*, which is the last moment before it
+# starts pricing real fills. It is a copy rather than an import because `fking.execution`
+# sits below `fking.backtest` in the layers contract and importing upward would invert
+# it; `tests/execution/test_preflight.py` asserts the two agree case by case, so the
+# copy cannot drift silently.
+PRODUCTION_PROVENANCE_FORBIDDEN_SUBSTRING: Final[str] = "testnet"
 
 # Binance returns this when the signed request's timestamp falls outside recvWindow. It
 # belongs to the request-signing domain and is always about milliseconds.
@@ -373,7 +382,28 @@ def _check_endpoints_allowlisted(profile: VenueProfile) -> CheckOutcome:
     # A SafetyViolation is a BaseException with no handler anywhere; it propagates
     # through this frame and kills the process, which is the correct outcome for a
     # configured endpoint outside the allowlist and is stricter than a failed item.
-    hosts = tuple(assert_host_permitted(url) for url in profile.endpoint_urls)
+    #
+    # `finally` rather than `except`, and that distinction is the whole point: an
+    # `except SafetyViolation` here would be a handler for the exception the safety
+    # kernel guarantees has none (tools/checks/no_catch_safety.py rejects one outright).
+    # The finally block only names the item in the record an operator will read; the
+    # violation continues past it untouched and takes the process with it.
+    permitted = False
+    try:
+        hosts = tuple(assert_host_permitted(url) for url in profile.endpoint_urls)
+        permitted = True
+    finally:
+        if not permitted:
+            _LOG.critical(
+                "preflight.item_failed",
+                item=PreflightItem.ALLOWLISTED_ENDPOINTS.value,
+                venue_id=str(profile.venue_id),
+                detail=(
+                    "a configured endpoint is outside the compiled-in allowlist; the "
+                    "process aborts on the SafetyViolation rather than on this item"
+                ),
+                endpoints=list(profile.endpoint_urls),
+            )
     return _outcome(
         PreflightItem.ALLOWLISTED_ENDPOINTS,
         verdict="passed",
@@ -518,6 +548,35 @@ def _check_symbol_universe(
     )
 
 
+def _survives_the_log_sink(raw: str) -> bool:
+    """True when `raw` reaches a log sink and comes back with its code points intact.
+
+    Three separate ways a symbol fails to, in the order they occur:
+
+    - `classify_symbol` altered it. It is contractually forbidden to (an NFKC normalise
+      would change the bytes we must send back), and this asserts that rather than
+      trusting it, because the quarantine and the wire share one string.
+    - It is not encodable at all. A lone surrogate -- what a mis-decoded response
+      produces -- raises `UnicodeEncodeError` on `encode`, and every sink in the process
+      encodes eventually. `errors="strict"` is the default and is stated here so nobody
+      "fixes" this by passing `errors="replace"`, which would silently mangle the symbol
+      instead of refusing it.
+    - The render is not reversible. `ensure_ascii=True` mirrors the JSON renderer in
+      `fking.platform.logging`: it escapes the code points rather than emitting them,
+      which is what makes the record encodable on a cp1252 console. The round trip is
+      what proves the escape carries the original back.
+    """
+    if classify_symbol(raw).symbol != raw:
+        return False
+    try:
+        raw.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        return False
+    rendered = json.dumps({"symbol": raw}, ensure_ascii=True)
+    parsed = json.loads(rendered)
+    return bool(parsed["symbol"] == raw)
+
+
 def _check_symbol_round_trip(venue_symbols: Sequence[str]) -> CheckOutcome:
     """Item 5. Every symbol survives the log sink with its code points intact.
 
@@ -527,18 +586,7 @@ def _check_symbol_round_trip(venue_symbols: Sequence[str]) -> CheckOutcome:
     default codepage is cp1252, which takes the process down at startup while every
     parsing test passes.
     """
-    damaged: list[str] = []
-    for raw in venue_symbols:
-        classification = classify_symbol(raw)
-        if classification.symbol != raw:
-            damaged.append(raw)
-            continue
-        # ensure_ascii mirrors the JSON renderer the log pipeline uses: it escapes the
-        # code points rather than emitting them, which is what makes the record encodable
-        # on any console. The round trip proves the escape is reversible.
-        rendered = json.dumps({"symbol": raw}, ensure_ascii=True)
-        if json.loads(rendered)["symbol"] != raw:
-            damaged.append(raw)
+    damaged = tuple(raw for raw in venue_symbols if not _survives_the_log_sink(raw))
     non_ascii = tuple(raw for raw in venue_symbols if not raw.isascii())
     if damaged:
         return _outcome(
@@ -606,11 +654,8 @@ def _check_symbol_filters(
     )
 
 
-def _check_exchange_state(
-    *,
-    balances: Sequence[VenueBalance],
-    open_orders: Sequence[VenueOrder],
-    local_state_expects_holdings: bool,
+async def _check_exchange_state(
+    venue: ExecutionVenue, *, local_state_expects_holdings: bool
 ) -> CheckOutcome:
     """Item 7. Fetch the venue's view; local state is overwritten by it, never merged.
 
@@ -619,7 +664,25 @@ def _check_exchange_state(
     is routed to the wipe handler rather than reported as a discrepancy. The same order
     missing while balances are intact is a different and much worse condition: a rejection
     that was never recorded.
+
+    Both reads happen *inside* the item, for the reason `_check_symbol_filters` gives: a
+    venue that refuses `openOrders` would otherwise escape the gate as a bare exception
+    with no item named, and "the runtime would not start" is a much less useful record
+    than "the runtime would not start because it could not read the venue's open orders".
     """
+    try:
+        balances: Sequence[VenueBalance] = await venue.fetch_balances()
+        open_orders: Sequence[VenueOrder] = await venue.fetch_open_orders()
+    except PermanentExchangeError as refused:
+        return _outcome(
+            PreflightItem.EXCHANGE_STATE,
+            verdict="failed",
+            detail=(
+                f"the venue refused the state read, so local state cannot be rebuilt "
+                f"from it: {refused}"
+            ),
+            venue_code=str(refused.venue_code),
+        )
     held = tuple(
         entry
         for entry in balances
@@ -733,6 +796,16 @@ async def _check_user_data_heartbeat(
     )
 
 
+def _condensed_provenance(candidate: str) -> str:
+    """Casefold and drop every separator, so `Test-Net` and `TESTNET` compare equal.
+
+    Byte-for-byte the rule `fking.backtest.costs` applies. Condensing cannot create a
+    false positive against a provenance string this project would legitimately write:
+    `binance_um_production_2026-03..2026-05` condenses to `binanceumproduction202603202605`.
+    """
+    return "".join(character for character in candidate.casefold() if character.isalnum())
+
+
 def _check_cost_parameter_provenance(provenance_id: str) -> CheckOutcome:
     """Item 10. The loaded cost parameters name a production calibration.
 
@@ -740,16 +813,29 @@ def _check_cost_parameter_provenance(provenance_id: str) -> CheckOutcome:
     production's 0.16bp with roughly 10x inflated volume. A cost model built from that
     looks conservative and is fiction, so a testnet provenance refuses to start the demo
     runtime rather than warning.
+
+    A blank provenance is refused for a different reason and is not a lesser one: it
+    records nothing an investigator could check months later, so it is indistinguishable
+    from a testnet calibration whose id was cleared.
     """
-    if not provenance_id.startswith(PRODUCTION_PROVENANCE_PREFIX):
+    if not provenance_id.strip():
         return _outcome(
             PreflightItem.COST_PARAMETER_PROVENANCE,
             verdict="failed",
             detail=(
-                f"cost parameters carry provenance {provenance_id!r}, which does not name "
-                f"a production calibration ({PRODUCTION_PROVENANCE_PREFIX}...); testnet "
-                f"spreads are roughly 47x production's and produce a model that looks "
-                f"conservative and is fiction"
+                "cost parameters carry a blank provenance; an id that records nothing "
+                "cannot be distinguished later from a testnet calibration"
+            ),
+            provenance_id=provenance_id,
+        )
+    if PRODUCTION_PROVENANCE_FORBIDDEN_SUBSTRING in _condensed_provenance(provenance_id):
+        return _outcome(
+            PreflightItem.COST_PARAMETER_PROVENANCE,
+            verdict="failed",
+            detail=(
+                f"cost parameters carry provenance {provenance_id!r}, which names testnet; "
+                f"testnet spreads are roughly 47x production's and produce a model that "
+                f"looks conservative and is fiction"
             ),
             provenance_id=provenance_id,
         )
@@ -805,10 +891,8 @@ async def run_preflight(  # noqa: PLR0913 - see the note above
             outcomes.append(_check_symbol_filters(exchange_info, required_symbols=required_symbols))
     if not outcomes[-1].is_blocking:
         outcomes.append(
-            _check_exchange_state(
-                balances=await venue.fetch_balances(),
-                open_orders=await venue.fetch_open_orders(),
-                local_state_expects_holdings=local_state_expects_holdings,
+            await _check_exchange_state(
+                venue, local_state_expects_holdings=local_state_expects_holdings
             )
         )
     if not outcomes[-1].is_blocking:

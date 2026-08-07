@@ -57,7 +57,7 @@ from fking.execution.parsing import (
     raise_for_venue_error,
 )
 from fking.execution.preflight import (
-    PRODUCTION_PROVENANCE_PREFIX,
+    PRODUCTION_PROVENANCE_FORBIDDEN_SUBSTRING,
     CheckOutcome,
     ClockDriftError,
     ClockSkewMonitor,
@@ -95,7 +95,7 @@ __all__: tuple[str, ...] = (
     "BINANCE_FUTURES_TESTNET",
     "BINANCE_SPOT_TESTNET",
     "BYBIT_TESTNET",
-    "PRODUCTION_PROVENANCE_PREFIX",
+    "PRODUCTION_PROVENANCE_FORBIDDEN_SUBSTRING",
     "RETRYABLE_HTTP_STATUSES",
     "RETRYABLE_VENUE_CODES",
     "VENUE_PROFILES",

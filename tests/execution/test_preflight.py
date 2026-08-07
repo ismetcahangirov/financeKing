@@ -3,16 +3,23 @@
 Every symbol, filter and server-time value in this file comes from bytes a real testnet
 returned -- `exchangeInfo` for the universe, the filters and the deliberate non-ASCII
 symbols, `GET /api/v3/time` for the skew measurement, and the recorded `-1102` rejection
-for the credential path. The only values constructed here are the *absence* of holdings
-and open orders, which is a state the venue reports as an empty array and which the
-corpus cannot capture without an authenticated recording.
+for the credential path. Two envelopes are *synthesized* from recorded ones, `-1021` and
+`-1022`, because capturing either would mean deliberately skewing the client clock or
+signing with a key the venue rejects; both keep the recorded serialization and go through
+the real parser rather than being handed to a check pre-classified. The only other values
+constructed here are the *absence* of holdings and open orders, which is a state the venue
+reports as an empty array and which the corpus cannot capture without an authenticated
+recording.
 
-The parametrized test is the one that matters: each of the ten items is made to fail on
-its own while the other nine are satisfiable, and each failure must abort.
+The parametrized test is the one that matters: nine of the ten items are made to fail on
+their own while the other nine are satisfiable, and each failure must abort. The tenth,
+the allowlist item, aborts on a `SafetyViolation` instead and has its own test, because a
+`BaseException` never becomes a `CheckOutcome`.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -22,6 +29,8 @@ from typing import Final, Literal
 import pytest
 import structlog
 
+from fking.backtest.costs import CalibrationProvenanceError
+from fking.backtest.costs._provenance import require_production_provenance
 from fking.domain import Order, Venue
 from fking.execution import (
     BINANCE_SPOT_TESTNET,
@@ -42,18 +51,26 @@ from fking.execution import (
     measure_clock_skew,
     parse_venue_payload,
     preflight_or_abort,
+    raise_for_venue_error,
     run_preflight,
 )
 from fking.execution.preflight import ClockSkewSample, PreflightReport
+from fking.platform.safety import SafetyViolation
 from tests.execution.conftest import RecordedExchange, load_recording
 
 pytestmark = pytest.mark.unit
 
 # BTCUSDT is present in the recorded spot exchangeInfo and carries a full filter set.
 REQUIRED_SYMBOLS: Final[frozenset[str]] = frozenset({"BTCUSDT"})
-PRODUCTION_PROVENANCE: Final[str] = "production:binance-spot-2026-07"
+# The shape `fking.backtest.costs` writes, so the gate is exercised against a provenance
+# string a real CostModel would actually carry rather than one invented for this file.
+PRODUCTION_PROVENANCE: Final[str] = "binance_um_production_2026-03..2026-05"
 # The captured account rejection: "Mandatory parameter 'signature' was not sent".
 MISSING_SIGNATURE_VENUE_CODE: Final[int] = -1102
+# "Timestamp for this request is outside of the recvWindow." Request-signing domain.
+RECV_WINDOW_VENUE_CODE: Final[int] = -1021
+# "Signature for this request is not valid." What a wrong key type produces.
+BAD_SIGNATURE_VENUE_CODE: Final[int] = -1022
 # 100ms local offset corrected for a 40ms round trip leaves the venue 80ms ahead.
 EXPECTED_SKEW_MS: Final[int] = 80
 
@@ -83,6 +100,7 @@ class FakeVenue:
     balances: tuple[VenueBalance, ...] = ()
     open_orders: tuple[VenueOrder, ...] = ()
     balances_error: Exception | None = None
+    open_orders_error: Exception | None = None
 
     @property
     def profile(self) -> VenueProfile:
@@ -104,6 +122,8 @@ class FakeVenue:
         *,
         symbol: str | None = None,  # noqa: ARG002 - Protocol shape
     ) -> tuple[VenueOrder, ...]:
+        if self.open_orders_error is not None:
+            raise self.open_orders_error
         return self.open_orders
 
     async def fetch_my_trades(
@@ -310,7 +330,44 @@ def _break_user_data(harness: Harness) -> Harness:
 
 
 def _break_provenance(harness: Harness) -> Harness:
-    return replace(harness, provenance_id="testnet:binance-spot-2026-08")
+    return replace(harness, provenance_id="binance_um_test-net_2026-08")
+
+
+def _break_symbol_round_trip(harness: Harness) -> Harness:
+    """Append a listed symbol carrying a lone surrogate.
+
+    Not a shape Binance emits, and precisely the shape a mis-decoded response produces:
+    the string exists, compares equal to itself and passes every parsing test, and then
+    raises `UnicodeEncodeError` the first time a log sink encodes it -- at startup, on a
+    line nobody was looking at.
+    """
+    symbols = harness.venue.exchange_info_value.symbols
+    trading = next(entry for entry in symbols if entry.is_trading)
+    return replace(
+        harness,
+        venue=replace(
+            harness.venue,
+            exchange_info_value=harness.venue.exchange_info_value.model_copy(
+                update={"symbols": (*symbols, trading.model_copy(update={"symbol": "BTC\ud800"}))}
+            ),
+        ),
+    )
+
+
+def _break_exchange_state(harness: Harness) -> Harness:
+    """The venue refuses the open-orders read.
+
+    Distinct from a wipe: a wipe answers, with nothing in it. This is the venue declining
+    to say, which means local state cannot be rebuilt from it and the runtime has no
+    basis for believing anything about the book.
+    """
+    refusal = PermanentExchangeError(
+        "binance-spot-testnet rejected the request: [-1102] openOrders unavailable",
+        venue_id="binance-spot-testnet",
+        http_status=400,
+        venue_code=MISSING_SIGNATURE_VENUE_CODE,
+    )
+    return replace(harness, venue=replace(harness.venue, open_orders_error=refusal))
 
 
 @pytest.mark.asyncio
@@ -320,7 +377,9 @@ def _break_provenance(harness: Harness) -> Harness:
         (PreflightItem.CLOCK_SKEW, _break_clock),
         (PreflightItem.CREDENTIAL_KEY_TYPE, _break_credential),
         (PreflightItem.SYMBOL_UNIVERSE, _break_universe),
+        (PreflightItem.SYMBOL_ROUND_TRIP, _break_symbol_round_trip),
         (PreflightItem.SYMBOL_FILTERS, _break_filters),
+        (PreflightItem.EXCHANGE_STATE, _break_exchange_state),
         (PreflightItem.ORDER_RATE_BUDGET, _break_order_rate),
         (PreflightItem.USER_DATA_HEARTBEAT, _break_user_data),
         (PreflightItem.COST_PARAMETER_PROVENANCE, _break_provenance),
@@ -335,9 +394,18 @@ async def test_each_item_fails_the_process_closed_in_isolation(
     with pytest.raises(PreflightAbortedError, match=item.value):
         await broken.run_or_abort()
 
-    report = await broken.run()
+    with structlog.testing.capture_logs() as captured:
+        report = await broken.run()
+
     assert [failure.item for failure in report.failures] == [item]
     assert not report.is_ready
+    # The operator-facing half: one CRITICAL record, naming this item and no other.
+    critical = [
+        entry
+        for entry in captured
+        if entry["event"] == "preflight.item_failed" and entry["log_level"] == "critical"
+    ]
+    assert [entry["item"] for entry in critical] == [item.value]
 
 
 @pytest.mark.asyncio
@@ -429,6 +497,47 @@ async def test_a_recorded_signature_rejection_fails_the_credential_item(
 
 
 @pytest.mark.asyncio
+async def test_a_synthesized_bad_signature_fails_item_three_naming_the_expected_key_type(
+    harness: Harness,
+) -> None:
+    """`-1022`, the code a wrong key type actually produces, through the real parser.
+
+    The corpus cannot hold a genuine `-1022`: capturing one requires signing with a key
+    the venue rejects, which means holding a wrong key on purpose. The envelope is the
+    recorded account rejection's exact serialization with the documented code and message
+    substituted, and it goes through `raise_for_venue_error` rather than being handed to
+    the check as a constructed exception, so the adapter's classification is what is
+    under test.
+    """
+    recorded = parse_venue_payload(
+        load_recording(Venue.BINANCE_SPOT_TESTNET, "account_rejected").body
+    )
+    assert isinstance(recorded, Mapping)
+    synthesized = json.dumps(
+        {
+            **recorded,
+            "code": BAD_SIGNATURE_VENUE_CODE,
+            "msg": "Signature for this request is not valid.",
+        }
+    )
+
+    with pytest.raises(PermanentExchangeError) as raised:
+        raise_for_venue_error(
+            parse_venue_payload(synthesized), venue_id="binance-spot-testnet", http_status=401
+        )
+
+    broken = replace(harness, venue=replace(harness.venue, balances_error=raised.value))
+
+    report = await broken.run()
+
+    (failure,) = report.failures
+    assert failure.item is PreflightItem.CREDENTIAL_KEY_TYPE
+    assert failure.evidence["required_key_type"] == "ed25519"
+    assert failure.evidence["venue_code"] == str(BAD_SIGNATURE_VENUE_CODE)
+    assert "credential" in failure.detail
+
+
+@pytest.mark.asyncio
 async def test_zero_everything_is_routed_to_the_wipe_handler_not_reported_as_a_discrepancy(
     harness: Harness,
 ) -> None:
@@ -483,28 +592,100 @@ async def test_the_recorded_non_ascii_symbols_round_trip_through_the_log_sink(
     assert int(round_trip.evidence["non_ascii_symbol_count"]) > 0
 
 
+@pytest.mark.asyncio
+async def test_a_non_allowlisted_endpoint_kills_the_process_naming_the_item(
+    harness: Harness,
+) -> None:
+    """Item 1's failure case, which cannot be a failed item and must not be.
+
+    A `VenueProfile` validates its endpoints on construction, so the only way this state
+    reaches the runtime is a profile that bypassed that validation -- which is what
+    `model_construct` reproduces, and what a future edit removing the validator would
+    produce for real.
+
+    The abort is a `SafetyViolation`: a `BaseException` with no handler anywhere, so it
+    is strictly harder to survive than the `PreflightAbortedError` the other nine items
+    raise. The CRITICAL record still names the item, from a `finally` rather than an
+    `except`, so an operator reading the log is not left to infer which check refused.
+    """
+    smuggled = VenueProfile.model_construct(
+        **{**BINANCE_SPOT_TESTNET.model_dump(), "rest_url": "https://api.binance.com"}
+    )
+    broken = replace(harness, venue=replace(harness.venue, profile_value=smuggled))
+
+    with structlog.testing.capture_logs() as captured, pytest.raises(SafetyViolation):
+        await broken.run_or_abort()
+
+    record = next(
+        entry
+        for entry in captured
+        if entry["event"] == "preflight.item_failed" and entry["log_level"] == "critical"
+    )
+    assert record["item"] == PreflightItem.ALLOWLISTED_ENDPOINTS.value
+    assert "api.binance.com" in " ".join(record["endpoints"])
+
+
 def test_every_item_has_a_failure_case() -> None:
     """The checklist and its tests cannot drift apart silently.
 
-    Two items are absent from the parametrized list for stated reasons: the allowlist item
-    raises `SafetyViolation`, which is a `BaseException` with no handler and therefore is
-    not an item outcome at all; and the exchange-state item routes rather than fails.
+    One item is absent from the parametrized list, for a reason that is a property of the
+    system rather than a gap: the allowlist item aborts on a `SafetyViolation`, which is a
+    `BaseException` and therefore never becomes a `CheckOutcome` at all. Its failure case
+    is `test_a_non_allowlisted_endpoint_kills_the_process_naming_the_item` immediately
+    above, and this assertion is what forces a new item to acquire one of the two shapes.
     """
     parametrized = {
         PreflightItem.CLOCK_SKEW,
         PreflightItem.CREDENTIAL_KEY_TYPE,
         PreflightItem.SYMBOL_UNIVERSE,
+        PreflightItem.SYMBOL_ROUND_TRIP,
         PreflightItem.SYMBOL_FILTERS,
+        PreflightItem.EXCHANGE_STATE,
         PreflightItem.ORDER_RATE_BUDGET,
         PreflightItem.USER_DATA_HEARTBEAT,
         PreflightItem.COST_PARAMETER_PROVENANCE,
     }
     unparametrized = set(PreflightItem) - parametrized
-    assert unparametrized == {
-        PreflightItem.ALLOWLISTED_ENDPOINTS,
-        PreflightItem.SYMBOL_ROUND_TRIP,
-        PreflightItem.EXCHANGE_STATE,
-    }
+    assert unparametrized == {PreflightItem.ALLOWLISTED_ENDPOINTS}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provenance_id",
+    [
+        "binance_um_production_2026-03..2026-05",
+        "binance_spot_production_2026-07",
+        "binance_um_testnet_2026-08",
+        "binance um TEST-NET 2026-05",
+        "Testnet",
+        "   ",
+        "",
+    ],
+)
+async def test_the_gate_and_the_cost_model_agree_on_every_provenance(
+    harness: Harness, provenance_id: str
+) -> None:
+    """The copy in `fking.execution` cannot drift from the rule in `fking.backtest`.
+
+    `fking.execution` sits below `fking.backtest` in the layers contract, so the gate
+    cannot import the canonical check and carries its own copy. Two implementations of
+    one policy diverge unless something compares them, and a divergence here is silent
+    in the dangerous direction: the gate would admit a cost model the calibrator refused,
+    at the one moment the model starts pricing real fills. Tests are not bound by the
+    layers contract, so this comparison is possible exactly where it belongs.
+    """
+    accepted_by_costs = True
+    try:
+        require_production_provenance(provenance_id, "calibration_source")
+    except CalibrationProvenanceError:
+        accepted_by_costs = False
+
+    report = await replace(harness, provenance_id=provenance_id).run()
+    (outcome,) = [
+        entry for entry in report.outcomes if entry.item is PreflightItem.COST_PARAMETER_PROVENANCE
+    ]
+
+    assert (outcome.verdict == "passed") is accepted_by_costs
 
 
 # ---------------------------------------------------------------------------
@@ -602,6 +783,39 @@ async def test_the_monitor_halts_on_a_breach_and_reports_the_sample_otherwise() 
 def test_timestamp_domains_a_recv_window_rejection_is_clock_drift_not_a_data_unit_error() -> None:
     """`-1021` is a signing-clock failure. Milliseconds, both markets, fix the clock."""
     assert classify_timestamp_domain(venue_code=-1021, epoch_ms=None) == "request_signing"
+
+
+def test_timestamp_domains_a_synthesized_recv_window_response_classifies_as_clock_drift() -> None:
+    """The whole path, from response bytes to domain, on a synthesized `-1021`.
+
+    Testnet will not emit `-1021` on demand without deliberately skewing the client
+    clock, so the envelope is the recorded rejection's exact shape with the documented
+    code and message substituted -- the venue's own serialization, not a hand-written
+    dict. Going through `raise_for_venue_error` is the point: a test that passes
+    `venue_code=-1021` directly asserts the classifier and skips the parser, and the
+    parser is where the code could be dropped or coerced to a string.
+    """
+    recorded = parse_venue_payload(
+        load_recording(Venue.BINANCE_SPOT_TESTNET, "openOrders_rejected").body
+    )
+    assert isinstance(recorded, Mapping)
+    synthesized = json.dumps(
+        {
+            **recorded,
+            "code": RECV_WINDOW_VENUE_CODE,
+            "msg": "Timestamp for this request is outside of the recvWindow.",
+        }
+    )
+
+    with pytest.raises(PermanentExchangeError) as raised:
+        raise_for_venue_error(
+            parse_venue_payload(synthesized), venue_id="binance-spot-testnet", http_status=400
+        )
+
+    assert raised.value.venue_code == RECV_WINDOW_VENUE_CODE
+    assert classify_timestamp_domain(venue_code=raised.value.venue_code, epoch_ms=None) == (
+        "request_signing"
+    )
 
 
 def test_timestamp_domains_a_microsecond_epoch_is_a_data_unit_error_not_clock_drift() -> None:
