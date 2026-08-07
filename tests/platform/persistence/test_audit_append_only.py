@@ -240,10 +240,16 @@ _INSERT_TRIAL = sa.text(
                               statement, parameter_grid, n_parameters, n_symbols,
                               n_variants, trials_charged, cumulative_trials,
                               holdout_touched, human_authorisation_ref,
-                              prev_hash, row_hash)
+                              prev_hash, row_hash,
+                              search_context_hash, lineage_id, entry_kind)
     VALUES (now(), gen_random_uuid(), :spec_hash, 'evolution', :statement,
             '{}'::jsonb, 2, 1, 1, :trials_charged, 0, :holdout, :authorisation,
-            '\\x00'::bytea, '\\x00'::bytea)
+            '\\x00'::bytea, '\\x00'::bytea,
+            -- 0018 made the search context mandatory for every new row: a charge that
+            -- cannot be attributed to a search is a charge no deflated Sharpe can use.
+            -- One context and one lineage here, because what these tests are about is
+            -- the chain and the running total rather than the attribution.
+            decode(repeat('11', 32), 'hex'), 'lin-audit-substrate', 'registration')
     RETURNING seq, cumulative_trials
     """
 )
