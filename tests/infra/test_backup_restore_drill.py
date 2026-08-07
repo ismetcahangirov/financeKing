@@ -71,7 +71,12 @@ def restore_dsn(postgres_server: str) -> Iterator[str]:
     and the one being restored into -- and a single fixture cannot supply both.
     """
     name = f"fking_restore_{uuid.uuid4().hex[:12]}"
-    asyncio.run(_create_database(postgres_server, name))
+    # template0, not the default template1: the TimescaleDB image installs its extension
+    # into template1, so a target cloned from it already holds a populated
+    # `_timescaledb_catalog`. pg_restore then replays the dumped catalog on top and dies
+    # on a duplicate `exported_uuid` -- a failure that appears only where the extension
+    # is preinstalled, which is why it passed locally and failed in CI.
+    asyncio.run(_create_database(postgres_server, name, template="template0"))
     try:
         yield dsn_for(postgres_server, name)
     finally:
