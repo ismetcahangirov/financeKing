@@ -216,6 +216,16 @@ ignore = [
 # reason: pytest-randomly reseeds that per test.
 "tests/backtest/test_overfit_rejection.py" = ["S101", "S311"]
 "tests/backtest/test_pbo.py" = ["S101", "S311"]
+# S311: the effective-sample test needs daily returns with a *known* autocorrelation
+# structure -- a five-day overlapping hold -- and that means a draw from a generator.
+# It must be the same draw on every machine and under every pytest-randomly shuffle,
+# or the n_eff assertions become a coin flip on run order, which is precisely what a
+# cryptographic generator would guarantee.
+"tests/backtest/test_effective_sample.py" = ["S101", "S311"]
+# PLR0913: the portfolio factories take one keyword per field of the domain type they
+# build, so the argument count is the type's field count. Collapsing them into a params
+# object would mean constructing a second object in order to construct the first.
+"tests/backtest/portfolio_support.py" = ["S101", "PLR0913"]
 # S311: the reconnect backoff is seeded here on purpose. Production uses SystemRandom --
 # jitter across replicas is the entire point of full jitter -- but a *test* of a
 # schedule must be reproducible, and a cryptographic generator is exactly what takes
