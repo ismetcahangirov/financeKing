@@ -88,22 +88,34 @@ def _clock() -> datetime:
     return _AS_OF
 
 
-class _ExplodingMarks(Mapping[Instrument, Decimal]):
-    """A marks mapping that fails the test if anything reads it.
+class _RecordingMarks(Mapping[Instrument, Decimal]):
+    """A marks mapping that records every read instead of answering one.
 
     The point of the ordering assertion: a validator that sizes first and checks the
     universe afterwards returns exactly the same rejection, so only touching the inputs
     distinguishes the two implementations.
+
+    Accesses are recorded and asserted on by the caller rather than raised from inside
+    the special methods. Raising is the obvious spelling and is worse twice over: a
+    `__getitem__` that raises `AssertionError` violates the mapping contract, which
+    CodeQL flags; and an exception can be swallowed by an `except` in the code under
+    test, which would turn this probe silently green. A recorder cannot be caught.
     """
 
+    def __init__(self) -> None:
+        self.reads: list[str] = []
+
     def __getitem__(self, key: Instrument) -> Decimal:
-        raise AssertionError(f"sizing arithmetic priced {key.symbol} before the universe check")
+        self.reads.append(f"priced {key.symbol}")
+        return Decimal("1")
 
     def __iter__(self) -> Iterator[Instrument]:
-        raise AssertionError("sizing arithmetic enumerated marks before the universe check")
+        self.reads.append("enumerated marks")
+        return iter(())
 
     def __len__(self) -> int:
-        raise AssertionError("sizing arithmetic measured marks before the universe check")
+        self.reads.append("measured marks")
+        return 0
 
 
 def _signal(instrument: Instrument, direction: Direction = Direction.LONG) -> Signal:
@@ -174,10 +186,11 @@ def test_a_breaching_signal_is_refused_with_every_evaluated_limit_in_the_audit_r
 
 
 def test_a_symbol_outside_the_universe_is_refused_before_any_sizing_arithmetic() -> None:
+    marks = _RecordingMarks()
     assessment = validate_pre_trade(
         signal=_signal(DOGEUSDT),
         portfolio=_book_holding(BTCUSDT, Decimal("0.1")),
-        marks_usd=_ExplodingMarks(),
+        marks_usd=marks,
         context=PreTradeContext(
             equity_usd=Decimal("50000"),
             exposure_limits=ExposureLimits(),
@@ -190,6 +203,10 @@ def test_a_symbol_outside_the_universe_is_refused_before_any_sizing_arithmetic()
     assert assessment.rejection is not None
     assert assessment.rejection.binding_limit_name == "tradable_universe"
     assert assessment.evaluations == ()
+    # The load-bearing assertion. The three above hold for a validator that sizes first
+    # and checks the universe afterwards, because it produces the identical rejection;
+    # only an untouched marks mapping distinguishes the two orderings.
+    assert marks.reads == []
 
 
 def test_a_refused_signal_counts_against_the_strategy_though_no_exposure_was_taken() -> None:
