@@ -241,7 +241,12 @@ def test_a_dump_taken_under_the_previous_schema_upgrades_cleanly(
     assert isinstance(previous, str), "head must have a single linear predecessor"
 
     older = f"fking_older_{uuid.uuid4().hex[:12]}"
-    asyncio.run(_create_database(postgres_server, older))
+    # template0 here too, for the same reason the restore target uses it: on an image
+    # whose template1 carries the TimescaleDB extension, this database inherits a
+    # populated `_timescaledb_catalog.metadata`. pg_dump then emits BOTH `CREATE
+    # EXTENSION` and those rows, and the restore collides on `exported_uuid` -- the
+    # dump is only self-consistent if the source started empty.
+    asyncio.run(_create_database(postgres_server, older, template="template0"))
     try:
         older_dsn = dsn_for(postgres_server, older)
         command.upgrade(alembic_config(older_dsn), previous)
