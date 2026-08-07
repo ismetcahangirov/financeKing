@@ -34,6 +34,7 @@ from fking.backtest import (
 from fking.backtest.feed import FeedSlice, MarketDataFeed, WarmupLeakError
 from fking.domain import Bar
 from tests.backtest import feed_support as fs
+from tests.backtest.registration_support import REGISTERED
 
 pytestmark = pytest.mark.unit
 
@@ -113,7 +114,7 @@ def test_the_ungated_strategy_fires_on_bar_one_which_is_a_warm_up_bar(tmp_path: 
     loaded = _load(tmp_path, exposed_minute=20, until_minute=40, warmup_bar_count=20)
     strategy = EagerStrategy()
 
-    EventLoop(_config(loaded), strategy).run(loaded.events)
+    EventLoop(_config(loaded), strategy, registration=REGISTERED).run(loaded.events)
 
     assert strategy.signalled_at[0] == loaded.events[0].occurs_at_utc
     assert strategy.signalled_at[0] < loaded.exposed_from_utc
@@ -128,7 +129,7 @@ def test_the_gated_strategy_produces_zero_signals_and_zero_trades_during_warm_up
     strategy = EagerStrategy()
     gate = WarmupGate(strategy, exposed_from_utc=loaded.exposed_from_utc)
 
-    EventLoop(_config(loaded), gate).run(loaded.events)
+    EventLoop(_config(loaded), gate, registration=REGISTERED).run(loaded.events)
 
     assert [moment for moment in strategy.signalled_at if moment < loaded.exposed_from_utc] == []
     assert [moment for moment in strategy.traded_at if moment < loaded.exposed_from_utc] == []
@@ -146,7 +147,7 @@ def test_warm_up_bars_still_reach_the_state_the_features_are_built_from(
     strategy = EagerStrategy()
     gate = WarmupGate(strategy, exposed_from_utc=loaded.exposed_from_utc)
 
-    EventLoop(_config(loaded), gate).run(loaded.events)
+    EventLoop(_config(loaded), gate, registration=REGISTERED).run(loaded.events)
 
     assert len(strategy.warmed_at) == loaded.warmup_event_count == WARMUP_BAR_COUNT
     assert gate.warmup_bar_count == WARMUP_BAR_COUNT
@@ -165,7 +166,7 @@ def test_the_boundary_falls_between_the_bar_that_closes_before_it_and_the_one_th
     strategy = EagerStrategy()
     gate = WarmupGate(strategy, exposed_from_utc=loaded.exposed_from_utc)
 
-    EventLoop(_config(loaded), gate).run(loaded.events)
+    EventLoop(_config(loaded), gate, registration=REGISTERED).run(loaded.events)
 
     first_exposed = next(
         event.observation
@@ -191,7 +192,7 @@ def test_a_non_market_event_during_warm_up_stops_the_run(tmp_path: Path) -> None
     )
 
     with pytest.raises(WarmupLeakError, match="before the exposure boundary"):
-        EventLoop(_config(loaded), gate).run((smuggled, *loaded.events))
+        EventLoop(_config(loaded), gate, registration=REGISTERED).run((smuggled, *loaded.events))
 
 
 def test_zero_warm_up_exposes_the_strategy_from_the_first_bar(tmp_path: Path) -> None:
@@ -201,7 +202,7 @@ def test_zero_warm_up_exposes_the_strategy_from_the_first_bar(tmp_path: Path) ->
     strategy = EagerStrategy()
     gate = WarmupGate(strategy, exposed_from_utc=loaded.exposed_from_utc)
 
-    EventLoop(_config(loaded), gate).run(loaded.events)
+    EventLoop(_config(loaded), gate, registration=REGISTERED).run(loaded.events)
 
     assert loaded.warmup_event_count == 0
     assert strategy.warmed_at == []
