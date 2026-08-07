@@ -22,6 +22,11 @@ What each test establishes, and why it is not obvious from reading the dump comm
 4. **A dump taken under the previous schema version upgrades cleanly**, and the
    revision it was taken at is recorded so a restore into a newer schema is a decision
    rather than a discovery.
+5. **The restore holds TimescaleDB in restore mode and hands it back**, on both the
+   success and the failure path. This is the one whose absence made the drill fail on
+   pull requests that had touched nothing near it: TimescaleDB's per-database background
+   scheduler writes into the very catalog table the restore is loading, and whether it
+   had fired yet was a function of wall clock rather than of the diff (#192).
 
 Marked `slow`: it runs `pg_dump`, `pg_restore` and the migration chain several times.
 """
@@ -55,7 +60,7 @@ from tests.conftest import (
 )
 from tools.backup.dump import DumpIntegrityError, DumpResult, restore_into, take_dump
 from tools.backup.manifest import BackupManifest
-from tools.backup.pgtools import PgToolsUnavailableError, resolve_runner
+from tools.backup.pgtools import PgRunner, PgToolsUnavailableError, resolve_runner
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
@@ -72,10 +77,16 @@ def restore_dsn(postgres_server: str) -> Iterator[str]:
     """
     name = f"fking_restore_{uuid.uuid4().hex[:12]}"
     # template0, not the default template1: the TimescaleDB image installs its extension
-    # into template1, so a target cloned from it already holds a populated
-    # `_timescaledb_catalog`. pg_restore then replays the dumped catalog on top and dies
-    # on a duplicate `exported_uuid` -- a failure that appears only where the extension
-    # is preinstalled, which is why it passed locally and failed in CI.
+    # into template1, so a target cloned from it arrives with a populated
+    # `_timescaledb_catalog` and a background scheduler already attached, and a restore
+    # target that is not empty is a restore target whose contents nobody chose.
+    #
+    # This is hygiene, not the cure for the duplicate-`exported_uuid` failure that this
+    # comment previously claimed: measured on the pinned image, `pg_restore` into a
+    # template1-derived target that already carries that row exits 0, because the
+    # extension's `metadata_insert_trigger` dedupes the replayed rows. What actually
+    # failed was a race against the background scheduler, and `restore_into` closes it
+    # with `timescaledb_pre_restore()` (#192).
     asyncio.run(_create_database(postgres_server, name, template="template0"))
     try:
         yield dsn_for(postgres_server, name)
@@ -173,6 +184,53 @@ async def _delete_tail_as_superuser(dsn: str, table_name: str, keep: int) -> Non
         await engine.dispose()
 
 
+async def _session_restoring_setting(dsn: str) -> str:
+    """What a *new* connection to the target sees for `timescaledb.restoring`.
+
+    A new connection is the point: `timescaledb_pre_restore()` sets the flag with `ALTER
+    DATABASE`, so the only thing that proves pg_restore's own connection will inherit it
+    is reading it from a connection pg_restore did not open.
+    """
+    engine = create_async_engine(dsn, isolation_level="AUTOCOMMIT")
+    try:
+        async with engine.connect() as connection:
+            return str(
+                (await connection.execute(sa.text("SHOW timescaledb.restoring"))).scalar_one()
+            )
+    finally:
+        await engine.dispose()
+
+
+async def _database_level_restoring_settings(dsn: str) -> tuple[str, ...]:
+    """Any `timescaledb.restoring` entry still attached to the database itself.
+
+    `SHOW` would report `off` for a session whose database carries no setting at all, so
+    it cannot distinguish "cleared" from "never set". `pg_db_role_setting` can.
+    """
+    engine = create_async_engine(dsn, isolation_level="AUTOCOMMIT")
+    try:
+        async with engine.connect() as connection:
+            rows = (
+                (
+                    await connection.execute(
+                        sa.text(
+                            """
+                        SELECT unnest(setting.setconfig)
+                          FROM pg_db_role_setting AS setting
+                          JOIN pg_database AS database ON database.oid = setting.setdatabase
+                         WHERE database.datname = current_database()
+                        """
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+    finally:
+        await engine.dispose()
+    return tuple(entry for entry in rows if entry.startswith("timescaledb.restoring"))
+
+
 def _dump_or_skip(dsn: str, directory: Path) -> DumpResult:
     try:
         return take_dump(dsn, directory, label="drill")
@@ -247,11 +305,9 @@ def test_a_dump_taken_under_the_previous_schema_upgrades_cleanly(
     assert isinstance(previous, str), "head must have a single linear predecessor"
 
     older = f"fking_older_{uuid.uuid4().hex[:12]}"
-    # template0 here too, for the same reason the restore target uses it: on an image
-    # whose template1 carries the TimescaleDB extension, this database inherits a
-    # populated `_timescaledb_catalog.metadata`. pg_dump then emits BOTH `CREATE
-    # EXTENSION` and those rows, and the restore collides on `exported_uuid` -- the
-    # dump is only self-consistent if the source started empty.
+    # template0 here too, for the same reason the restore target uses it: what this dump
+    # contains should be what the migrations put there, not whatever the image happened
+    # to install into template1.
     asyncio.run(_create_database(postgres_server, older, template="template0"))
     try:
         older_dsn = dsn_for(postgres_server, older)
@@ -290,6 +346,97 @@ def test_a_corrupted_archive_is_refused_before_it_is_restored(
 
     with pytest.raises(DumpIntegrityError, match="changed after it was written"):
         restore_into(restore_dsn, dump_path, outcome.manifest)
+
+
+def test_the_restore_holds_timescale_in_restore_mode_and_hands_it_back(
+    migrated_dsn: str, restore_dsn: str, tmp_path: Path
+) -> None:
+    """The bracket that removes the second writer, asserted rather than assumed.
+
+    TimescaleDB starts a background scheduler per database and that scheduler writes an
+    `exported_uuid` row into `_timescaledb_catalog.metadata` -- the same table
+    `pg_restore` is loading, whose dump condition is `WHERE key <> 'uuid'` so the archive
+    carries rows for it. The extension's dedupe trigger is a non-atomic check-then-insert,
+    so a scheduler insert landing inside the `COPY` fails it on the primary key. The
+    defence is not to tolerate the racing writer, it is to not have one:
+    `timescaledb_pre_restore()` stops the scheduler, `timescaledb_post_restore()` starts
+    it again (#192).
+
+    The runner is stubbed so this asserts the bracket rather than re-running a restore
+    that three other tests already run. A database left in restore mode has its workers
+    stopped and `session_replication_role` pinned to `replica`, so the second half of the
+    assertion matters as much as the first.
+    """
+    outcome = _dump_or_skip(migrated_dsn, tmp_path)
+    observed_during: list[str] = []
+
+    class _RecordingRunner(PgRunner):
+        # ARG002 is suppressed per parameter rather than fixed by renaming: the names are
+        # fixed by PgRunner.run and `password` is keyword-only, so an underscore prefix
+        # would change the override's signature.
+        def run(
+            self,
+            program: str,  # noqa: ARG002
+            arguments: list[str],  # noqa: ARG002
+            *,
+            password: str | None,  # noqa: ARG002
+        ) -> str:
+            observed_during.append(asyncio.run(_session_restoring_setting(restore_dsn)))
+            return ""
+
+    restore_into(
+        restore_dsn,
+        outcome.dump_path,
+        outcome.manifest,
+        runner=_RecordingRunner(kind="recording", workdir=tmp_path),
+    )
+
+    assert observed_during == ["on"], (
+        "pg_restore must inherit timescaledb.restoring='on' from the database, or the "
+        "background scheduler is still writing into the table being restored"
+    )
+    assert asyncio.run(_database_level_restoring_settings(restore_dsn)) == (), (
+        "timescaledb_post_restore() must clear the database-level flag; leaving it set "
+        "keeps the workers stopped and session_replication_role at 'replica'"
+    )
+
+
+def test_a_failed_restore_still_hands_timescale_back_out_of_restore_mode(
+    migrated_dsn: str, restore_dsn: str, tmp_path: Path
+) -> None:
+    """The failure path is the one that strands a database, so it is the one to test.
+
+    Recording the setting before raising keeps this from passing vacuously: without the
+    bracket there is nothing to clear, and a test whose assertion is satisfied by the
+    absence of the mechanism is not guarding it.
+    """
+    outcome = _dump_or_skip(migrated_dsn, tmp_path)
+    observed_during: list[str] = []
+
+    class _FailingRunner(PgRunner):
+        def run(  # see _RecordingRunner on the noqa placement
+            self,
+            program: str,
+            arguments: list[str],  # noqa: ARG002
+            *,
+            password: str | None,  # noqa: ARG002
+        ) -> str:
+            observed_during.append(asyncio.run(_session_restoring_setting(restore_dsn)))
+            raise PgToolsUnavailableError(f"{program} exited 1 (test): synthetic failure")
+
+    with pytest.raises(PgToolsUnavailableError, match="synthetic failure"):
+        restore_into(
+            restore_dsn,
+            outcome.dump_path,
+            outcome.manifest,
+            runner=_FailingRunner(kind="failing", workdir=tmp_path),
+        )
+
+    assert observed_during == ["on"]
+    assert asyncio.run(_database_level_restoring_settings(restore_dsn)) == (), (
+        "a restore that failed must still leave the database usable; a stranded "
+        "timescaledb.restoring='on' keeps its background workers stopped"
+    )
 
 
 def test_the_pg_client_is_version_matched_to_the_server(tmp_path: Path) -> None:
