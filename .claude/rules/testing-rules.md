@@ -266,41 +266,17 @@ settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "dev"))
 
 `derandomize=True` on the PR gate and `False` nightly is deliberate: the gate must be reproducible, and the search for genuinely new counterexamples belongs in a job whose failure opens an issue rather than blocking a merge.
 
-**Risk modules must have a property test.** `scripts/check_property_coverage.py`, run as a CI step and by `make check`:
+**Risk and position math must have a property test.** `tools/checks/property_coverage.py`, run by `make check` alongside the other AST checks. Every module under `src/fking/risk/` — and every module named in its `POSITION_MATH_MODULES` declaration, today `domain/position.py` — requires `tests/property/test_<stem>_properties.py`, and that file must declare a `@given`.
 
-```python
-#!/usr/bin/env python
-"""Fail if any module under src/fking/risk lacks a property test with @given."""
-from __future__ import annotations
+Three details are load-bearing, and this file previously specified the first two wrongly:
 
-import sys
-from pathlib import Path
-
-SRC = Path("src/fking/risk")
-TESTS = Path("tests/property")
-
-
-def main() -> int:
-    problems: list[str] = []
-    for module in sorted(SRC.rglob("*.py")):
-        if module.stem.startswith("_"):
-            continue
-        expected = TESTS / f"test_{module.stem}_properties.py"
-        if not expected.exists():
-            problems.append(f"{module}: expected {expected}, which does not exist")
-        elif "@given(" not in expected.read_text(encoding="utf-8"):
-            problems.append(f"{expected}: exists but contains no @given")
-    if problems:
-        print("Property-test gate failed:", *problems, sep="\n  ", file=sys.stderr)
-        return 1
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-```
+- **A file with no `@given` is a failure, not a pass.** That is how the gate decays: the named file gets created alongside a stub, the stub never grows a property, and `ls tests/property/` reads as complete.
+- **The decorator is located in the syntax tree, not by substring.** `"@given("` appearing in a docstring, a comment or a string literal satisfies a `grep` and asserts nothing.
+- **`domain` is declared rather than swept.** Clause 2 asks for *position arithmetic* there, not a property test on every enum and identifier type, and a gate that demands `test_enums_properties.py` is a gate somebody deletes. The declaration fails closed in the other direction: a declared module that no longer exists is reported, so renaming `position.py` breaks the gate instead of silently emptying it.
 
 Naming convention over import analysis, on purpose: an import-graph check is defeated by a test that imports the module and never exercises it, and a human reading `tests/property/` should be able to see the gap without running anything.
+
+This checker did not exist until issue #170, despite this section describing it. `risk/ceilings.py` and `risk/limits.py` both shipped with no property test and passed every gate.
 
 **Recorded fixtures.** `scripts/record_exchange.py` drives a real testnet session through `guarded_client()` and writes YAML — YAML rather than JSON specifically so a hand edit can carry a `#` comment, which is what the exception below depends on:
 

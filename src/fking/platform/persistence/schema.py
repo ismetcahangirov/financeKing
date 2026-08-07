@@ -99,6 +99,11 @@ RETIREMENT_REASONS: Final[tuple[str, ...]] = (
     "operator",
 )
 LIMIT_UNITS: Final[tuple[str, ...]] = ("usd", "ratio", "count", "per_minute")
+# Mirrors `fking.risk.drawdown`. A budget is measured against either one strategy's
+# equity or the whole book's, and the two are not interchangeable: a portfolio-scoped
+# breach halts everything, a strategy-scoped one halts one subject.
+RISK_SCOPES: Final[tuple[str, ...]] = ("strategy", "portfolio")
+RISK_LIMIT_NAMES: Final[tuple[str, ...]] = ("drawdown", "daily_loss", "rolling_loss")
 KILL_SWITCH_EVENTS: Final[tuple[str, ...]] = ("tripped", "cleared")
 AGENT_OUTCOMES: Final[tuple[str, ...]] = ("succeeded", "failed", "degraded")
 # Mirrors `fking.platform.scheduler.JobOutcome`, and asserted equal to it in
@@ -1266,6 +1271,95 @@ scheduler_job_run = sa.Table(
 )
 
 # ---------------------------------------------------------------------------
+# Risk state
+# ---------------------------------------------------------------------------
+
+# The drawdown numbers a restart must not be allowed to recompute. If the high-water mark
+# initialises from current equity after a restart, the budget silently re-bases itself
+# below the lower equity -- the system grants itself fresh drawdown at exactly the moment
+# the evidence says it should have less, and nothing logs an error.
+risk_drawdown_state = sa.Table(
+    "risk_drawdown_state",
+    METADATA,
+    sa.Column("state_id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("scope", identifier(), nullable=False),
+    sa.Column("subject_id", identifier(), nullable=False),
+    sa.Column("peak_equity_usd", money(), nullable=False),
+    sa.Column("current_equity_usd", money(), nullable=False),
+    sa.Column("day_start_utc", utc_timestamp(), nullable=False),
+    sa.Column("day_open_equity_usd", money(), nullable=False),
+    sa.Column("observed_at_utc", utc_timestamp(), nullable=False),
+    sa.Column("breach_limit_name", identifier(), nullable=True),
+    sa.Column("breach_observed_ratio", money(), nullable=True),
+    sa.Column("breach_budget_ratio", money(), nullable=True),
+    sa.Column("breached_at_utc", utc_timestamp(), nullable=True),
+    _recorded_at_utc(),
+    sa.UniqueConstraint("scope", "subject_id"),
+    _one_of("scope", RISK_SCOPES),
+    sa.CheckConstraint("btrim(subject_id) <> ''", name="subject_id_is_not_blank"),
+    # Every ratio here divides by an equity figure, so zero equity does not make a
+    # drawdown smaller -- it makes it undefined.
+    sa.CheckConstraint(
+        "peak_equity_usd > 0 AND current_equity_usd > 0 AND day_open_equity_usd > 0",
+        name="equity_is_positive",
+    ),
+    # Deliberately redundant with DrawdownState.__post_init__. The type guards the
+    # process running now; the constraint guards the row against every writer this
+    # schema will ever have, including a repair script run by hand during an incident --
+    # which is exactly when somebody is tempted to "fix" a peak downward.
+    sa.CheckConstraint("peak_equity_usd >= current_equity_usd", name="peak_is_at_least_current"),
+    # date_trunc('day', timestamptz) truncates in the *session* time zone, so the same
+    # row would satisfy this on a UTC connection and violate it on one whose TimeZone was
+    # set to anything else. Converting at an explicit UTC offset removes the session from
+    # the expression entirely.
+    sa.CheckConstraint(
+        "day_start_utc = date_trunc('day', day_start_utc AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'",
+        name="day_start_is_a_utc_boundary",
+    ),
+    sa.CheckConstraint(
+        "day_start_utc <= observed_at_utc", name="day_start_precedes_the_observation"
+    ),
+    # All four breach columns present together or absent together. A half-written breach
+    # is a subject that reads as halted with no threshold to explain it, or as trading
+    # with a threshold that was already crossed.
+    sa.CheckConstraint(
+        "num_nonnulls(breach_limit_name, breach_observed_ratio, breach_budget_ratio, "
+        "breached_at_utc) IN (0, 4)",
+        name="breach_is_whole",
+    ),
+    sa.CheckConstraint(
+        "breach_limit_name IS NULL OR breach_limit_name IN ("
+        + ", ".join(f"'{member}'" for member in RISK_LIMIT_NAMES)
+        + ")",
+        name="breach_limit_name_is_known",
+    ),
+    sa.CheckConstraint(
+        "(breach_observed_ratio IS NULL OR breach_observed_ratio >= 0) "
+        "AND (breach_budget_ratio IS NULL OR breach_budget_ratio > 0)",
+        name="breach_ratios_are_fractions",
+    ),
+)
+
+# The trailing window, as a child table rather than a jsonb column on the parent: an
+# equity figure inside a blob is invisible to the information_schema scan that asserts no
+# money column is DOUBLE PRECISION, and NUMERIC(38, 18) per mark is what lets that scan
+# see them at all.
+risk_drawdown_mark = sa.Table(
+    "risk_drawdown_mark",
+    METADATA,
+    sa.Column("state_id", postgresql.UUID(as_uuid=True), nullable=False),
+    sa.Column("observed_at_utc", utc_timestamp(), nullable=False),
+    sa.Column("equity_usd", money(), nullable=False),
+    _recorded_at_utc(),
+    sa.PrimaryKeyConstraint("state_id", "observed_at_utc"),
+    # CASCADE rather than RESTRICT: a window without its state row is a set of equity
+    # readings nothing can interpret, and leaving it behind would make a later re-open of
+    # the same subject inherit a stranger's window.
+    sa.ForeignKeyConstraint(["state_id"], ["risk_drawdown_state.state_id"], ondelete="CASCADE"),
+    sa.CheckConstraint("equity_usd > 0", name="equity_is_positive"),
+)
+
+# ---------------------------------------------------------------------------
 # Append-only classification
 # ---------------------------------------------------------------------------
 
@@ -1323,5 +1417,7 @@ __all__: tuple[str, ...] = (
     "MONEY_COLUMN_SUFFIXES",
     "NAMING_CONVENTION",
     "PARTITION_GRAINS",
+    "RISK_LIMIT_NAMES",
+    "RISK_SCOPES",
     "SCHEDULER_JOB_OUTCOMES",
 )
