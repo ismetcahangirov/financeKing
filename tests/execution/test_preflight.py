@@ -629,8 +629,14 @@ async def test_a_non_allowlisted_endpoint_kills_the_process_naming_the_item(
     # `https://api.binance.com.attacker.example`, so a test written that way asserts
     # something weaker than the property it is named after -- in the one file whose job
     # is to prove the allowlist refused a production host.
+    #
+    # The explicit equality is deliberate and is not a simplification waiting to happen:
+    # `"api.binance.com" in logged_hosts` asserts exactly the same thing, but CodeQL's
+    # py/incomplete-url-substring-sanitization cannot tell set membership from substring
+    # containment once the set derives from URLs, so the shorter spelling fires the alert
+    # this comment exists to have fixed.
     logged_hosts = {urlsplit(url).hostname for url in record["endpoints"]}
-    assert "api.binance.com" in logged_hosts
+    assert any(host == "api.binance.com" for host in logged_hosts)
     assert not logged_hosts <= PERMITTED_HOSTS
 
 
