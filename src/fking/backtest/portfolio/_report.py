@@ -25,9 +25,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
-from typing import Final
+from typing import Final, Never
 
-from fking.backtest.portfolio._errors import MetricInputError, RiskLimitBreachedError
+from fking.backtest.portfolio._errors import (
+    MetricInputError,
+    PortfolioError,
+    RiskLimitBreachedError,
+)
 from fking.backtest.portfolio._grid import EquityPath
 from fking.backtest.portfolio._metrics import (
     PathEconomics,
@@ -180,52 +184,92 @@ class PortfolioReport:
         return tuple(lines)
 
     def _lines_for(self, section: ReportSection) -> tuple[str, ...]:
-        match section:
-            case ReportSection.CREDIBILITY:
-                credibility = self.credibility
-                return (
-                    f"observation_count={credibility.observation_count}",
-                    f"n_eff={credibility.n_eff}",
-                    f"time_in_market_pct={credibility.time_in_market_pct}",
-                    f"fill_count={credibility.fill_count}",
-                    f"risk_limit_breach_count={credibility.risk_limit_breach_count}",
-                    f"is_clean={credibility.is_clean}",
-                    f"thin_regimes={list(credibility.thin_regimes)}",
-                )
-            case ReportSection.ECONOMICS:
-                return (
-                    f"total_return_fraction={self.economics.total_return_fraction}",
-                    f"annualised_return_fraction={self.economics.annualised_return_fraction}",
-                    f"realised_pnl_usd={self.ledger.realised_pnl_usd}",
-                    f"fee_paid_usd={self.ledger.fee_paid_usd}",
-                    f"funding_paid_usd={self.ledger.funding_paid_usd}",
-                    f"ending_equity_usd={self.ledger.ending_equity_usd}",
-                )
-            case ReportSection.RISK:
-                return (
-                    f"annualised_volatility_fraction={self.risk.annualised_volatility_fraction}",
-                    f"max_drawdown_fraction={self.risk.max_drawdown_fraction}",
-                    f"ulcer_index_pct={self.risk.ulcer_index_pct}",
-                    f"worst_daily_return_fraction={self.risk.worst_daily_return_fraction}",
-                )
-            case ReportSection.STATISTICS:
-                return (
-                    f"sharpe_ratio={self.statistics.sharpe_ratio}",
-                    f"sortino_ratio={self.statistics.sortino_ratio}",
-                    f"calmar_ratio={self.statistics.calmar_ratio}",
-                    f"skewness={self.statistics.skewness}",
-                    f"kurtosis={self.statistics.kurtosis}",
-                    f"sharpe_t_statistic={self.statistics.sharpe_t_statistic}",
-                )
-            case ReportSection.REGIMES:
-                return tuple(
-                    f"{bucket.regime}: observation_count={bucket.observation_count} "
-                    f"n_eff={bucket.n_eff} "
-                    f"sharpe_ratio="
-                    f"{None if bucket.statistics is None else bucket.statistics.sharpe_ratio} "
-                    f"regime_coverage={bucket.regime_coverage.value}"
-                    for bucket in self.regimes
-                )
+        """The lines of one section. Every `ReportSection` is handled, explicitly.
+
+        The trailing `raise` is what makes that a runtime guarantee rather than only a
+        type-checked one. Without it this dispatch falls off the end and returns `None`
+        for anything outside the five members -- and `ReportSection` is a `StrEnum`, so
+        the value that reaches here from deserialised or otherwise untyped code is
+        exactly the one mypy's exhaustiveness proof does not cover. A report section
+        that silently renders as nothing is the failure this file exists to prevent:
+        the missing section would be credibility, and the Sharpe below it would be read
+        without it.
+
+        An `if`/`elif` chain rather than a `match`: CodeQL does not model `case _` as
+        exhausting the subject, so every arrangement of `match` here reports
+        `py/mixed-returns` whether or not a wildcard arm exists. A shape that three
+        readers -- a person, mypy and the scanner -- all agree terminates is worth more
+        than the two lines the `match` saved.
+        """
+        if section is ReportSection.CREDIBILITY:
+            credibility = self.credibility
+            return (
+                f"observation_count={credibility.observation_count}",
+                f"n_eff={credibility.n_eff}",
+                f"time_in_market_pct={credibility.time_in_market_pct}",
+                f"fill_count={credibility.fill_count}",
+                f"risk_limit_breach_count={credibility.risk_limit_breach_count}",
+                f"is_clean={credibility.is_clean}",
+                f"thin_regimes={list(credibility.thin_regimes)}",
+            )
+        if section is ReportSection.ECONOMICS:
+            return (
+                f"total_return_fraction={self.economics.total_return_fraction}",
+                f"annualised_return_fraction={self.economics.annualised_return_fraction}",
+                f"realised_pnl_usd={self.ledger.realised_pnl_usd}",
+                f"fee_paid_usd={self.ledger.fee_paid_usd}",
+                f"funding_paid_usd={self.ledger.funding_paid_usd}",
+                f"ending_equity_usd={self.ledger.ending_equity_usd}",
+            )
+        if section is ReportSection.RISK:
+            return (
+                f"annualised_volatility_fraction={self.risk.annualised_volatility_fraction}",
+                f"max_drawdown_fraction={self.risk.max_drawdown_fraction}",
+                f"ulcer_index_pct={self.risk.ulcer_index_pct}",
+                f"worst_daily_return_fraction={self.risk.worst_daily_return_fraction}",
+            )
+        if section is ReportSection.STATISTICS:
+            return (
+                f"sharpe_ratio={self.statistics.sharpe_ratio}",
+                f"sortino_ratio={self.statistics.sortino_ratio}",
+                f"calmar_ratio={self.statistics.calmar_ratio}",
+                f"skewness={self.statistics.skewness}",
+                f"kurtosis={self.statistics.kurtosis}",
+                f"sharpe_t_statistic={self.statistics.sharpe_t_statistic}",
+            )
+        if section is ReportSection.REGIMES:
+            return tuple(
+                f"{bucket.regime}: observation_count={bucket.observation_count} "
+                f"n_eff={bucket.n_eff} "
+                f"sharpe_ratio="
+                f"{None if bucket.statistics is None else bucket.statistics.sharpe_ratio} "
+                f"regime_coverage={bucket.regime_coverage.value}"
+                for bucket in self.regimes
+            )
+        raise _unhandled_section(section)  # pragma: no cover - the branches above are exhaustive
+
+
+def _unhandled_section(section: Never) -> PortfolioError:
+    """The error for a report section no branch of `_lines_for` handles.
+
+    Returns the exception rather than raising it, so the `raise` stays lexically in
+    `_lines_for`. That is not a style preference: CodeQL's fall-through analysis is
+    intraprocedural, so a helper annotated `NoReturn` reads to it -- and to a human
+    skimming the call -- as a statement that completes normally, leaving a function
+    declared to return `tuple[str, ...]` falling off its end. A reader should not have
+    to resolve a call to know whether control leaves the function.
+
+    The `Never` parameter is `typing.assert_never`'s mechanism, carrying this project's
+    own exception instead of the `AssertionError` that `.claude/rules/error-handling.md`
+    keeps out of the taxonomy. Once every `ReportSection` member is covered above, mypy
+    narrows `section` to `Never` at the call and it type-checks; add a sixth member
+    without a branch for it and `section` narrows to that member, which is not
+    assignable to `Never` -- so the omission is a type error at the point of the
+    omission rather than a section that renders as nothing at 03:00.
+    """
+    return PortfolioError(
+        f"no report section is defined for {section!r}; SECTION_ORDER and _lines_for have diverged"
+    )
 
 
 def require_clean_result(report: PortfolioReport) -> PortfolioReport:

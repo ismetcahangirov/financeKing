@@ -9,6 +9,7 @@ risk limit has no path to being reported as clean.
 
 from __future__ import annotations
 
+import itertools
 from decimal import Decimal
 from typing import Final
 
@@ -16,6 +17,7 @@ import pytest
 
 from fking.backtest.portfolio import (
     MIN_REGIME_EFFECTIVE_SAMPLE,
+    SECTION_ORDER,
     Credibility,
     RegimeCoverage,
     ReportSection,
@@ -146,6 +148,33 @@ def test_the_report_is_read_credibility_first_and_never_leads_with_the_sharpe() 
     assert not any("sharpe" in line for line in before_statistics)
     assert any(line.startswith("time_in_market_pct=") for line in before_statistics)
     assert any(line.startswith("risk_limit_breach_count=") for line in before_statistics)
+
+
+def test_every_report_section_renders_at_least_one_line() -> None:
+    """No section of the report is silently empty.
+
+    This is the test the original `_lines_for` would have failed once a sixth
+    `ReportSection` existed: the `match` had no wildcard arm, so an unhandled member
+    fell off the end and returned `None`. mypy proved that could not happen for a value
+    it had typed, which is not the same as it not happening -- `ReportSection` is a
+    `StrEnum`, and the value that arrives from deserialised or untyped code is exactly
+    the one the proof does not cover. The section that would go missing first is
+    credibility, and the Sharpe underneath it would then be read without it.
+    """
+    return_fractions, regimes = _two_regime_returns()
+    report = assemble_report(
+        path=path_from_returns(return_fractions, regimes=regimes),
+        final_state=state_with_fill_count(9),
+    )
+    lines = report.summary_lines()
+
+    assert set(SECTION_ORDER) == set(ReportSection)
+    for section in ReportSection:
+        header = f"[{section.value}]"
+        assert header in lines, f"{section.value} is absent from the report"
+        following = lines[lines.index(header) + 1 :]
+        body = list(itertools.takewhile(lambda line: not line.startswith("["), following))
+        assert body, f"{section.value} rendered as an empty section"
 
 
 def test_time_in_market_travels_with_the_score_and_reflects_the_flat_days() -> None:
