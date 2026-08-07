@@ -57,6 +57,13 @@ from fking.execution.parsing import (
     raise_for_venue_error,
 )
 from fking.execution.symbols import SymbolClassification, classify_symbol, tradable_symbols
+from fking.execution.universe import (
+    IntersectionBaseline,
+    IntersectionDrift,
+    SymbolUniverse,
+    check_intersection_drift,
+    resolve_universe,
+)
 from fking.execution.venue import ExecutionVenue, UserDataSource
 from fking.execution.venue_profile import (
     BINANCE_FUTURES_TESTNET,
@@ -77,9 +84,12 @@ __all__: tuple[str, ...] = (
     "BinanceVenue",
     "ExchangeError",
     "ExecutionVenue",
+    "IntersectionBaseline",
+    "IntersectionDrift",
     "PermanentExchangeError",
     "SymbolClassification",
     "SymbolFilters",
+    "SymbolUniverse",
     "TransientExchangeError",
     "UniverseUnavailableError",
     "UserDataMechanism",
@@ -94,12 +104,14 @@ __all__: tuple[str, ...] = (
     "VenueSymbolFilter",
     "VenueTrade",
     "assert_client_order_id_acceptable",
+    "check_intersection_drift",
     "classify_symbol",
     "classify_venue_failure",
     "derive_client_order_id",
     "open_binance_venue",
     "parse_venue_payload",
     "raise_for_venue_error",
+    "resolve_universe",
     "tradable_symbols",
     "venue_epoch_to_utc",
 )
