@@ -81,12 +81,16 @@ async def _create_database(dsn: str, name: str, *, template: str | None = None) 
 
     `template` matters for one caller and is worth the parameter. `CREATE DATABASE`
     defaults to `template1`, and the TimescaleDB image installs its extension there, so
-    every database created this way arrives with `_timescaledb_catalog` already
-    populated. That is invisible until something restores a dump *into* one, at which
-    point `pg_restore` replays the dumped catalog on top of the inherited one and
-    `COPY metadata` fails on a duplicate `exported_uuid`. `template0` is the empty
-    template that exists precisely so a restore target can be free of local
-    installations.
+    every database created this way arrives with `_timescaledb_catalog` already populated
+    and a background scheduler already attached. A restore target wants neither: its
+    contents should be what the archive put there and nothing else. `template0` is the
+    empty template that exists precisely so a target can be free of local installations.
+
+    It is not, on its own, a defence against anything: a restore into a template1-derived
+    target succeeds on the pinned image, because the extension's own trigger dedupes the
+    catalog rows the archive replays. The failure that looked like it was about templates
+    was a race with that background scheduler; `tools.backup.dump.restore_into` closes it
+    (#192).
     """
     engine = create_async_engine(dsn, isolation_level="AUTOCOMMIT")
     clause = f' TEMPLATE "{template}"' if template is not None else ""
