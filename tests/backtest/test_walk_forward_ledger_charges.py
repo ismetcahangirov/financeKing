@@ -67,10 +67,16 @@ _INSERT_FOLD_CHARGE = sa.text(
                               statement, parameter_grid, n_parameters, n_symbols,
                               n_variants, trials_charged, cumulative_trials,
                               holdout_touched, human_authorisation_ref,
-                              prev_hash, row_hash)
+                              prev_hash, row_hash,
+                              search_context_hash, lineage_id, entry_kind)
     VALUES (:charged_at_utc, :correlation_id, :spec_hash, 'backtest.walkforward',
             :statement, cast(:parameter_grid as jsonb), 5, 1, 1, 1, 0, false, NULL,
-            '\\x00'::bytea, '\\x00'::bytea)
+            '\\x00'::bytea, '\\x00'::bytea,
+            -- 0018 requires every charge to name the search it belongs to. Every fold of
+            -- one walk-forward runs against one symbol universe, one window and one
+            -- feature set, so the whole schedule shares a context -- which is the point:
+            -- twelve re-fits are twelve trials charged to the same search.
+            decode(repeat('22', 32), 'hex'), 'lin-walkforward', 'registration')
     RETURNING seq, cumulative_trials
     """
 )

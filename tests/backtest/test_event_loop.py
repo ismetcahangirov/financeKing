@@ -25,6 +25,7 @@ from fking.backtest import (
     SimulationClock,
     TimerEvent,
 )
+from tests.backtest.registration_support import REGISTERED
 from tests.support.backtest_events import (
     BAR_INTERVAL,
     RecordingHandler,
@@ -66,7 +67,9 @@ def test_an_event_scheduled_before_the_current_instant_is_refused() -> None:
     handler = SchedulingHandler(follow_ups=(fill_event_at(START, ordinal=1),))
 
     with pytest.raises(CausalityError, match="before the instant being dispatched"):
-        EventLoop(config_for(start_utc=START), handler).run(bar_events(START, how_many=2))
+        EventLoop(config_for(start_utc=START), handler, registration=REGISTERED).run(
+            bar_events(START, how_many=2)
+        )
 
 
 def test_an_initial_event_before_the_window_opens_is_refused() -> None:
@@ -77,13 +80,17 @@ def test_an_initial_event_before_the_window_opens_is_refused() -> None:
     """
     too_early = MarketDataEvent(observation=bar_at(START - BAR_INTERVAL * 5))
     with pytest.raises(CausalityError, match="before the instant being dispatched"):
-        EventLoop(config_for(start_utc=START), RecordingHandler()).run([too_early])
+        EventLoop(config_for(start_utc=START), RecordingHandler(), registration=REGISTERED).run(
+            [too_early]
+        )
 
 
 def test_scheduling_at_the_current_instant_is_ordinary_and_allowed() -> None:
     """A bar, the fill it caused and the timer it woke legitimately share one timestamp."""
     handler = SchedulingHandler(follow_ups=(fill_event_at(START + BAR_INTERVAL, ordinal=1),))
-    trace = EventLoop(config_for(start_utc=START), handler).run(bar_events(START, how_many=1))
+    trace = EventLoop(config_for(start_utc=START), handler, registration=REGISTERED).run(
+        bar_events(START, how_many=1)
+    )
 
     assert handler.type_names == ("MarketDataEvent", "FillEvent")
     assert {entry.occurs_at_utc for entry in trace.entries} == {START + BAR_INTERVAL}
@@ -97,7 +104,7 @@ def test_events_past_the_window_end_are_dropped_and_counted() -> None:
     )
     handler = SchedulingHandler(follow_ups=(beyond,))
 
-    trace = EventLoop(config, handler).run(bar_events(START, how_many=2))
+    trace = EventLoop(config, handler, registration=REGISTERED).run(bar_events(START, how_many=2))
 
     assert trace.events_beyond_window == 1
     assert [entry.event_type for entry in trace.entries] == ["MarketDataEvent"] * 2
@@ -112,12 +119,16 @@ def test_a_run_that_never_advances_its_clock_is_stopped_by_its_budget() -> None:
     """
     config = config_for(start_utc=START, event_budget=64)
     with pytest.raises(EventBudgetExhaustedError, match="budget of 64 events"):
-        EventLoop(config, _SpinningHandler()).run(bar_events(START, how_many=1))
+        EventLoop(config, _SpinningHandler(), registration=REGISTERED).run(
+            bar_events(START, how_many=1)
+        )
 
 
 def test_the_clock_reaches_each_event_and_never_moves_backwards() -> None:
     handler = _ClockReader()
-    EventLoop(config_for(start_utc=START), handler).run(bar_events(START, how_many=4))
+    EventLoop(config_for(start_utc=START), handler, registration=REGISTERED).run(
+        bar_events(START, how_many=4)
+    )
 
     assert handler.observed == sorted(handler.observed)
     assert handler.observed[0] == START + BAR_INTERVAL
@@ -126,7 +137,9 @@ def test_the_clock_reaches_each_event_and_never_moves_backwards() -> None:
 
 def test_a_run_with_no_events_produces_an_empty_but_identified_trace() -> None:
     """An empty window is a real answer, and it still carries the identity that produced it."""
-    trace = EventLoop(config_for(start_utc=START), RecordingHandler()).run([])
+    trace = EventLoop(config_for(start_utc=START), RecordingHandler(), registration=REGISTERED).run(
+        []
+    )
 
     assert trace.event_count == 0
     assert trace.entries == ()

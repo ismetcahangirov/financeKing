@@ -19,6 +19,8 @@ __all__ = [
     "LifecycleTransitionError",
     "LineageCycleError",
     "LineageError",
+    "TrialLedgerError",
+    "TrialSpecificationError",
 ]
 
 
@@ -80,4 +82,27 @@ class ContractGateError(EvolutionError):
     reference with no rationale to compare against -- because the alternative is a
     verdict computed from missing evidence, which reads as `admitted` for exactly the
     genomes nobody checked.
+    """
+
+
+class TrialSpecificationError(EvolutionError):
+    """A search was described in a way the ledger cannot charge.
+
+    Raised at construction, before any database call and therefore before any data
+    access, which is the only point at which the answer is still cheap. A grid whose
+    product is zero, a symbol universe with a duplicate, a holdout request with nobody's
+    name against it: each of these would otherwise reach the ledger as a row that either
+    charges nothing or charges something no reader can interpret -- and the ledger is
+    append-only, so neither is correctable afterwards.
+    """
+
+
+class TrialLedgerError(EvolutionError):
+    """The trial ledger refused a charge, or could not be read.
+
+    Deliberately not distinguished from "the ledger is empty" at the call site. Zero
+    trials and an unreadable ledger are the same condition for every caller that
+    matters: both mean the selection pool is unknown, and deflating against an unknown
+    pool reports a searched result as an unsearched one. `expected_max_sharpe` refuses a
+    non-positive count for the same reason.
     """

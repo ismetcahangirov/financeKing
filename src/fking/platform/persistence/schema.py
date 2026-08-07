@@ -1157,7 +1157,11 @@ trial_ledger = sa.Table(
     sa.Column("charged_at_utc", utc_timestamp(), nullable=False),
     _recorded_at_utc(),
     sa.Column("correlation_id", postgresql.UUID(as_uuid=True), nullable=False),
-    sa.Column("spec_hash", postgresql.BYTEA(), nullable=False, unique=True),
+    # Unique across registrations only, as a partial index (0018). A specification that
+    # overran its declared grid carries one further row per surplus execution, and those
+    # share its spec_hash on purpose: the overflow charge belongs to the search it
+    # overran, not to a search of its own.
+    sa.Column("spec_hash", postgresql.BYTEA(), nullable=False),
     sa.Column("registered_by", identifier(), nullable=False),
     sa.Column("statement", sa.Text(), nullable=False),
     sa.Column("parameter_grid", postgresql.JSONB(), nullable=False),
@@ -1173,7 +1177,20 @@ trial_ledger = sa.Table(
     sa.Column("human_authorisation_ref", identifier(), nullable=True),
     sa.Column("prev_hash", postgresql.BYTEA(), nullable=False),
     sa.Column("row_hash", postgresql.BYTEA(), nullable=False),
+    # Nullable in the catalogue, mandatory in practice. 0018 added them to a table that
+    # already held rows, and `.claude/rules/append-only-audit.md` permits adding a
+    # nullable column while forbidding a backfill: a row written before the search
+    # context existed must not report one it never carried. The accumulate trigger
+    # refuses any new row that omits them, which is NOT NULL from 0018 forward without
+    # rewriting a single historical row -- and their absence from the digest recipe is
+    # why every pre-0018 row_hash still verifies.
+    sa.Column("search_context_hash", postgresql.BYTEA(), nullable=True),
+    sa.Column("lineage_id", identifier(), nullable=True),
+    # 'registration' or 'execution_overflow'. The second is the reconciliation half of
+    # max(declared, executed): one row per execution beyond the declared grid.
+    sa.Column("entry_kind", identifier(), nullable=True),
     sa.Index("ix_trial_ledger_correlation_id", "correlation_id"),
+    sa.Index("ix_trial_ledger_search_context_hash", "search_context_hash", "lineage_id"),
     sa.CheckConstraint("n_parameters >= 0", name="n_parameters_is_not_negative"),
     sa.CheckConstraint("n_symbols >= 1", name="n_symbols_is_positive"),
     sa.CheckConstraint("n_variants >= 1", name="n_variants_is_positive"),
@@ -1185,6 +1202,44 @@ trial_ledger = sa.Table(
         "NOT holdout_touched OR human_authorisation_ref IS NOT NULL",
         name="holdout_needs_authorisation",
     ),
+    sa.CheckConstraint(
+        "entry_kind IS NULL OR entry_kind IN ('registration', 'execution_overflow')",
+        name="entry_kind_is_known",
+    ),
+    # All three or none. A row carrying a lineage but no context is a charge whose
+    # per-lineage count cannot be attributed to a search, which is the shape a partial
+    # write would leave behind.
+    sa.CheckConstraint(
+        "num_nulls(search_context_hash, lineage_id, entry_kind) IN (0, 3)",
+        name="search_context_is_complete",
+    ),
+    sa.CheckConstraint(
+        "search_context_hash IS NULL OR octet_length(search_context_hash) = 32",
+        name="search_context_hash_is_sha256",
+    ),
+)
+
+trial_execution = sa.Table(
+    "trial_execution",
+    METADATA,
+    sa.Column("seq", sa.BigInteger(), sa.Identity(always=True), primary_key=True),
+    sa.Column("executed_at_utc", utc_timestamp(), nullable=False),
+    _recorded_at_utc(),
+    sa.Column("correlation_id", postgresql.UUID(as_uuid=True), nullable=False),
+    sa.Column("spec_hash", postgresql.BYTEA(), nullable=False),
+    # Assigned by the trigger, never by the caller. A caller that numbers its own
+    # executions can renumber them, and the index is what decides whether an execution
+    # overran the declared grid and therefore charges the ledger.
+    sa.Column("execution_index", sa.Integer(), nullable=False),
+    sa.Column("config_hash", postgresql.BYTEA(), nullable=False),
+    # The CPCV path or walk-forward fold. One trial per path, recorded as each path
+    # completes: batching at the end lets a crashed run launder its failed paths.
+    sa.Column("path_label", identifier(), nullable=False),
+    sa.Column("charged", sa.Boolean(), nullable=False),
+    sa.Index("ix_trial_execution_correlation_id", "correlation_id"),
+    sa.UniqueConstraint("spec_hash", "execution_index", name="spec_hash_execution_index"),
+    sa.CheckConstraint("execution_index >= 1", name="index_is_positive"),
+    sa.CheckConstraint("octet_length(config_hash) = 32", name="config_hash_is_sha256"),
 )
 
 # ---------------------------------------------------------------------------
@@ -1371,6 +1426,7 @@ APPEND_ONLY_TABLES: Final[frozenset[str]] = frozenset(
     {
         "audit_log",
         "trial_ledger",
+        "trial_execution",
         "agent_call",
         "fill",
         "risk_decision",

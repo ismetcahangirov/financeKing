@@ -28,14 +28,62 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Final, Protocol
 
 from fking.backtest._clock import SimulationClock
 from fking.backtest._config import RunConfig, canonical_digest, config_hash
-from fking.backtest._errors import CausalityError, EventBudgetExhaustedError
+from fking.backtest._errors import (
+    CausalityError,
+    EventBudgetExhaustedError,
+    RunConfigError,
+    UnregisteredSpecificationError,
+)
 from fking.backtest._events import Event, EventPriority
 from fking.backtest._queue import EventQueue
 from fking.domain import encode
+
+_SPEC_HASH_HEX_LENGTH: Final = 64
+
+
+@dataclass(frozen=True, slots=True)
+class SpecRegistration:
+    """What the trial ledger says about the specification this run belongs to.
+
+    Read from the ledger and handed to the loop; never constructed from the run's own
+    configuration, because a run that can derive its own authorisation has none. The
+    ledger's reader returns `trials_charged=0` for a `spec_hash` it has never seen, and
+    zero is the refusal -- not an absence of information, and never "no trials were
+    charged so no deflation is needed".
+
+    It is a required argument rather than an optional one with a default. A default is a
+    value somebody forgets to override, and the value they would forget is the one that
+    lets an unregistered search run.
+    """
+
+    spec_hash: str
+    trials_charged: int
+
+    def __post_init__(self) -> None:
+        if len(self.spec_hash) != _SPEC_HASH_HEX_LENGTH:
+            raise RunConfigError(
+                f"spec_hash must be a {_SPEC_HASH_HEX_LENGTH}-character SHA-256 digest; "
+                f"got {len(self.spec_hash)} characters"
+            )
+        if self.spec_hash != self.spec_hash.lower() or not all(
+            character in "0123456789abcdef" for character in self.spec_hash
+        ):
+            raise RunConfigError(f"spec_hash must be lowercase hex; got {self.spec_hash!r}")
+        if self.trials_charged < 0:
+            raise RunConfigError(
+                f"trials_charged must not be negative; got {self.trials_charged}. The "
+                f"ledger is monotone, so a negative charge describes a state it cannot "
+                f"reach"
+            )
+
+    @property
+    def is_registered(self) -> bool:
+        """Whether the ledger holds a charge for this specification."""
+        return self.trials_charged > 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +115,11 @@ class RunTrace:
     """
 
     config_hash: str
+    #: The specification this run was charged under. Carried on the result rather than
+    #: left to a caller to remember, for the reason `SharpeEvidence` carries its trial
+    #: count: a provenance field that is optional is a provenance field that is absent
+    #: from exactly the run somebody later needs to trace.
+    spec_hash: str
     entries: tuple[TraceEntry, ...]
     digest: str
     events_beyond_window: int
@@ -151,20 +204,40 @@ class EventHandler(Protocol):
 class EventLoop:
     """Drains a queue in total order, advancing simulated time as it goes."""
 
-    __slots__ = ("_config", "_handler")
+    __slots__ = ("_config", "_handler", "_registration")
 
-    def __init__(self, config: RunConfig, handler: EventHandler) -> None:
+    def __init__(
+        self,
+        config: RunConfig,
+        handler: EventHandler,
+        *,
+        registration: SpecRegistration,
+    ) -> None:
         self._config = config
         self._handler = handler
+        self._registration = registration
 
     def run(self, initial_events: Iterable[Event]) -> RunTrace:
         """Dispatch every event until the queue empties, and return the trace.
+
+        Refuses before anything is dispatched when the specification was never charged
+        to the trial ledger. The check is first, and it raises rather than returning an
+        empty trace, because a `RunTrace` with no entries is still an object somebody can
+        report a number from.
 
         `initial_events` is scheduled with the clock still at `start_utc`, so an event
         before the window opens raises rather than being quietly accepted -- the caller
         asked for a window and handed the loop data from outside it, and narrowing the
         window is the caller's decision to make.
         """
+        if not self._registration.is_registered:
+            raise UnregisteredSpecificationError(
+                f"spec_hash {self._registration.spec_hash} carries no trial-ledger "
+                f"charge; register the specification before any data is read. An "
+                f"unregistered run is an undeclared search, and its result would be "
+                f"deflated against a selection pool that omits it"
+            )
+
         queue = EventQueue()
         clock = SimulationClock(self._config.start_utc)
         context = RunContext(config=self._config, clock=clock, queue=queue)
@@ -196,6 +269,7 @@ class EventLoop:
         recorded = tuple(entries)
         return RunTrace(
             config_hash=config_hash(self._config),
+            spec_hash=self._registration.spec_hash,
             entries=recorded,
             digest=canonical_digest(encode(recorded)),
             events_beyond_window=context.events_beyond_window,
