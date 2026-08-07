@@ -48,6 +48,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
+from types import MappingProxyType
 from typing import Final
 from uuid import UUID
 
@@ -204,6 +205,18 @@ class TrialSpecification:
                 "before registration; reading it burns it, and there is no such thing as "
                 "reading it and not counting it"
             )
+
+        # `frozen=True` protects the binding, not the object bound: a plain dict here
+        # stays mutable through the reference the caller kept, and a grid edited after
+        # registration would leave the ledger's spec_hash describing a search that no
+        # longer exists -- in an append-only table, permanently.
+        object.__setattr__(
+            self,
+            "parameter_grid",
+            MappingProxyType(
+                {name: tuple(candidates) for name, candidates in self.parameter_grid.items()}
+            ),
+        )
 
     @property
     def parameter_count(self) -> int:
