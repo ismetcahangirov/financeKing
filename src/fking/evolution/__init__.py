@@ -21,6 +21,9 @@ The public surface today is the lineage store and the identity it is keyed on:
   collapse report that escalates diversity pressure regardless of what the measured
   correlations say.
 - `fking.evolution.store` -- the only writer of the `evolution` schema.
+- `fking.evolution.trials` -- the global monotone trial ledger, keyed on the search
+  context, charging `max(declared_grid, executions)`, and the only supported way to
+  obtain the `trials_at_time_of_run` a deflated Sharpe cannot be reported without.
 
 Modules whose names begin with `_` are internal and carry no compatibility promise.
 """
@@ -33,6 +36,8 @@ from fking.evolution._errors import (
     LifecycleTransitionError,
     LineageCycleError,
     LineageError,
+    TrialLedgerError,
+    TrialSpecificationError,
 )
 from fking.evolution.contract_gate import (
     COMPILED_THRESHOLD_FLOORS,
@@ -77,6 +82,14 @@ from fking.evolution.lineage import (
     lineage_collapse_report,
 )
 from fking.evolution.store import ChainVerification, GenomeRecord, LineageStore
+from fking.evolution.trials import (
+    ChargeReceipt,
+    ExecutionReceipt,
+    ObservedPerformance,
+    SearchContext,
+    TrialLedger,
+    TrialSpecification,
+)
 
 __all__: tuple[str, ...] = (
     "CAPITAL_AUTHORITY",
@@ -89,12 +102,14 @@ __all__: tuple[str, ...] = (
     "CapitalAuthority",
     "CapitalPosture",
     "ChainVerification",
+    "ChargeReceipt",
     "ContractCheck",
     "ContractGateError",
     "ContractGateThresholds",
     "ContractGateVerdict",
     "ContractViolation",
     "EvolutionError",
+    "ExecutionReceipt",
     "ExpressionNode",
     "ExpressionType",
     "Genome",
@@ -112,8 +127,14 @@ __all__: tuple[str, ...] = (
     "LineageStore",
     "MutationOperator",
     "NodeKind",
+    "ObservedPerformance",
     "ParentThesis",
     "ReasonClass",
+    "SearchContext",
+    "TrialLedger",
+    "TrialLedgerError",
+    "TrialSpecification",
+    "TrialSpecificationError",
     "capital_authority_for",
     "derive_current_state",
     "evaluate_contract_gate",
