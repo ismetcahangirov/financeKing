@@ -61,6 +61,7 @@ _PROMOTION_PATH: Final[tuple[LifecycleState, ...]] = (
 )
 
 _GENESIS_PLUS_ONE: Final[int] = 2
+_GENESIS_PLUS_TWO: Final[int] = 3
 _FULL_PROMOTION_EVENTS: Final[int] = 6
 _DEEP_LINEAGE_DEPTH: Final[int] = 7
 _DESCENDED_LIVE: Final[int] = 6
@@ -113,21 +114,25 @@ async def test_one_transition_is_reconstructed_from_the_event_table_alone(
     genome = build_genome()
     genesis = await _admit(LineageStore(app_engine), strategy_id=strategy_id, genome=genome)
 
+    # Through `backtested`, because `proposed -> validated` is not an edge: the shortcut
+    # a test would take is refused by the same table the production path walks.
+    backtested = next_transition(genesis, LifecycleState.BACKTESTED)
+    await LineageStore(app_engine).append_lifecycle_event(backtested)
     promotion = replace(
-        next_transition(genesis, LifecycleState.VALIDATED),
-        causation_id=genesis.event_id,
+        next_transition(backtested, LifecycleState.VALIDATED),
+        causation_id=backtested.event_id,
     )
     await LineageStore(app_engine).append_lifecycle_event(promotion)
 
     # A fresh store: nothing of the writer's memory survives into the read.
     reconstructed = await LineageStore(app_engine).load_lifecycle_events(strategy_id)
 
-    assert len(reconstructed) == _GENESIS_PLUS_ONE
+    assert len(reconstructed) == _GENESIS_PLUS_TWO
     assert reconstructed[-1] == promotion
 
     read_back = reconstructed[-1]
     assert read_back.correlation_id == promotion.correlation_id
-    assert read_back.causation_id == genesis.event_id
+    assert read_back.causation_id == backtested.event_id
     assert read_back.survival_score == SURVIVAL_SCORE
     assert read_back.score_components["deflated_sharpe"] == Decimal("0.9612")
     assert read_back.independent_episode_count == INDEPENDENT_EPISODES

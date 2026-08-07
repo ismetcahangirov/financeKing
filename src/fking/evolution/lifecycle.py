@@ -32,15 +32,21 @@ from types import MappingProxyType
 from typing import Final
 from uuid import UUID
 
-from fking.evolution._errors import LifecycleTransitionError
+from fking.evolution._errors import IllegalTransitionError, LifecycleTransitionError
 
 __all__ = [
+    "CAPITAL_AUTHORITY",
     "LIVE_STATES",
+    "PERMITTED_TRANSITIONS",
     "SCORED_STATES",
+    "CapitalAuthority",
+    "CapitalPosture",
     "LifecycleEvent",
     "LifecycleState",
     "ReasonClass",
+    "capital_authority_for",
     "derive_current_state",
+    "is_permitted_transition",
     "require_permitted_transition",
 ]
 
@@ -111,27 +117,162 @@ SCORED_STATES: Final[frozenset[LifecycleState]] = frozenset(
 """States a strategy cannot enter without a score and the sample behind it."""
 
 
-def require_permitted_transition(from_state: LifecycleState, to_state: LifecycleState) -> None:
-    """Refuse a transition the lifecycle does not admit, naming both states.
+class CapitalPosture(StrEnum):
+    """How much of the portfolio a state is allowed to move (section 1, section 3)."""
 
-    The database enforces all three of these as well. This raises first so that a caller
-    gets `retired is terminal` rather than
-    `ck_lifecycle_event_retired_is_terminal`, which is the name of a rule and not the
-    rule.
+    NONE = "none"
+    NOTIONAL_ONLY = "notional_only"
+    """Positions are computed and scored; nothing reaches a venue."""
+
+    FRACTIONAL = "fractional"
+    FULL = "full"
+
+
+@dataclass(frozen=True, slots=True)
+class CapitalAuthority:
+    """What a state may risk, as a fraction of a champion's risk budget.
+
+    A fraction rather than an absolute so that the state machine states a *relative*
+    authority and the risk engine keeps sole ownership of the absolute number. A state
+    machine that named a notional would be sizing positions, which is the one thing it
+    must not do (`RISK_PHILOSOPHY.md`).
+    """
+
+    posture: CapitalPosture
+    risk_budget_fraction_of_champion: Decimal
+
+    def __post_init__(self) -> None:
+        if not Decimal(0) <= self.risk_budget_fraction_of_champion <= Decimal(1):
+            raise LifecycleTransitionError(
+                f"a risk budget fraction is on [0, 1], got {self.risk_budget_fraction_of_champion}"
+            )
+        reaches_a_venue = self.posture in {CapitalPosture.FRACTIONAL, CapitalPosture.FULL}
+        if reaches_a_venue is (self.risk_budget_fraction_of_champion == Decimal(0)):
+            raise LifecycleTransitionError(
+                f"posture {self.posture.value} and fraction "
+                f"{self.risk_budget_fraction_of_champion} disagree about whether this "
+                f"state reaches a venue"
+            )
+
+
+# 25% of a champion's risk budget for a challenger, from EVOLUTION_ENGINE.md section 3.
+# Deliberately non-zero and deliberately not a knob: a challenger evaluated at zero
+# allocation is a paper strategy with a different label, and the entire point of the
+# state is to measure partial fills, rejects, queue position and funding -- none of which
+# a simulated fill produces. Lowering it to zero would silently delete the only evidence
+# the `challenger -> champion` gate is allowed to read.
+_CHALLENGER_RISK_BUDGET_FRACTION: Final = Decimal("0.25")
+
+CAPITAL_AUTHORITY: Final[Mapping[LifecycleState, CapitalAuthority]] = MappingProxyType(
+    {
+        LifecycleState.NONEXISTENT: CapitalAuthority(CapitalPosture.NONE, Decimal(0)),
+        LifecycleState.PROPOSED: CapitalAuthority(CapitalPosture.NONE, Decimal(0)),
+        LifecycleState.BACKTESTED: CapitalAuthority(CapitalPosture.NONE, Decimal(0)),
+        LifecycleState.VALIDATED: CapitalAuthority(CapitalPosture.NONE, Decimal(0)),
+        LifecycleState.PAPER: CapitalAuthority(CapitalPosture.NOTIONAL_ONLY, Decimal(0)),
+        LifecycleState.CHALLENGER: CapitalAuthority(
+            CapitalPosture.FRACTIONAL, _CHALLENGER_RISK_BUDGET_FRACTION
+        ),
+        LifecycleState.CHAMPION: CapitalAuthority(CapitalPosture.FULL, Decimal(1)),
+        # Quarantine is capital withdrawal first and a re-test second: a descendant of a
+        # defective genome is presumed to carry the defect until it has been re-tested,
+        # and the presumption is worthless if it keeps its allocation while it waits.
+        LifecycleState.QUARANTINED: CapitalAuthority(CapitalPosture.NONE, Decimal(0)),
+        LifecycleState.RETIRED: CapitalAuthority(CapitalPosture.NONE, Decimal(0)),
+    }
+)
+
+
+def capital_authority_for(state: LifecycleState) -> CapitalAuthority:
+    """What `state` may risk. Total over the enum, so a new state cannot default to zero.
+
+    A `Mapping.get` with a zero default would be the friendlier spelling and the wrong
+    one: adding a state and forgetting its authority would then read as "no capital",
+    which is the answer that lets the omission survive review.
+    """
+    authority = CAPITAL_AUTHORITY.get(state)
+    if authority is None:  # pragma: no cover - unreachable while the mapping is total
+        raise LifecycleTransitionError(f"{state.value} declares no capital authority")
+    return authority
+
+
+PERMITTED_TRANSITIONS: Final[Mapping[LifecycleState, frozenset[LifecycleState]]] = MappingProxyType(
+    {
+        LifecycleState.NONEXISTENT: frozenset({LifecycleState.PROPOSED}),
+        LifecycleState.PROPOSED: frozenset(
+            {LifecycleState.BACKTESTED, LifecycleState.QUARANTINED, LifecycleState.RETIRED}
+        ),
+        LifecycleState.BACKTESTED: frozenset(
+            {LifecycleState.VALIDATED, LifecycleState.QUARANTINED, LifecycleState.RETIRED}
+        ),
+        LifecycleState.VALIDATED: frozenset(
+            {LifecycleState.PAPER, LifecycleState.QUARANTINED, LifecycleState.RETIRED}
+        ),
+        LifecycleState.PAPER: frozenset(
+            {LifecycleState.CHALLENGER, LifecycleState.QUARANTINED, LifecycleState.RETIRED}
+        ),
+        LifecycleState.CHALLENGER: frozenset(
+            {LifecycleState.CHAMPION, LifecycleState.QUARANTINED, LifecycleState.RETIRED}
+        ),
+        # No champion -> challenger edge. A demoted champion is retired, because
+        # demotion means the evidence that promoted it has been superseded, and
+        # keeping it in the pool makes the search re-examine a hypothesis it has
+        # already tested (section 3).
+        LifecycleState.CHAMPION: frozenset({LifecycleState.QUARANTINED, LifecycleState.RETIRED}),
+        # The re-test re-enters at `backtested`, which is the arrow the section 1
+        # diagram draws back into that box. Not at `proposed`: the genome's identity
+        # is unchanged, so the contract gate it already passed still applies, and
+        # re-running it would charge the same checks twice. Not at `validated`: the
+        # CPCV evidence is exactly what a leaked feature invalidates.
+        LifecycleState.QUARANTINED: frozenset({LifecycleState.BACKTESTED, LifecycleState.RETIRED}),
+        LifecycleState.RETIRED: frozenset(),
+    }
+)
+"""Every edge the lifecycle has. A pair absent from here is refused, not warned about.
+
+An allowlist rather than a denylist of the three impossible shapes, because a denylist
+answers "is this one of the mistakes we thought of" and an allowlist answers "is this one
+of the transitions the design has". `proposed -> champion` is not a mistake anyone would
+write deliberately; it is what a scheduler produces when a promotion loop reads a stale
+state, and under a denylist it commits full allocation to a genome that has never been
+backtested.
+"""
+
+
+def is_permitted_transition(from_state: LifecycleState, to_state: LifecycleState) -> bool:
+    """Whether the edge exists. Callers deciding *what* to do next use this; callers
+    recording a decision already made use `require_permitted_transition`."""
+    return to_state in PERMITTED_TRANSITIONS[from_state]
+
+
+def require_permitted_transition(from_state: LifecycleState, to_state: LifecycleState) -> None:
+    """Refuse an edge the lifecycle does not have, naming both states.
+
+    The three most common refusals get their own message before the table is consulted,
+    because `retired -> proposed is not an edge` is the name of a rule and
+    `retired is terminal` is the rule. Everything else falls through to the table, so a
+    new state is refused everywhere until it is given edges rather than being silently
+    reachable from nowhere.
     """
     if from_state is to_state:
-        raise LifecycleTransitionError(
+        raise IllegalTransitionError(
             f"{to_state.value} -> {to_state.value} is not a transition; nothing moved"
         )
     if from_state is LifecycleState.RETIRED:
-        raise LifecycleTransitionError(
+        raise IllegalTransitionError(
             "retired is terminal: there is no reactivate and no unretire. Re-testing a "
             "hypothesis you already rejected gives a second correlated look at the full "
             "statistical cost (EVOLUTION_ENGINE.md section 8)"
         )
     if to_state is LifecycleState.NONEXISTENT:
-        raise LifecycleTransitionError(
+        raise IllegalTransitionError(
             "nonexistent is where a strategy comes from, never where it goes"
+        )
+    if not is_permitted_transition(from_state, to_state):
+        raise IllegalTransitionError(
+            f"{from_state.value} -> {to_state.value} is not an edge the lifecycle has; "
+            f"from {from_state.value} the only destinations are "
+            f"{sorted(state.value for state in PERMITTED_TRANSITIONS[from_state])}"
         )
 
 
