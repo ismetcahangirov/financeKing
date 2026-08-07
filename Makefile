@@ -79,6 +79,7 @@ checks:  ## Project-specific AST and documentation checks
 	$(UV) run python tools/checks/feature_registry.py $(SRC)
 	$(UV) run python tools/checks/agent_schema_fields.py $(SRC)/agents
 	$(UV) run python tools/checks/rationale_untouched.py $(SRC)
+	$(UV) run python tools/checks/metric_cardinality.py $(SRC)
 	$(UV) run python tools/checks/property_coverage.py $(SRC) tests/property
 	$(UV) run python tools/checks/adr_index.py docs/adr
 	$(UV) run python tools/corrupt_archive_fixture.py --check

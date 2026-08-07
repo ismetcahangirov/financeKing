@@ -16,6 +16,7 @@ import pytest
 from tools.checks import (
     clock_isolation,
     feature_registry,
+    metric_cardinality,
     money_types,
     naming,
     no_catch_safety,
@@ -264,6 +265,45 @@ class TestFeatureRegistry:
         assert feature_registry.check_package(package)
 
 
+class TestMetricCardinality:
+    def test_a_label_filled_from_a_correlation_id_is_rejected(self) -> None:
+        """The label name is bounded and the value is not, which the registry cannot see."""
+        source = "handle.increment(1, venue=event.correlation_id)\n"
+        failures = metric_cardinality.check_source(source, label="x.py")
+        assert len(failures) == 1
+        assert "correlation_id" in failures[0]
+
+    def test_a_label_filled_from_an_order_id_is_rejected(self) -> None:
+        source = "handle.increment(1, reason=str(order_id))\n"
+        assert metric_cardinality.check_source(source, label="x.py")
+
+    def test_a_symbol_indexed_out_of_an_exchange_response_is_rejected(self) -> None:
+        """A symbol from a venue payload is hostile input and is not the resolved universe."""
+        source = 'handle.increment(1, symbol=payload["symbol"], venue="binance")\n'
+        failures = metric_cardinality.check_source(source, label="x.py")
+        assert len(failures) == 1
+        assert "resolved universe" in failures[0]
+
+    def test_a_client_order_id_indexed_out_of_a_response_is_rejected(self) -> None:
+        source = 'handle.increment(1, venue=ack["clientOrderId"])\n'
+        assert metric_cardinality.check_source(source, label="x.py")
+
+    def test_a_validated_symbol_passed_as_a_label_is_accepted(self) -> None:
+        """Guards the cases above: a check that flagged every label would pass them all."""
+        source = 'handle.increment(1, symbol=instrument.symbol, venue="binance")\n'
+        assert metric_cardinality.check_source(source, label="x.py") == []
+
+    def test_an_identifier_passed_somewhere_that_is_not_a_label_is_ignored(self) -> None:
+        """order_id belongs on a log line and a span attribute, and this is one."""
+        source = 'log.info("order.accepted", order_id=order_id)\n'
+        assert metric_cardinality.check_source(source, label="x.py") == []
+
+    def test_the_declared_set_is_inside_its_budget_and_matches_the_grammar(self) -> None:
+        failures, total = metric_cardinality.report_declared_cardinality()
+        assert failures == []
+        assert total > 0
+
+
 class TestPropertyCoverage:
     """The gate that makes Hypothesis mandatory for risk and position math (#170).
 
@@ -386,6 +426,7 @@ class TestPropertyCoverage:
 CHECK_ENTRY_POINTS: Mapping[str, Callable[[Sequence[str]], int]] = {
     "clock_isolation": clock_isolation.main,
     "feature_registry": feature_registry.main,
+    "metric_cardinality": metric_cardinality.main,
     "money_types": money_types.main,
     "naming": naming.main,
     "no_catch_safety": no_catch_safety.main,
