@@ -104,7 +104,13 @@ _CREDENTIAL_VENUE_CODES: Final[frozenset[int]] = frozenset({-1022, -1102, -2014,
 
 _SPOT_ORDER_RATE_PER_10S: Final[int] = 50
 
-type TimestampDomain = Literal["request_signing", "market_data_epoch"]
+# A plain assignment rather than a PEP 695 `type` statement. `type X = ...` binds a
+# `TypeAliasType` whose value is lazily evaluated, and static analysers that walk the AST
+# for module-level bindings -- CodeQL's py/undefined-export among them -- do not treat the
+# statement as a definition, so exporting the name reads as exporting nothing. The
+# assignment binds the same alias in a form every reader of the module, human or
+# otherwise, can see.
+TimestampDomain = Literal["request_signing", "market_data_epoch"]
 
 
 class PreflightError(FkingError):

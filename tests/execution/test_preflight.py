@@ -25,6 +25,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from itertools import cycle
 from typing import Final, Literal
+from urllib.parse import urlsplit
 
 import pytest
 import structlog
@@ -55,7 +56,7 @@ from fking.execution import (
     run_preflight,
 )
 from fking.execution.preflight import ClockSkewSample, PreflightReport
-from fking.platform.safety import SafetyViolation
+from fking.platform.safety import PERMITTED_HOSTS, SafetyViolation
 from tests.execution.conftest import RecordedExchange, load_recording
 
 pytestmark = pytest.mark.unit
@@ -622,7 +623,15 @@ async def test_a_non_allowlisted_endpoint_kills_the_process_naming_the_item(
         if entry["event"] == "preflight.item_failed" and entry["log_level"] == "critical"
     )
     assert record["item"] == PreflightItem.ALLOWLISTED_ENDPOINTS.value
-    assert "api.binance.com" in " ".join(record["endpoints"])
+    # The parsed host, never a substring of the URL. `"api.binance.com" in url` is the
+    # exact check .claude/rules/safety-kernel.md rejects in its Incorrect section: it
+    # accepts `https://testnet.binance.vision/?note=api.binance.com` and misses
+    # `https://api.binance.com.attacker.example`, so a test written that way asserts
+    # something weaker than the property it is named after -- in the one file whose job
+    # is to prove the allowlist refused a production host.
+    logged_hosts = {urlsplit(url).hostname for url in record["endpoints"]}
+    assert "api.binance.com" in logged_hosts
+    assert not logged_hosts <= PERMITTED_HOSTS
 
 
 def test_every_item_has_a_failure_case() -> None:
