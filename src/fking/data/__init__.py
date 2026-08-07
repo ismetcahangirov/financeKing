@@ -42,17 +42,20 @@ from fking.data.format_resolver import (
     parse_naive_utc_datetime,
     resolve_archive_format,
 )
+from fking.data.manifest import ArchiveManifest, ParquetArchiveManifest
 
 __all__: tuple[str, ...] = (
     "ArchiveCoordinate",
     "ArchiveFetcher",
     "ArchiveFormat",
+    "ArchiveManifest",
     "BooleanEncoding",
     "Dataset",
     "EpochUnit",
     "FetchedArchive",
     "Granularity",
     "Market",
+    "ParquetArchiveManifest",
     "TimestampEncoding",
     "epoch_to_utc",
     "parse_naive_utc_datetime",
