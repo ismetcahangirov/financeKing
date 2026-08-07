@@ -593,6 +593,15 @@ class TelemetrySettings(BaseModel):
         "strategy_version",
         "symbol",
         "venue",
+        # The startup symbol universe. The counts are the fields an investigation acts
+        # on -- "zero fills" and "this symbol is not listed here" are the same incident
+        # seen from two ends -- and `quarantined` carries reasons rather than symbols so
+        # the record renders on a console whose codepage is not UTF-8.
+        "archive_only_count",
+        "quarantined",
+        "quarantined_count",
+        "tradable_count",
+        "venue_only_count",
         # Boot record. CONFIGURATION.md section 4 requires the full effective config, and
         # it is safe to emit only because every credential in it is already redacted by
         # type before the record is built.

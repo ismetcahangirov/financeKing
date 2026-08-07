@@ -197,10 +197,10 @@ Metrics may carry a float approximation for graphing. The authoritative value go
 | `fking_strategy_signals_emitted_total` | counter | strategy_id, direction |
 | `fking_risk_decisions_total` | counter | strategy_id, outcome (`sized`/`vetoed`) |
 | `fking_risk_veto_total` | counter | strategy_id, binding_limit |
-| `fking_risk_position_notional_usd` | gauge | strategy_id, symbol |
+| `fking_risk_position_notional_usd` | gauge | symbol |
 | `fking_risk_portfolio_drawdown_ratio` | gauge | — |
 | `fking_risk_limit_utilisation_ratio` | gauge | limit_name |
-| `fking_risk_kill_switch_active` | gauge | — (1/0) |
+| `fking_risk_kill_switch_engaged_count` | gauge | — (1/0) |
 
 **Execution**
 
@@ -231,13 +231,15 @@ Metrics may carry a float approximation for graphing. The authoritative value go
 |---|---|---|
 | `fking_platform_allowlist_rejections_total` | counter | host |
 | `fking_platform_bus_lag_messages` | gauge | stream, consumer_group |
-| `fking_platform_bus_dlq_depth` | gauge | stream |
+| `fking_platform_bus_dlq_depth_messages` | gauge | stream |
 | `fking_platform_audit_write_failures_total` | counter | table |
 | `fking_platform_scheduler_job_runs_total` | counter | job_id, outcome |
 | `fking_platform_scheduler_overlaps_refused_total` | counter | job_id |
 | `fking_telemetry_spans_dropped_total` | counter | — |
 
 `fking_platform_scheduler_overlaps_refused_total` deserves a note because a zero reading and a missing series look identical on a panel. A run is refused when the previous run of the same job is still in flight, and it is **refused rather than queued**: a queued run fires at a time nobody scheduled, against a window that has since moved, and two of them write the same Parquet partition. So a sustained non-zero value is not a transient — it says the job is slower than its cadence, and either the cadence or the job has to change. `job_id` is bounded by the registered job catalogue rather than by traffic, which is why it is a permitted label here (`fking.platform.scheduler`, ADR-0019).
+
+Three names in the tables above differ from an earlier draft of them, and the reasons are the rule working rather than exceptions to it. `fking_platform_bus_dlq_depth` and `fking_risk_kill_switch_active` stated no unit, and a unitless number on a panel means whatever the reader remembers it meaning — they are `_messages` and `_count`. `fking_risk_position_notional_usd` was labelled `strategy_id, symbol`, whose product is 200 × 60 = 12,000 series for one gauge and grows multiplicatively with both; per-strategy exposure is answered from the audit rows, which carry the exact decimal anyway. All three were caught by multiplying before merging rather than after, which is the whole point of doing it in that order. `fking.platform.telemetry.LABEL_DOMAINS` holds each label's declared domain and the cap behind it, and `tools/checks/metric_cardinality.py` prints the product per metric and the total against the budget.
 
 `fking_platform_allowlist_rejections_total` is labelled by host, which looks like it violates the cardinality rule. It does not: the label is the *rejected* host, and in correct operation the metric is always zero. A non-zero value is a critical incident, and knowing which host was attempted is the entire value of the metric. If it ever becomes high-cardinality, the system is being probed and the cardinality is the least of the problems.
 
