@@ -17,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 
 import pytest
-from hypothesis import assume, given
+from hypothesis import given, reject
 from hypothesis import strategies as st
 
 from fking.backtest.walkforward import (
@@ -68,14 +68,18 @@ def plans(draw: st.DrawFn) -> WalkForwardPlan:
 def _schedule_or_discard(plan: WalkForwardPlan) -> WalkForwardSchedule:
     """A window too short for two folds is a refusal by design, not a counterexample.
 
-    `assume(False)` discards the example rather than failing it, and never returns -- so
-    every caller below can treat the schedule as present without a `None` branch that
-    would be dead code in the type checker's eyes as well as at runtime.
+    `reject()` discards the example rather than failing it. It is annotated `NoReturn`,
+    which `assume(False)` is not -- and that difference is the whole reason it is used
+    here. Both raise at runtime, but only `reject()` says so in the type system, so the
+    function has no implicit fall-through returning `None` for a reader, for mypy, or
+    for the CodeQL rule that flags mixing explicit and implicit returns. Every caller
+    below can then treat the schedule as present without a `None` branch that would be
+    dead code twice over.
     """
     try:
         return build_schedule(plan)
     except ScheduleRefusedError:
-        assume(False)
+        reject()
 
 
 @given(plan=plans())
