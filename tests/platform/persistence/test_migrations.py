@@ -33,7 +33,13 @@ REQUIRED_EXTENSIONS = ("timescaledb", "pgcrypto")
 # discovers the boundary by stepping down until something breaks would leave a database
 # in whatever state the break happened in. Move this forward when a reversible migration
 # lands above it; do not move it forward to reach an audit migration.
-_LAST_REVERSIBLE_REVISION = "0017_risk_drawdown_state"
+_LAST_REVERSIBLE_REVISION = "0019_risk_conviction_map"
+
+# The irreversible revision immediately below it. Named rather than reached with `-1` from
+# head, because "head" moves: this test used to reach 0018 by stepping down from head, and
+# it passed until the next reversible migration landed above it and the step down hit that
+# one instead -- a green assertion about a refusal that was never exercised.
+_SEARCH_CONTEXT_REVISION = "0018_trial_ledger_search_context"
 
 
 @pytest.mark.unit
@@ -103,9 +109,12 @@ def test_downgrading_the_trial_ledgers_search_context_refuses(scratch_dsn: str) 
     can no longer be attributed to a search, which silently collapses every per-context
     and per-lineage count into the global one. A schema rollback that quietly changes
     what a number means is a data-destruction operation dressed as a schema operation.
+
+    Upgraded to 0018 by name rather than to head, so that the revision whose refusal is
+    under test is the one the step down actually reaches. See `_SEARCH_CONTEXT_REVISION`.
     """
     config = alembic_config(scratch_dsn)
-    command.upgrade(config, "head")
+    command.upgrade(config, _SEARCH_CONTEXT_REVISION)
     with pytest.raises(RuntimeError, match="irreversible"):
         command.downgrade(config, "-1")
 
