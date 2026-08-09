@@ -67,7 +67,6 @@ __all__ = [
 ]
 
 _ZERO: Final = Decimal("0")
-_ONE: Final = Decimal("1")
 
 # The identity `sum_i CTR_i == sigma_p` holds exactly in real arithmetic. This is the
 # rounding budget for a *caller* adding the contributions up -- the decomposition itself is
