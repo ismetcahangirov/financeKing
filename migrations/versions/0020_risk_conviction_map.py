@@ -1,7 +1,7 @@
 """The conviction calibration map, kept as history rather than as current state.
 
-Revision ID: 0019_risk_conviction_map
-Revises: 0018_trial_ledger_search_context
+Revision ID: 0020_risk_conviction_map
+Revises: 0019_kill_switch_journal_columns
 
 `#49` maps a strategy's reported conviction onto its own realised record before that
 number is allowed to influence size. `fking.risk.calibration` holds the fit; this is where
@@ -50,8 +50,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0019_risk_conviction_map"
-down_revision: str | None = "0018_trial_ledger_search_context"
+revision: str = "0020_risk_conviction_map"
+down_revision: str | None = "0019_kill_switch_journal_columns"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

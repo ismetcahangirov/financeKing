@@ -104,7 +104,13 @@ LIMIT_UNITS: Final[tuple[str, ...]] = ("usd", "ratio", "count", "per_minute")
 # breach halts everything, a strategy-scoped one halts one subject.
 RISK_SCOPES: Final[tuple[str, ...]] = ("strategy", "portfolio")
 RISK_LIMIT_NAMES: Final[tuple[str, ...]] = ("drawdown", "daily_loss", "rolling_loss")
-KILL_SWITCH_EVENTS: Final[tuple[str, ...]] = ("tripped", "cleared")
+# The journal's three row kinds. `cleared` is the resume row: `fking.risk` calls the
+# event `RESUME`, and the table keeps the spelling 0005 already wrote, because an
+# append-only table cannot be migrated onto a synonym -- a historical `cleared` row would
+# stay `cleared` forever and every reader would carry both names. `armed` arrived with
+# 0019; an arm expires, grants nothing on its own, and exists in the journal so that the
+# deliberately awkward two-step is auditable rather than inferred.
+KILL_SWITCH_EVENTS: Final[tuple[str, ...]] = ("tripped", "armed", "cleared")
 AGENT_OUTCOMES: Final[tuple[str, ...]] = ("succeeded", "failed", "degraded")
 # Mirrors `fking.platform.scheduler.JobOutcome`, and asserted equal to it in
 # `test_schema_contract.py`. `abandoned` is not a third flavour of failure: a job that
@@ -1039,12 +1045,36 @@ kill_switch_event = sa.Table(
     # an UPDATE on an append-only table, and the workaround for that is always to make
     # the table not append-only.
     sa.Column("event_type", identifier(), nullable=False),
+    # The human-legible summary, and nothing reads it back. `fking.execution`'s journal
+    # adapter reconstructs a row from the structured columns below, so this one can be
+    # reworded without changing what a boot derives -- which is the only arrangement in
+    # which a prose field on an append-only table is safe.
     sa.Column("reason", identifier(), nullable=False),
     sa.Column("actor", identifier(), nullable=False),
     sa.Column("correlation_id", postgresql.UUID(as_uuid=True), nullable=False),
     sa.Column("occurred_at_utc", utc_timestamp(), nullable=False),
+    # Everything below arrived with 0019, nullable and without a DEFAULT: rows written
+    # before it carry NULL, which is the truthful record of a field nobody captured, and
+    # backfilling one is forbidden (docs/rules/append-only-audit.md). The completeness
+    # constraints in that migration are NOT VALID for the same reason, and they make
+    # every row written from 0019 forward carry its whole shape.
+    #
+    # `incident_id` is the load-bearing one. A RESUME clears the incident it names and no
+    # other, so a fold that tracks a single open trip reports TRADING while a second
+    # incident is still live -- and two open incidents is the normal case, because a
+    # testnet wipe presents as a reconciliation divergence and a balance collapse at once.
+    sa.Column("incident_id", postgresql.UUID(as_uuid=True), nullable=True),
+    sa.Column("operator_id", identifier(), nullable=True),
+    sa.Column("root_cause", identifier(), nullable=True),
+    sa.Column("trigger_id", identifier(), nullable=True),
+    sa.Column("trigger_unit", identifier(), nullable=True),
+    sa.Column("trigger_observed_value", money(), nullable=True),
+    sa.Column("trigger_threshold_value", money(), nullable=True),
+    sa.Column("trigger_detail", identifier(), nullable=True),
+    sa.Column("book_snapshot", postgresql.JSONB(), nullable=True),
     _recorded_at_utc(),
     sa.Index("ix_kill_switch_event_occurred_at_utc", "occurred_at_utc"),
+    sa.Index("ix_kill_switch_event_incident_id_occurred_at_utc", "incident_id", "occurred_at_utc"),
     _one_of("event_type", KILL_SWITCH_EVENTS),
 )
 

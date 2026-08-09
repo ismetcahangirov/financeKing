@@ -1,10 +1,16 @@
-"""The ten checks that run before the demo runtime accepts any work, and the clock-skew
+"""The eleven checks that run before the demo runtime accepts any work, and the clock-skew
 monitor that keeps running afterwards.
 
 Every item produces evidence and every failure is a hard stop. The process aborts before
 the event loop takes work, because a runtime that cannot prove where it will send orders,
 what its clock says, or which key type it is holding must not be allowed to find out in
 the order path -- where the answer costs a session rather than a minute.
+
+Item 1 is the kill-switch journal, and it is first because it is the only item whose
+answer does not involve the venue: a process that must not trade should learn that before
+it authenticates anywhere. It is also the only item that can leave the runtime *running*
+and refusing orders rather than aborting -- coming back halted after a trip is the
+designed behaviour, and there has to be a process left for a human to resume.
 
 Two properties are worth stating before the code, because both are easy to undo by
 accident:
@@ -34,7 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -42,6 +48,7 @@ from enum import StrEnum
 from typing import Final, Literal, Protocol
 
 from fking.execution._errors import PermanentExchangeError
+from fking.execution.killswitch_journal import restore_kill_switch
 from fking.execution.models import (
     VenueBalance,
     VenueExchangeInfo,
@@ -54,6 +61,7 @@ from fking.execution.venue_profile import VenueProfile
 from fking.platform.errors import FkingError
 from fking.platform.logging import get_logger
 from fking.platform.safety import PERMITTED_HOSTS, assert_host_permitted
+from fking.risk import JournalReadOutcome, JournalUnreadable, KillSwitchGate
 
 __all__ = [
     "PRODUCTION_PROVENANCE_FORBIDDEN_SUBSTRING",
@@ -137,6 +145,10 @@ class PreflightItem(StrEnum):
     message names, so an operator reading either one can find the item without a lookup.
     """
 
+    # First, and it touches no venue at all. A process that must not trade should learn
+    # that before it authenticates anywhere, and the journal read is the only item whose
+    # answer is already true of this deployment before the network is consulted.
+    KILL_SWITCH_JOURNAL = "preflight.kill_switch_journal"
     ALLOWLISTED_ENDPOINTS = "preflight.endpoints_allowlisted"
     CLOCK_SKEW = "preflight.clock_skew"
     CREDENTIAL_KEY_TYPE = "preflight.credential_key_type"
@@ -193,6 +205,19 @@ class PreflightReport:
         """
         return any(
             outcome.item is PreflightItem.EXCHANGE_STATE and outcome.verdict == "routed"
+            for outcome in self.outcomes
+        )
+
+    @property
+    def kill_switch_halted(self) -> bool:
+        """True when the journal named an open incident and the runtime starts halted.
+
+        Reported rather than blocking. The gate is what refuses orders -- this is so the
+        boot record says which of "ready and trading" and "ready and halted" happened,
+        and a report that cannot distinguish them is a report an operator has to guess at.
+        """
+        return any(
+            outcome.item is PreflightItem.KILL_SWITCH_JOURNAL and outcome.verdict == "routed"
             for outcome in self.outcomes
         )
 
@@ -370,6 +395,53 @@ def _outcome(
     **evidence: str,
 ) -> CheckOutcome:
     return CheckOutcome(item=item, verdict=verdict, detail=detail, evidence=evidence)
+
+
+async def _check_kill_switch_journal(
+    read_journal: Callable[[], Awaitable[JournalReadOutcome]], gate: KillSwitchGate
+) -> CheckOutcome:
+    """Item 1. Rehydrate the kill switch from its journal before anything else runs.
+
+    Three outcomes, and the middle one is the reason `CheckOutcome` has a third verdict:
+
+    - **Unreadable** is a failed item. The gate is left halted first and the process then
+      aborts, so both senses of "halted" hold: no order can be constructed by anything
+      holding this gate, and there is no runtime left to construct one. A process that
+      cannot read the journal also cannot append a trip row to it, so it could not stop
+      itself later either.
+    - **Halted** is `routed`, not failed. The system is meant to come back up halted after
+      a trip and wait for a person; aborting instead would leave nothing running for that
+      person to resume, and #53's resume procedure is the owner of what happens next.
+    - **Trading** is the only outcome that opens the gate, and this is the only call that
+      can open it.
+    """
+    outcome = await restore_kill_switch(read_journal, gate=gate)
+    state = gate.state
+    if isinstance(outcome, JournalUnreadable):
+        return _outcome(
+            PreflightItem.KILL_SWITCH_JOURNAL,
+            verdict="failed",
+            detail=state.halted_reason or "the kill-switch journal could not be read",
+            halted="true",
+        )
+    if state.is_halted:
+        return _outcome(
+            PreflightItem.KILL_SWITCH_JOURNAL,
+            verdict="routed",
+            detail=(
+                f"incident {state.incident_id} is open in the journal; the runtime starts "
+                f"halted and only #53's resume procedure reopens it"
+            ),
+            halted="true",
+            incident_id=str(state.incident_id),
+            tripped_at_utc=state.tripped_at_utc.isoformat() if state.tripped_at_utc else "",
+        )
+    return _outcome(
+        PreflightItem.KILL_SWITCH_JOURNAL,
+        verdict="passed",
+        detail="the journal was read and holds no open incident",
+        halted="false",
+    )
 
 
 def _check_endpoints_allowlisted(profile: VenueProfile) -> CheckOutcome:
@@ -860,6 +932,8 @@ def _check_cost_parameter_provenance(provenance_id: str) -> CheckOutcome:
 async def run_preflight(  # noqa: PLR0913 - see the note above
     venue: ExecutionVenue,
     *,
+    kill_switch: KillSwitchGate,
+    read_kill_switch_journal: Callable[[], Awaitable[JournalReadOutcome]],
     clock_monitor: ClockSkewMonitor,
     credential_kind: Literal["ed25519", "hmac"],
     required_symbols: frozenset[str],
@@ -872,13 +946,17 @@ async def run_preflight(  # noqa: PLR0913 - see the note above
     """Run the checklist in order and stop at the first blocking failure.
 
     Stopping rather than collecting: every item after a failure would be measuring a
-    system whose premises are already known to be wrong, and an item-3 failure means the
+    system whose premises are already known to be wrong, and an item-4 failure means the
     later authenticated calls are guaranteed to fail for a reason that is not their own.
     The failure is logged at CRITICAL naming the item, and the caller aborts.
     """
     profile = venue.profile
-    outcomes: list[CheckOutcome] = [_check_endpoints_allowlisted(profile)]
+    outcomes: list[CheckOutcome] = [
+        await _check_kill_switch_journal(read_kill_switch_journal, kill_switch)
+    ]
 
+    if not outcomes[-1].is_blocking:
+        outcomes.append(_check_endpoints_allowlisted(profile))
     if not outcomes[-1].is_blocking:
         outcomes.append(await _check_clock_skew(clock_monitor))
     if not outcomes[-1].is_blocking:
@@ -933,6 +1011,8 @@ async def run_preflight(  # noqa: PLR0913 - see the note above
 async def preflight_or_abort(  # noqa: PLR0913 - mirrors run_preflight exactly
     venue: ExecutionVenue,
     *,
+    kill_switch: KillSwitchGate,
+    read_kill_switch_journal: Callable[[], Awaitable[JournalReadOutcome]],
     clock_monitor: ClockSkewMonitor,
     credential_kind: Literal["ed25519", "hmac"],
     required_symbols: frozenset[str],
@@ -950,6 +1030,8 @@ async def preflight_or_abort(  # noqa: PLR0913 - mirrors run_preflight exactly
     """
     report = await run_preflight(
         venue,
+        kill_switch=kill_switch,
+        read_kill_switch_journal=read_kill_switch_journal,
         clock_monitor=clock_monitor,
         credential_kind=credential_kind,
         required_symbols=required_symbols,

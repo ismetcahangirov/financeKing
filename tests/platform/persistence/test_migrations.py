@@ -33,7 +33,7 @@ REQUIRED_EXTENSIONS = ("timescaledb", "pgcrypto")
 # discovers the boundary by stepping down until something breaks would leave a database
 # in whatever state the break happened in. Move this forward when a reversible migration
 # lands above it; do not move it forward to reach an audit migration.
-_LAST_REVERSIBLE_REVISION = "0019_risk_conviction_map"
+_LAST_REVERSIBLE_REVISION = "0020_risk_conviction_map"
 
 # The irreversible revision immediately below it. Named rather than reached with `-1` from
 # head, because "head" moves: this test used to reach 0018 by stepping down from head, and
@@ -115,6 +115,21 @@ def test_downgrading_the_trial_ledgers_search_context_refuses(scratch_dsn: str) 
     """
     config = alembic_config(scratch_dsn)
     command.upgrade(config, _SEARCH_CONTEXT_REVISION)
+    with pytest.raises(RuntimeError, match="irreversible"):
+        command.downgrade(config, "-1")
+
+
+def test_downgrading_the_kill_switch_journal_columns_refuses(scratch_dsn: str) -> None:
+    """0019 raises, and the reason is the one an operator would otherwise discover late.
+
+    The trip rows survive a column drop and stop reconstructing into a state: no incident
+    id for a RESUME to match, no trigger to argue the trip against, and no pre-remediation
+    book snapshot -- which ADR 0014 makes the only record of what the flatten closed. The
+    system would then boot halted on an unreadable journal with no resume path, which is
+    safe and unrecoverable at the same time.
+    """
+    config = alembic_config(scratch_dsn)
+    command.upgrade(config, "0019_kill_switch_journal_columns")
     with pytest.raises(RuntimeError, match="irreversible"):
         command.downgrade(config, "-1")
 
