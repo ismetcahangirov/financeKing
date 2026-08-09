@@ -103,9 +103,29 @@ def test_downgrading_the_trial_ledgers_search_context_refuses(scratch_dsn: str) 
     can no longer be attributed to a search, which silently collapses every per-context
     and per-lineage count into the global one. A schema rollback that quietly changes
     what a number means is a data-destruction operation dressed as a schema operation.
+
+    Upgraded to 0018 rather than to `head`, so that `-1` is 0018's own downgrade whatever
+    lands above it later. `upgrade(head); downgrade(-1)` was the original spelling and it
+    silently changed subject the moment 0019 arrived: it still passed, and it was no
+    longer testing this migration.
     """
     config = alembic_config(scratch_dsn)
-    command.upgrade(config, "head")
+    command.upgrade(config, "0018_trial_ledger_search_context")
+    with pytest.raises(RuntimeError, match="irreversible"):
+        command.downgrade(config, "-1")
+
+
+def test_downgrading_the_kill_switch_journal_columns_refuses(scratch_dsn: str) -> None:
+    """0019 raises, and the reason is the one an operator would otherwise discover late.
+
+    The trip rows survive a column drop and stop reconstructing into a state: no incident
+    id for a RESUME to match, no trigger to argue the trip against, and no pre-remediation
+    book snapshot -- which ADR 0014 makes the only record of what the flatten closed. The
+    system would then boot halted on an unreadable journal with no resume path, which is
+    safe and unrecoverable at the same time.
+    """
+    config = alembic_config(scratch_dsn)
+    command.upgrade(config, "0019_kill_switch_journal_columns")
     with pytest.raises(RuntimeError, match="irreversible"):
         command.downgrade(config, "-1")
 
