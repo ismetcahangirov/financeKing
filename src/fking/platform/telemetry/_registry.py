@@ -120,6 +120,11 @@ _SNAKE_CASE: Final[re.Pattern[str]] = re.compile(r"\A[a-z][a-z0-9_]*[a-z0-9]\Z")
 LABEL_DOMAINS: Final[Mapping[str, int]] = {
     "agent": 16,  # the agent catalogue under .claude/agents/ plus room to grow
     "binding_limit": 16,  # the named limits in fking.risk
+    # Correlation clusters are named by their lexicographically smallest member, so the
+    # domain can never exceed the symbol domain: the degenerate assignment is one cluster
+    # per symbol. Bounded at the same number for that reason rather than by a guess at how
+    # many clusters a crypto universe actually has.
+    "cluster_id": 60,
     "component": 6,  # shortfall decomposition: spread, impact, fee, delay, timing
     "consumer_group": 16,  # one per consuming service, registered at startup
     "dataset": 6,  # klines, trades, aggtrades, funding, open_interest, metrics
@@ -589,6 +594,39 @@ RISK_LIMIT_UTILISATION: Final = MetricSpec(
     description="Observed value over threshold per named limit, as a 0-1 ratio.",
 )
 
+RISK_PORTFOLIO_VOLATILITY: Final = MetricSpec(
+    name="fking_risk_portfolio_volatility_ratio",
+    kind="gauge",
+    labels=(),
+    description=(
+        "sigma_p = sqrt(w' Sigma w), the daily volatility of the whole book as a 0-1 "
+        "ratio of equity. The denominator of every risk-share limit, so a limit that "
+        "suddenly binds is read against this before anything else."
+    ),
+)
+
+RISK_ASSET_RISK_SHARE: Final = MetricSpec(
+    name="fking_risk_asset_risk_share_ratio",
+    kind="gauge",
+    labels=("symbol",),
+    description=(
+        "CTR_i / sigma_p per symbol: share of portfolio risk, not of notional. Signed -- "
+        "a hedge carries a negative share, and clipping it at zero would make the shares "
+        "stop summing to one."
+    ),
+)
+
+RISK_CLUSTER_RISK_SHARE: Final = MetricSpec(
+    name="fking_risk_cluster_risk_share_ratio",
+    kind="gauge",
+    labels=("cluster_id",),
+    description=(
+        "Share of portfolio risk held by one correlation cluster. This is the term that "
+        "binds in a book that every per-symbol notional limit passes, so it is exported "
+        "rather than left to be reconstructed from logs."
+    ),
+)
+
 RISK_KILL_SWITCH_ENGAGED: Final = MetricSpec(
     name="fking_risk_kill_switch_engaged_count",
     kind="gauge",
@@ -739,10 +777,13 @@ REGISTERED_METRICS: Final[tuple[MetricSpec, ...]] = (
     EXECUTION_STAGE_LATENCY,
     LOG_FIELDS_DROPPED,
     LOG_ORPHAN_RECORDS,
+    RISK_ASSET_RISK_SHARE,
+    RISK_CLUSTER_RISK_SHARE,
     RISK_DECISIONS,
     RISK_KILL_SWITCH_ENGAGED,
     RISK_LIMIT_UTILISATION,
     RISK_PORTFOLIO_DRAWDOWN,
+    RISK_PORTFOLIO_VOLATILITY,
     RISK_POSITION_NOTIONAL,
     RISK_VETOES,
     SCHEDULER_JOB_RUNS,
