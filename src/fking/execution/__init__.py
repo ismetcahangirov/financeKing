@@ -37,6 +37,7 @@ from fking.execution._errors import (
     VenueProfileError,
 )
 from fking.execution.binance import BinanceVenue, open_binance_venue
+from fking.execution.killswitch_journal import KillSwitchJournal, restore_kill_switch
 from fking.execution.models import (
     SymbolFilters,
     VenueBalance,
@@ -109,6 +110,7 @@ __all__: tuple[str, ...] = (
     "ExecutionVenue",
     "IntersectionBaseline",
     "IntersectionDrift",
+    "KillSwitchJournal",
     "PermanentExchangeError",
     "PreflightAbortedError",
     "PreflightError",
@@ -145,6 +147,7 @@ __all__: tuple[str, ...] = (
     "preflight_or_abort",
     "raise_for_venue_error",
     "resolve_universe",
+    "restore_kill_switch",
     "run_preflight",
     "tradable_symbols",
     "venue_epoch_to_utc",

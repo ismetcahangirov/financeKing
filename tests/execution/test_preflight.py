@@ -11,28 +11,36 @@ constructed here are the *absence* of holdings and open orders, which is a state
 reports as an empty array and which the corpus cannot capture without an authenticated
 recording.
 
-The parametrized test is the one that matters: nine of the ten items are made to fail on
-their own while the other nine are satisfiable, and each failure must abort. The tenth,
+The parametrized test is the one that matters: ten of the eleven items are made to fail on
+their own while the other ten are satisfiable, and each failure must abort. The eleventh,
 the allowlist item, aborts on a `SafetyViolation` instead and has its own test, because a
 `BaseException` never becomes a `CheckOutcome`.
+
+The kill-switch journal reaches the checklist as a `JournalReadOutcome`, not as a
+database. Which real failures produce a `JournalUnreadable` is proved against real
+PostgreSQL in `test_kill_switch_journal.py`; what belongs here is that an unreadable
+journal aborts the boot and a journal naming an open incident starts the runtime halted
+rather than aborting it.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from itertools import cycle
 from typing import Final, Literal
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import pytest
 import structlog
 
 from fking.backtest.costs import CalibrationProvenanceError
 from fking.backtest.costs._provenance import require_production_provenance
-from fking.domain import Order, Venue
+from fking.domain import Order, Portfolio, Venue
 from fking.execution import (
     BINANCE_SPOT_TESTNET,
     BinanceVenue,
@@ -57,6 +65,15 @@ from fking.execution import (
 )
 from fking.execution.preflight import ClockSkewSample, PreflightReport
 from fking.platform.safety import PERMITTED_HOSTS, SafetyViolation
+from fking.risk import (
+    BookSnapshot,
+    JournalRead,
+    JournalReadOutcome,
+    JournalUnreadable,
+    KillSwitchGate,
+    TripEvent,
+    TripTrigger,
+)
 from tests.execution.conftest import RecordedExchange, load_recording
 
 pytestmark = pytest.mark.unit
@@ -210,10 +227,21 @@ class Harness:
     configured_order_rate_per_10s: int = BINANCE_SPOT_TESTNET.order_rate_per_10s
     provenance_id: str = PRODUCTION_PROVENANCE
     local_state_expects_holdings: bool = False
+    # The journal as a value rather than a database. What the adapter does against real
+    # PostgreSQL -- revoked grant, absent catalog, migration mid-flight -- is
+    # tests/execution/test_kill_switch_journal.py's subject; what this file asks is what
+    # the checklist does with each answer, and that question has no database in it.
+    journal_outcome: JournalReadOutcome = field(default_factory=lambda: JournalRead(events=()))
+    kill_switch: KillSwitchGate = field(default_factory=KillSwitchGate)
+
+    async def _read_journal(self) -> JournalReadOutcome:
+        return self.journal_outcome
 
     async def run(self) -> PreflightReport:
         return await run_preflight(
             self.venue,
+            kill_switch=self.kill_switch,
+            read_kill_switch_journal=self._read_journal,
             clock_monitor=self.monitor,
             credential_kind=self.credential_kind,
             required_symbols=self.required_symbols,
@@ -226,6 +254,8 @@ class Harness:
     async def run_or_abort(self) -> PreflightReport:
         return await preflight_or_abort(
             self.venue,
+            kill_switch=self.kill_switch,
+            read_kill_switch_journal=self._read_journal,
             clock_monitor=self.monitor,
             credential_kind=self.credential_kind,
             required_symbols=self.required_symbols,
@@ -371,10 +401,18 @@ def _break_exchange_state(harness: Harness) -> Harness:
     return replace(harness, venue=replace(harness.venue, open_orders_error=refusal))
 
 
+def _break_kill_switch_journal(harness: Harness) -> Harness:
+    return replace(
+        harness,
+        journal_outcome=JournalUnreadable(reason="permission denied for kill_switch_event"),
+    )
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("item", "mutate"),
     [
+        (PreflightItem.KILL_SWITCH_JOURNAL, _break_kill_switch_journal),
         (PreflightItem.CLOCK_SKEW, _break_clock),
         (PreflightItem.CREDENTIAL_KEY_TYPE, _break_credential),
         (PreflightItem.SYMBOL_UNIVERSE, _break_universe),
@@ -650,6 +688,7 @@ def test_every_item_has_a_failure_case() -> None:
     above, and this assertion is what forces a new item to acquire one of the two shapes.
     """
     parametrized = {
+        PreflightItem.KILL_SWITCH_JOURNAL,
         PreflightItem.CLOCK_SKEW,
         PreflightItem.CREDENTIAL_KEY_TYPE,
         PreflightItem.SYMBOL_UNIVERSE,
@@ -662,6 +701,105 @@ def test_every_item_has_a_failure_case() -> None:
     }
     unparametrized = set(PreflightItem) - parametrized
     assert unparametrized == {PreflightItem.ALLOWLISTED_ENDPOINTS}
+
+
+# --------------------------------------------------------------- the journal item
+
+
+def _open_incident() -> JournalRead:
+    """A journal holding one trip and no resume."""
+    tripped_at = datetime(2026, 8, 1, 3, 14, tzinfo=UTC)
+    return JournalRead(
+        events=(
+            TripEvent(
+                event_id=UUID(int=1),
+                incident_id=UUID(int=2),
+                correlation_id=UUID(int=3),
+                occurred_at_utc=tripped_at,
+                actor="risk.drawdown_monitor",
+                trigger=TripTrigger(
+                    trigger_id="drawdown.daily",
+                    unit="fraction",
+                    observed_value=Decimal("0.061"),
+                    threshold_value=Decimal("0.05"),
+                    detail="equity fell 6.1% against a 5% daily limit",
+                ),
+                snapshot=BookSnapshot(
+                    portfolio=Portfolio(as_of_utc=tripped_at, positions=(), cash_balances={}),
+                    open_client_order_ids=(),
+                    protective_client_order_ids=(),
+                    reconciled_at_utc=None,
+                    reconciliation_is_clean=False,
+                ),
+            ),
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_journal_leaves_the_gate_halted_as_well_as_aborting(
+    harness: Harness,
+) -> None:
+    """Both senses of halted, because the abort alone is not the guarantee.
+
+    A process that aborts has no order path, but anything already holding the gate -- a
+    supervisor that catches the abort, a test harness, a future runtime that reports the
+    failure before exiting -- must find it closed. The gate is adopted before the item's
+    verdict is computed, so there is no ordering in which the abort happens first and
+    leaves an open gate behind it.
+    """
+    broken = _break_kill_switch_journal(harness)
+
+    with pytest.raises(PreflightAbortedError, match=PreflightItem.KILL_SWITCH_JOURNAL.value):
+        await broken.run_or_abort()
+
+    assert broken.kill_switch.state.is_halted
+    assert "permission denied" in (broken.kill_switch.state.halted_reason or "")
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_journal_stops_the_checklist_before_it_touches_the_venue(
+    harness: Harness,
+) -> None:
+    """Item 1 runs first and blocks, so no authenticated call is made on a halted boot."""
+    broken = _break_kill_switch_journal(harness)
+
+    report = await broken.run()
+
+    assert [outcome.item for outcome in report.outcomes] == [PreflightItem.KILL_SWITCH_JOURNAL]
+    assert not report.is_ready
+
+
+@pytest.mark.asyncio
+async def test_an_open_incident_starts_the_runtime_halted_rather_than_aborting_it(
+    harness: Harness,
+) -> None:
+    """The designed post-trip boot: ready, running, and refusing orders.
+
+    Aborting here would be the stricter-looking choice and the wrong one -- resuming
+    requires a person acting through a process that is up, and a runtime that exits on
+    every open incident is a runtime nobody can resume.
+    """
+    halted = replace(harness, journal_outcome=_open_incident())
+
+    report = await halted.run_or_abort()
+
+    assert report.is_ready
+    assert report.kill_switch_halted
+    assert halted.kill_switch.state.is_halted
+    assert halted.kill_switch.state.incident_id == UUID(int=2)
+
+
+@pytest.mark.asyncio
+async def test_a_journal_with_no_open_incident_is_the_only_thing_that_opens_the_gate(
+    harness: Harness,
+) -> None:
+    assert harness.kill_switch.state.is_halted, "a gate must start halted"
+
+    report = await harness.run_or_abort()
+
+    assert not report.kill_switch_halted
+    assert not harness.kill_switch.state.is_halted
 
 
 @pytest.mark.asyncio
