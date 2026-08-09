@@ -242,7 +242,7 @@ def build_futures_testnet_client(api_key: str, api_secret: str) -> ccxt.binance:
     return client
 ```
 
-Money never leaves these clients as `float`. `ccxt` parses JSON with the stdlib decoder and hands back `float` for prices and quantities; the venue adapter re-parses from the raw response text with `json.loads(body, parse_float=Decimal)` before anything else in the system sees a number. See [`../rules/decimal-and-money.md`](../rules/decimal-and-money.md) — a value that has passed through a `float` is not repairable by widening the type afterwards.
+Money never leaves these clients as `float`. `ccxt` parses JSON with the stdlib decoder and hands back `float` for prices and quantities; the venue adapter re-parses from the raw response text with `json.loads(body, parse_float=Decimal)` before anything else in the system sees a number. See [`../../docs/rules/decimal-and-money.md`](../../docs/rules/decimal-and-money.md) — a value that has passed through a `float` is not repairable by widening the type afterwards.
 
 ---
 
@@ -379,7 +379,7 @@ What differs and must not be assumed away: symbol naming, filter semantics, the 
 | Timestamp unit normalisation keyed on `(market, date)` | `fking.data` ingestion |
 | `import-linter` contract forbidding direct HTTP clients in `execution` | `pyproject.toml` contracts, run by `make check` |
 
-Related: [`../rules/exchange-integration.md`](../rules/exchange-integration.md) for the enforced integration rules, [`../knowledge/verified-facts.md`](../knowledge/verified-facts.md) for the fact ledger these entries belong to, [`./market-microstructure.md`](./market-microstructure.md) for what a real book looks like and why testnet's does not, [`./crypto-perpetuals.md`](./crypto-perpetuals.md) for funding and liquidation mechanics, and [`./backtest-pitfalls.md`](./backtest-pitfalls.md) §4 for the testnet-calibration trap in its backtesting form.
+Related: [`../../docs/rules/exchange-integration.md`](../../docs/rules/exchange-integration.md) for the enforced integration rules, [`../knowledge/verified-facts.md`](../knowledge/verified-facts.md) for the fact ledger these entries belong to, [`./market-microstructure.md`](./market-microstructure.md) for what a real book looks like and why testnet's does not, [`./crypto-perpetuals.md`](./crypto-perpetuals.md) for funding and liquidation mechanics, and [`./backtest-pitfalls.md`](./backtest-pitfalls.md) §4 for the testnet-calibration trap in its backtesting form.
 
 ---
 

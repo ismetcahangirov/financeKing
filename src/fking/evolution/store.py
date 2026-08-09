@@ -20,7 +20,7 @@ the column is the one that gets corrected during an incident.
 `correct_*` method, and the database would refuse one anyway -- `fking_app` holds only
 `SELECT` and `INSERT`, and a `BEFORE UPDATE OR DELETE` trigger raises regardless of who
 holds what. A correction is a new event whose `causation_id` points at the row being
-corrected. `.claude/rules/append-only-audit.md`.
+corrected. `docs/rules/append-only-audit.md`.
 
 Hashes cross this boundary as lowercase hex `str` and are stored as `BYTEA`. Hex on the
 Python side because a genome hash appears in log lines, issue titles and lineage ids;

@@ -62,7 +62,7 @@ imports:  ## import-linter architecture contracts
 ## clock, that SafetyViolation is never caught, that ambiguous trading nouns never
 ## become identifiers, that every feature computation is in the registry the
 ## look-ahead probe iterates, that no agent schema can express a position size or a
-## host, and that nothing branches on an LLM's free-text rationale. .claude/rules/
+## host, and that nothing branches on an LLM's free-text rationale. docs/rules/
 ## carries the reasoning for each.
 ##
 ## property_coverage is the one that gates the tests rather than the source: risk and
@@ -150,7 +150,7 @@ config:  ## Render the merged compose configuration without starting anything
 	$(COMPOSE) config
 
 # ---------------------------------------------------------------------------
-# Schema. .claude/rules/append-only-audit.md is the specification for the audit
+# Schema. docs/rules/append-only-audit.md is the specification for the audit
 # substrate; docs/adr/0015 records why it is enforced by the database.
 # ---------------------------------------------------------------------------
 

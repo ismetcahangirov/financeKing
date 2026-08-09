@@ -4,7 +4,7 @@ Copy this file to `docs/runbooks/<kebab-slug>.md`, named for the procedure rathe
 
 A runbook is written for someone at 03:00 who did not build this, is missing context, and will do exactly what the page says. Write for that reader: exact commands, exact expected output, and an explicit branch for what to do when the output differs. Prose explaining the design belongs in `ARCHITECTURE.md` and gets skipped here.
 
-Related: `FAILSAFE.md`, `ERROR_RECOVERY.md`, `../rules/safety-kernel.md`, `../contexts/binance-testnet.md`, `post-mortem.md`.
+Related: `FAILSAFE.md`, `ERROR_RECOVERY.md`, `../../docs/rules/safety-kernel.md`, `../contexts/binance-testnet.md`, `post-mortem.md`.
 
 ---
 

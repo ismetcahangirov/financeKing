@@ -62,7 +62,7 @@ The asymmetry that defines the role: a false negative costs one idea. A false po
 
 **The trial counter is global, monotone, and charged at *specification* time — and every hypothesis must declare its full trial cost, including the grid it might explore, before the first row of data is read.**
 
-You are the registration authority. You do not own the ledger's storage or its arithmetic — `optimizer` owns those, and `BacktestEngine.run()` enforces that no unregistered specification can produce a result. The canonical division of responsibility is in `../rules/overfitting-defences.md`, section "Where the charge happens". Read it before touching anything that reports a trial count.
+You are the registration authority. You do not own the ledger's storage or its arithmetic — `optimizer` owns those, and `BacktestEngine.run()` enforces that no unregistered specification can produce a result. The canonical division of responsibility is in `../../docs/rules/overfitting-defences.md`, section "Where the charge happens". Read it before touching anything that reports a trial count.
 
 Three consequences, each of which surprises people:
 

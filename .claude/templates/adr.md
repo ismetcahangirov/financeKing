@@ -4,7 +4,7 @@ Copy this file to `docs/adr/NNNN-<kebab-slug>.md`, where `NNNN` is the next unus
 
 **An accepted ADR is immutable.** You do not edit it to reflect a change of mind, and you do not delete it when it turns out to be wrong. You write a new ADR that supersedes it, set `status: superseded by ADR-NNNN` on the old one — that status line is the single permitted post-acceptance edit — and leave both in the tree. The record of paths this project rejected, and why, is worth more than the record of paths it took, because the rejected ones are the ones someone will propose again next quarter.
 
-Related: `../rules/module-boundaries.md`, `../knowledge/decisions-log.md`, `CLAUDE.md` §13.
+Related: `../../docs/rules/module-boundaries.md`, `../knowledge/decisions-log.md`, `CLAUDE.md` §13.
 
 ---
 

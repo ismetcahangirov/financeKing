@@ -11,7 +11,7 @@ The one sanctioned exception is statistical and machine-learning computation in
 `backtest` and `data`, where sampling error is many orders of magnitude larger than
 2^-53. Those packages are exempt from the float-literal ban but NOT from the
 money-name ban, so `sharpe: float` passes here and `notional_usd: float` does not.
-See .claude/rules/decimal-and-money.md.
+See docs/rules/decimal-and-money.md.
 """
 
 from __future__ import annotations

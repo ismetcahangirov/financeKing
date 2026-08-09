@@ -177,7 +177,7 @@ Two rules with reasons:
 
 ## 10. What is different about crypto
 
-**24/7, no session boundary.** There is no open, no close, no auction, no overnight gap. This removes a whole family of equity strategies and removes a whole family of bugs' natural detectors: a timezone error in an equity system produces obviously wrong session times, while here it silently shifts your data by hours and everything still looks plausible. This is why timezone-aware UTC is a non-negotiable rather than a style preference (`../rules/decimal-and-money.md`).
+**24/7, no session boundary.** There is no open, no close, no auction, no overnight gap. This removes a whole family of equity strategies and removes a whole family of bugs' natural detectors: a timezone error in an equity system produces obviously wrong session times, while here it silently shifts your data by hours and everything still looks plausible. This is why timezone-aware UTC is a non-negotiable rather than a style preference (`../../docs/rules/decimal-and-money.md`).
 
 **Fragmentation.** The same instrument trades on many venues with no consolidated tape and no best-execution obligation. There is no NBBO. "The price of BTC" is a per-venue quantity, and cross-venue price differences are real, persistent, and not always arbitrageable after transfer time and fees.
 
@@ -304,7 +304,7 @@ params = CostParameters(
 )
 ```
 
-Every literal is constructed from `str`. `Decimal(0.08)` is not `Decimal("0.08")`, and the difference compounds across thousands of fills into reconciliation drift that looks like an exchange bug (`../rules/decimal-and-money.md`).
+Every literal is constructed from `str`. `Decimal(0.08)` is not `Decimal("0.08")`, and the difference compounds across thousands of fills into reconciliation drift that looks like an exchange bug (`../../docs/rules/decimal-and-money.md`).
 
 ---
 
@@ -321,7 +321,7 @@ Every literal is constructed from `str`. `Decimal(0.08)` is not `Decimal("0.08")
 | Participation rate inputs (interval volume, realised volatility) | `fking.data` |
 | Capacity ceiling derived from impact | `fking.evolution` scoring, see `./risk-vocabulary.md` §12 |
 
-Related documents: `../../ARCHITECTURE.md` §6 and §7, `../../DATA_PIPELINE.md` §9, `./crypto-perpetuals.md`, `./backtest-pitfalls.md`, `./binance-testnet.md`, `./risk-vocabulary.md`, `../knowledge/glossary.md`, `../rules/no-lookahead.md`.
+Related documents: `../../ARCHITECTURE.md` §6 and §7, `../../DATA_PIPELINE.md` §9, `./crypto-perpetuals.md`, `./backtest-pitfalls.md`, `./binance-testnet.md`, `./risk-vocabulary.md`, `../knowledge/glossary.md`, `../../docs/rules/no-lookahead.md`.
 
 ---
 

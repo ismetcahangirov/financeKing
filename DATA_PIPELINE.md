@@ -334,7 +334,7 @@ Declared once in `fking.data.parquet.schema`, never inferred from the values bei
 | `source` | `string` | `archive` or `stream` |
 | `ingested_at_utc` | `timestamp[us, tz=UTC]` | |
 
-**Column names mirror the record field names in `fking.data.loaders.records` character for character**, per `.claude/rules/naming.md`. `open` and `price` are ambiguous in a trading system, and — more mechanically — a column with no unit suffix is invisible to any check that keys on one. The test asserting that every money column reads back as `DECIMAL(38, 18)` selects its columns by the `_price` / `_volume` / `_quantity` suffix, so a column added next year is covered the moment it is named, rather than when someone remembers to extend a list.
+**Column names mirror the record field names in `fking.data.loaders.records` character for character**, per `docs/rules/naming.md`. `open` and `price` are ambiguous in a trading system, and — more mechanically — a column with no unit suffix is invisible to any check that keys on one. The test asserting that every money column reads back as `DECIMAL(38, 18)` selects its columns by the `_price` / `_volume` / `_quantity` suffix, so a column added next year is covered the moment it is named, rather than when someone remembers to extend a list.
 
 `KlineRecord.ignored_field` is deliberately **not** stored. The parser retains Binance's trailing always-zero column so that the field count it checks is the file's field count — an 11-column row means a column was removed upstream, which is worth failing on. On disk it is a column of zeroes with no reader.
 

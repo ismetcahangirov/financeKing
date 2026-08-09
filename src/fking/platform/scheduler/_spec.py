@@ -9,7 +9,7 @@ question that has three defensible answers (`fking.platform.scheduler._policy`).
 `JobFire.fire_time_utc` is what the job is *for*, never the instant it happened to start.
 An hourly ingestion replaying the 04:00 window must ingest 04:00, not "the last hour",
 and a job that reads a clock instead of its fire time cannot be replayed at all
-(`.claude/rules/time-and-timezones.md`).
+(`docs/rules/time-and-timezones.md`).
 """
 
 from __future__ import annotations

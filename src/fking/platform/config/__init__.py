@@ -3,7 +3,7 @@
 Mechanism, not policy: this package knows that `max_leverage` is a `Decimal` bounded
 above by a compiled-in ceiling. It has no opinion about what leverage is for. That is
 what keeps it importable from every layer without smuggling a decision across a
-boundary (.claude/rules/module-boundaries.md).
+boundary (docs/rules/module-boundaries.md).
 
 Four properties carry everything else:
 

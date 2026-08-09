@@ -63,7 +63,7 @@ def test_upgrade_then_downgrade_one_step_then_upgrade_again(scratch_dsn: str) ->
 
     The step down is taken from the newest *reversible* revision rather than from head,
     and that is a property of the schema rather than a convenience. Audit migrations
-    refuse to downgrade by design (`.claude/rules/append-only-audit.md` clause 4), so
+    refuse to downgrade by design (`docs/rules/append-only-audit.md` clause 4), so
     whenever head happens to be one of them -- 0018 extends the trial ledger, and
     dropping its columns would leave charges nobody can attribute to a search -- there is
     no one-step-down from head to take. Scoping to the last reversible revision keeps the

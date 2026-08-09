@@ -17,7 +17,7 @@ The two failure levels are the design:
 Nothing is logged from here. The exception message carries the per-reason counts, and a log
 line beside a raise would report the same failure twice at two severities -- which is how
 an alert threshold ends up calibrated against a multiplier nobody knows about
-(`.claude/rules/error-handling.md`).
+(`docs/rules/error-handling.md`).
 """
 
 from __future__ import annotations

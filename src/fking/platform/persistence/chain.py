@@ -1,6 +1,6 @@
 """Hash-chain verification for the append-only tables.
 
-`.claude/rules/append-only-audit.md` clause 3 says the chain exists because forbidding
+`docs/rules/append-only-audit.md` clause 3 says the chain exists because forbidding
 a rewrite is not the same as detecting one: a superuser, a `pg_dump`/restore or direct
 file access can still change history, and the chain is what makes that *visible*. This
 module is the reader that makes it visible.

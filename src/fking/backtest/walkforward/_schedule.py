@@ -138,7 +138,7 @@ class WalkForwardDeclaration:
         test-period information, and training on it is training on the answer. The
         availability lag is added rather than ignored: a label the system could not have
         read until `availability_lag` after it resolved is a label whose usable instant
-        is that much later (`.claude/rules/no-lookahead.md`).
+        is that much later (`docs/rules/no-lookahead.md`).
         """
         return self.label_horizon + self.availability_lag
 
@@ -234,7 +234,7 @@ class Fold:
 
     A distinct configuration evaluated against a distinct context, so a distinct trial:
     twelve re-fits are twelve charges against the ledger, not one
-    (`.claude/rules/overfitting-defences.md`).
+    (`docs/rules/overfitting-defences.md`).
     """
 
     fold_index: int

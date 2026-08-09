@@ -24,7 +24,7 @@ the one rewrite that must happen.
 
 **The digest normalises a decimal's scale; the file does not.** `str(Decimal("1.50"))` and
 `str(Decimal("1.5"))` differ, and hashing them as different facts is what
-`.claude/rules/idempotency.md` already refuses for an idempotency key, for the reason that
+`docs/rules/idempotency.md` already refuses for an idempotency key, for the reason that
 applies exactly here: they are one economic quantity spelled two ways. The distinction is
 not academic once a partition is read back and merged into -- a `decimal128(38, 18)` column
 returns every value at eighteen places, so a record that goes in as `1.50` comes out as
@@ -348,7 +348,7 @@ def _canonical_decimal(quantity: Decimal) -> str:
 
     `normalize()` strips trailing zeros, so `Decimal("1.50")` and `Decimal("1.5")` hash
     alike -- the same normalisation, for the same reason, as the idempotency key in
-    `.claude/rules/idempotency.md`. Formatted with `f` rather than `str` because
+    `docs/rules/idempotency.md`. Formatted with `f` rather than `str` because
     `normalize()` produces scientific notation above the context's precision
     (`Decimal("1E+3")`), and two spellings of one thousand would put the problem back.
 

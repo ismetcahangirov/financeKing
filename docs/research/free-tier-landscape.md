@@ -16,7 +16,7 @@ Three confidence levels are used, matching [`.claude/knowledge/verified-facts.md
 | **documented** | Read from the vendor's own current documentation on 2026-08-03, not from a third party. |
 | **unverified** | Neither. Stated as a gap, never as a number. |
 
-**The one thing to know before reading further.** OQ-001 says measurement beats documentation for free-tier quotas, and it is right. **This investigation could not measure the LLM quotas**, because measuring requires a live API key per provider and that is an account signup this task may not perform. Everything in §1 is therefore `documented` at best. The consequence is deliberate and is the recommendation this document carries: OQ-001 stays **open**, downgraded from *nothing is known* to *documented, not measured*, and the quota ledger stays the authority over the configured number ([`.claude/rules/quota-management.md`](../../.claude/rules/quota-management.md)). Closing OQ-001 on a vendor page would be the false completion `CLAUDE.md` §7 forbids.
+**The one thing to know before reading further.** OQ-001 says measurement beats documentation for free-tier quotas, and it is right. **This investigation could not measure the LLM quotas**, because measuring requires a live API key per provider and that is an account signup this task may not perform. Everything in §1 is therefore `documented` at best. The consequence is deliberate and is the recommendation this document carries: OQ-001 stays **open**, downgraded from *nothing is known* to *documented, not measured*, and the quota ledger stays the authority over the configured number ([`docs/rules/quota-management.md`](../../docs/rules/quota-management.md)). Closing OQ-001 on a vendor page would be the false completion `CLAUDE.md` §7 forbids.
 
 What *was* measured is everything in §3 and §4 — package metadata and data-source endpoints are reachable without credentials, so those are observations rather than readings.
 
@@ -55,7 +55,7 @@ The Gemini rate-limits page has stopped carrying a per-model free-tier table. It
 with a link to a per-account page behind a login. Two things follow, and the second is the important one:
 
 1. The commonly quoted figures for `gemini-2.5-flash` free tier (10 RPM / 250,000 TPM / 250 RPD) appear only in community forum posts, not on any Google page this investigation could fetch. They are recorded in §2.1 as `unverified` and must not be copied into configuration as though they were sourced.
-2. **A vendor who does not publish a number cannot be held to it, and cannot be assumed to have kept it.** This is not an inconvenience to route around — it is a direct confirmation that `.claude/rules/quota-management.md` had the right shape before the research: the ledger measures reality and the configured limit is a conservative floor that the ledger corrects. That design is now the only correct design for Gemini, not merely a defensive one.
+2. **A vendor who does not publish a number cannot be held to it, and cannot be assumed to have kept it.** This is not an inconvenience to route around — it is a direct confirmation that `docs/rules/quota-management.md` had the right shape before the research: the ledger measures reality and the configured limit is a conservative floor that the ledger corrects. That design is now the only correct design for Gemini, not merely a defensive one.
 
 ### 1.3 Groq's free tier cannot serve this project's declared agent token budget. At all.
 
@@ -74,9 +74,9 @@ This is a *design* finding rather than a tuning one: a fallback provider that ca
 
 ### 1.4 Structured output on Groq is schema-enforced on two models only, and cannot be combined with tool use.
 
-`.claude/rules/llm-output-handling.md` requires every response to be parsed against a Pydantic model with `extra="forbid"`, **zero re-asks**, and a schema failure that fails the call. Schema-enforced generation is what keeps that failure rate low enough to be an instrument rather than a nuisance.
+`docs/rules/llm-output-handling.md` requires every response to be parsed against a Pydantic model with `extra="forbid"`, **zero re-asks**, and a schema failure that fails the call. Schema-enforced generation is what keeps that failure rate low enough to be an instrument rather than a nuisance.
 
-On Groq, `strict: true` JSON-schema mode is documented for `openai/gpt-oss-20b` and `openai/gpt-oss-120b` only. Every other Groq model — including `llama-3.3-70b-versatile`, which is the model named in the example configuration in `.claude/rules/quota-management.md` — gets `{"type": "json_object"}`, which guarantees syntactically valid JSON and nothing about its shape. The docs also state that *"streaming and tool use are not currently supported with Structured Outputs"*.
+On Groq, `strict: true` JSON-schema mode is documented for `openai/gpt-oss-20b` and `openai/gpt-oss-120b` only. Every other Groq model — including `llama-3.3-70b-versatile`, which is the model named in the example configuration in `docs/rules/quota-management.md` — gets `{"type": "json_object"}`, which guarantees syntactically valid JSON and nothing about its shape. The docs also state that *"streaming and tool use are not currently supported with Structured Outputs"*.
 
 Gemini supports an enforced response schema and documents combining it with function calling, with the combined example restricted to the Gemini 3 series.
 
@@ -144,7 +144,7 @@ Groq publishes per-model free-tier limits, which makes it the only provider in t
 | Enforced JSON schema | `strict: true` on `openai/gpt-oss-20b` / `-120b` only; all others `json_object` (syntax only) | documented |
 | Structured output + tools | **Not supported together** | documented |
 
-The 429-header detail matters more than it looks: `.claude/rules/quota-management.md` requires honouring `Retry-After` and never retrying inside the same exhausted window. Groq populates it, so that rule is implementable against Groq exactly as written. Gemini's 429 shape (`429 RESOURCE_EXHAUSTED` is documented for spend-based limits) was not confirmed to carry `Retry-After`, and that is `unverified`.
+The 429-header detail matters more than it looks: `docs/rules/quota-management.md` requires honouring `Retry-After` and never retrying inside the same exhausted window. Groq populates it, so that rule is implementable against Groq exactly as written. Gemini's 429 shape (`429 RESOURCE_EXHAUSTED` is documented for spend-based limits) was not confirmed to carry `Retry-After`, and that is `unverified`.
 
 ### 2.3 Cerebras
 
@@ -188,7 +188,7 @@ A free tier exists. **Mistral no longer publishes its numeric limits publicly** 
 
 The issue asks these providers be ranked on *structured JSON reliability, tool-calling support, throughput, and hardest-reasoning quality*.
 
-Three of the four can be answered from documentation and are answered in the table below. **The fourth cannot, and this document declines to fake it.** "Hardest-reasoning quality" is a claim about model behaviour on *this project's* prompts, and the only honest instrument for it is the golden-set harness that `.claude/rules/llm-output-handling.md` already specifies — the same harness that owns prompt repair. A ranking assembled from public leaderboards would be a number with the appearance of evidence and none of the substance, and it would then be cited in a promotion decision. The method to obtain it is in §7.
+Three of the four can be answered from documentation and are answered in the table below. **The fourth cannot, and this document declines to fake it.** "Hardest-reasoning quality" is a claim about model behaviour on *this project's* prompts, and the only honest instrument for it is the golden-set harness that `docs/rules/llm-output-handling.md` already specifies — the same harness that owns prompt repair. A ranking assembled from public leaderboards would be a number with the appearance of evidence and none of the substance, and it would then be cited in a promotion decision. The method to obtain it is in §7.
 
 | | Structured JSON | Tool calling | Throughput ceiling (free) | Trains on data |
 |---|---|---|---|---|
@@ -222,11 +222,11 @@ Three reasons, in descending weight.
 **2. `litellm` constructs its own transports.** Its core dependency list is `fastuuid, httpx, openai, python-dotenv, tiktoken, importlib-metadata, tokenizers, click, jinja2, aiohttp, pydantic, jsonschema`. Two entries there are load-bearing:
 
 - `aiohttp` and `httpx` are both on the `forbidden_modules` list of the `import-linter` contract "only the safety kernel constructs network clients", and LiteLLM opens its own clients rather than accepting an injected session. The contract permits the *indirect* path, so this would not fail CI — it would pass CI while removing the property the contract is a proxy for. That is worse than a failing contract.
-- `openai` is on the `forbidden_modules` list of the "Only the LLM gateway may import a provider SDK" contract in `.claude/rules/llm-output-handling.md`. Adopting LiteLLM pulls the OpenAI SDK into the graph as a transitive dependency of the very module the contract is written to constrain.
+- `openai` is on the `forbidden_modules` list of the "Only the LLM gateway may import a provider SDK" contract in `docs/rules/llm-output-handling.md`. Adopting LiteLLM pulls the OpenAI SDK into the graph as a transitive dependency of the very module the contract is written to constrain.
 
 **3. Dependency weight, and what it is a proxy for.** 12 core dependencies including two tokenizer libraries, a template engine and a CLI framework, against 6 for the Groq SDK and 10 for `google-genai`, to serve two providers. `CLAUDE.md` §3's rule is that an abstraction needs two concrete callers before it exists — LiteLLM is an abstraction over a hundred providers adopted to serve two.
 
-**What survives the rejection.** Pydantic AI's discipline — a typed agent whose output model *is* the contract — is the design this project already independently arrived at in `.claude/rules/llm-output-handling.md`, and it should stay. `parse_or_fail` with a Pydantic v2 model, `extra="forbid"`, zero re-asks, is Pydantic AI's good idea implemented without its dependency and without its retry loop, which this project forbids. Re-evaluate `pydantic-ai` if and only if a third provider is added *and* its 1-core-dependency footprint holds; at that point the two-callers rule is genuinely satisfied.
+**What survives the rejection.** Pydantic AI's discipline — a typed agent whose output model *is* the contract — is the design this project already independently arrived at in `docs/rules/llm-output-handling.md`, and it should stay. `parse_or_fail` with a Pydantic v2 model, `extra="forbid"`, zero re-asks, is Pydantic AI's good idea implemented without its dependency and without its retry loop, which this project forbids. Re-evaluate `pydantic-ai` if and only if a third provider is added *and* its 1-core-dependency footprint holds; at that point the two-callers rule is genuinely satisfied.
 
 ---
 
@@ -249,7 +249,7 @@ Package metadata **measured** 2026-08-03 from the PyPI JSON API; repository stat
 
 **`mlfinlab` — refuse.** The PyPI JSON API returns **404**: there is no installable release. The GitHub repository's last push was **2023-10-02**, nearly three years before this fetch, and its license resolves to `NOASSERTION` — GitHub could not identify a recognised open-source license. This is the López de Prado toolchain that OQ-002 named as the primary candidate for CPCV, purging, embargo and the deflated Sharpe ratio, and it is not available on any terms this project can rely on.
 
-This settles OQ-002's hardest question in the least convenient direction: **the statistics that gate every promotion decision must be implemented in-project.** OQ-002 already warned that a hand-rolled deflated Sharpe would be wrong in the flattering direction, because a bug in a penalty term almost always understates the penalty. There is now no library to check against, so the acceptance criterion becomes numerical agreement with a **hand-computed worked example from the source paper**, per statistic, as OQ-002 specified. `.claude/rules/overfitting-defences.md` already carries the `expected_max_sharpe` and `deflated_sharpe` implementations with the Euler–Mascheroni constant cited to Bailey & López de Prado (2014) eq. 5; that citation is now load-bearing rather than courteous.
+This settles OQ-002's hardest question in the least convenient direction: **the statistics that gate every promotion decision must be implemented in-project.** OQ-002 already warned that a hand-rolled deflated Sharpe would be wrong in the flattering direction, because a bug in a penalty term almost always understates the penalty. There is now no library to check against, so the acceptance criterion becomes numerical agreement with a **hand-computed worked example from the source paper**, per statistic, as OQ-002 specified. `docs/rules/overfitting-defences.md` already carries the `expected_max_sharpe` and `deflated_sharpe` implementations with the Euler–Mascheroni constant cited to Bailey & López de Prado (2014) eq. 5; that citation is now load-bearing rather than courteous.
 
 **`pandas-ta` — refuse.** Latest release `0.4.71b0` on **2025-09-14**, still classified Beta. Both of its declared project URLs are dead as of 2026-08-03: the GitHub repository `twopirllc/pandas-ta` returns **404**, and the homepage `pandas-ta.dev` **does not resolve in DNS** (`www.` fails to resolve; the apex times out). A package whose upstream has vanished while remaining installable is worse than one that was removed, because `uv sync` keeps succeeding and nothing signals the abandonment. Indicators come from `ta-lib` or are written in-project against a worked example.
 
@@ -274,7 +274,7 @@ Gradient boosting: `lightgbm` 4.7.0 (MIT), over `xgboost` 3.3.0 (Apache-2.0) and
 
 `polars` 1.43.2 released 2026-08-01, MIT, actively developed. A polars-first pipeline is realistic **on the ingestion and feature side**, where this project owns both ends. It is not realistic through `statsmodels`, `arch`, `scikit-learn` or `lightgbm`, all of which take NumPy arrays or pandas frames.
 
-That is not a defect, it is the boundary [`.claude/rules/decimal-and-money.md`](../../.claude/rules/decimal-and-money.md) already draws: the `Decimal` → `float64` conversion happens at a *named boundary function*, one direction at a time. Polars-to-NumPy sits at exactly the same boundary and should use the same named function, so there is one place where the money contract is handed over rather than several. A polars frame that reaches `statsmodels` directly is the same class of leak as a float that reaches an order quantity.
+That is not a defect, it is the boundary [`docs/rules/decimal-and-money.md`](../../docs/rules/decimal-and-money.md) already draws: the `Decimal` → `float64` conversion happens at a *named boundary function*, one direction at a time. Polars-to-NumPy sits at exactly the same boundary and should use the same named function, so there is one place where the money contract is handed over rather than several. A polars frame that reaches `statsmodels` directly is the same class of leak as a float that reaches an order quantity.
 
 ---
 
@@ -346,7 +346,7 @@ ADR-0009 pins `gemini-2.5-flash-002`. `gemini-3.6-flash`, `gemini-3.5-flash` and
 
 See §1.3. Either the budget comes down or the failover claim does. This one is cheap to fix and should be fixed when the agent is implemented (P5), not now.
 
-### 7.4 The example Groq model in `.claude/rules/quota-management.md` cannot enforce a schema
+### 7.4 The example Groq model in `docs/rules/quota-management.md` cannot enforce a schema
 
 `llama-3.3-70b-versatile` appears in that file's test examples. Per §1.4 it supports `json_object` only. The rule file's *design* is unaffected — it is the model id in an illustration — but the illustration will be copied, so it should become `openai/gpt-oss-120b` when the gateway is implemented.
 

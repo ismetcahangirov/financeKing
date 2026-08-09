@@ -150,7 +150,7 @@ class LiveRouter:
         `now_utc` is the ingestion instant, used only as the plausibility reference for
         epoch normalisation. It is a parameter rather than a `datetime.now(UTC)` call so
         that replaying a recorded fixture years later normalises the same integers the
-        same way (`.claude/rules/time-and-timezones.md`).
+        same way (`docs/rules/time-and-timezones.md`).
         """
         frame = parse_frame(raw)
         if isinstance(frame, KlineFrame):

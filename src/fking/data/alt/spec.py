@@ -3,7 +3,7 @@
 A bar is late by the length of its own interval and no more. Everything in this module is
 late by something a *publisher* chose: a funding rate settles and is broadcast, an index
 is stamped with a day and refreshed at the end of that day, a statistic has an observation
-period in June and a release at 08:30 on 26 August. `.claude/rules/no-lookahead.md` opens
+period in June and a release at 08:30 on 26 August. `docs/rules/no-lookahead.md` opens
 on the resulting defect and it is the reason this file exists rather than a `dict` of
 URLs: **joining any of these on `event_time` produces a backtest that knew the number
 before it was published**, the gap is larger here than anywhere else in the corpus, and it
@@ -186,7 +186,7 @@ class AltSourceSpec:
                 f"{self.source_id} declares availability_lag={self.availability_lag}; every "
                 f"alternative source is published after the instant it stamps, so a "
                 f"non-positive lag is a claim that the value was knowable before it existed "
-                f"(.claude/rules/no-lookahead.md)"
+                f"(docs/rules/no-lookahead.md)"
             )
         if self.cadence <= timedelta(0):
             raise FeatureContractError(

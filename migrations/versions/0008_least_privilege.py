@@ -43,7 +43,7 @@ that actually catches a new unclassified table is the exhaustiveness test, not t
 statement, and pretending otherwise would be the kind of comment that stops someone
 looking further.
 
-`.claude/rules/append-only-audit.md`, `.claude/rules/no-lookahead.md`, `SECURITY.md`.
+`docs/rules/append-only-audit.md`, `docs/rules/no-lookahead.md`, `SECURITY.md`.
 """
 
 from __future__ import annotations

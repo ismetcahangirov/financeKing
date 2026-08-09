@@ -58,7 +58,7 @@ Third, one developer maintaining a Rust core and a Python surface is a real ongo
 
 **What it would have given us.** One language, one type system, one package manager, and no serialisation boundary between the API and the dashboard. TypeScript's structural types are genuinely good, and a single toolchain for a single developer is a real saving.
 
-**Why it lost.** `ccxt` has a TypeScript build, so the exchange client is not the blocker — the research stack is. Hypothesis has no TypeScript equivalent, and property-based tests are mandatory for all risk and position math (`CLAUDE.md` §5); `decimal.js` is a library rather than a language-integrated type with a process-wide context, so the `FloatOperation` trap that turns `Decimal("0.1") == 0.1` into an exception at the point of the mistake (`.claude/rules/decimal-and-money.md`) has no counterpart. Deflated Sharpe ratios, purged CV, `pgvector` and the archive parsers would all be written from scratch or shelled out to Python — at which point there are two languages anyway, split across the parity boundary, which is Alternative 1's failure with the languages swapped.
+**Why it lost.** `ccxt` has a TypeScript build, so the exchange client is not the blocker — the research stack is. Hypothesis has no TypeScript equivalent, and property-based tests are mandatory for all risk and position math (`CLAUDE.md` §5); `decimal.js` is a library rather than a language-integrated type with a process-wide context, so the `FloatOperation` trap that turns `Decimal("0.1") == 0.1` into an exception at the point of the mistake (`docs/rules/decimal-and-money.md`) has no counterpart. Deflated Sharpe ratios, purged CV, `pgvector` and the archive parsers would all be written from scratch or shelled out to Python — at which point there are two languages anyway, split across the parity boundary, which is Alternative 1's failure with the languages swapped.
 
 ### Alternative 3 — do nothing (defer, prototype in both)
 
@@ -80,11 +80,11 @@ the quant stack, and the parity requirement forbids splitting the backend.
 
 **What becomes harder**
 - The backtest loop is Python-slow, permanently. Every validation method has to be affordable in Python or it does not get used, which is a constraint on methodology and not only on runtime.
-- The dashboard boundary needs explicit care on every payload: money is serialised as a string in both directions, and `Decimal` reconstruction on the way back in is not optional (`.claude/rules/decimal-and-money.md`). A `number` in a JSON schema is a defect, not a style choice.
+- The dashboard boundary needs explicit care on every payload: money is serialised as a string in both directions, and `Decimal` reconstruction on the way back in is not optional (`docs/rules/decimal-and-money.md`). A `number` in a JSON schema is a defect, not a style choice.
 - Two toolchains still exist for the dashboard. The saving is that only one of them can touch a position.
 
 **What we now cannot do**
-- Put trading logic in the dashboard, even trivially — no client-side position sizing, no "just compute the notional in the browser to save a round trip". The dashboard renders what the backend decided. Reopening that would mean a second implementation of sizing in a language whose numeric type is a double, which is the failure `.claude/rules/decimal-and-money.md` exists to prevent.
+- Put trading logic in the dashboard, even trivially — no client-side position sizing, no "just compute the notional in the browser to save a round trip". The dashboard renders what the backend decided. Reopening that would mean a second implementation of sizing in a language whose numeric type is a double, which is the failure `docs/rules/decimal-and-money.md` exists to prevent.
 
 ## What would make us revisit this
 

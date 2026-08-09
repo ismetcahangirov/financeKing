@@ -28,7 +28,7 @@ Forces:
 - CLAUDE.md 11: read paths become write paths during refactors. A client built
   for fetch_balance acquires a `method` parameter, then a signing step, and
   nobody re-derives the safety property because the host was already listed.
-- .claude/rules/exchange-integration.md already records the answer in one
+- docs/rules/exchange-integration.md already records the answer in one
   clause: "the archive is a data host, and the trading allowlist is not
   widened to reach it".
 - The archive path needs no credential at all, which the trading path cannot
@@ -62,7 +62,7 @@ The concrete mechanism is the one CLAUDE.md §11 names. Nothing about a listed h
 
 ### Alternative 2 — fetch archives out of band and load only from disk
 
-The safety kernel is untouched because nothing in `src/fking` reaches the network for history at all: a shell script with `curl` downloads and verifies, and the pipeline reads Parquet from a directory. This is the strictest possible reading of ARCHITECTURE.md §8, and it is what `.claude/rules/safety-kernel.md` describes when it refuses the "let me hit mainnet read-only" argument.
+The safety kernel is untouched because nothing in `src/fking` reaches the network for history at all: a shell script with `curl` downloads and verifies, and the pipeline reads Parquet from a directory. This is the strictest possible reading of ARCHITECTURE.md §8, and it is what `docs/rules/safety-kernel.md` describes when it refuses the "let me hit mainnet read-only" argument.
 
 It lost on operability rather than on safety. #26 requires a resumable backfill with a gap and coverage registry, and #28 requires REST backfill of detected gaps reconciled on exchange trade id — both of which need the fetch to be a function the pipeline can call when it discovers a hole, not a step a human ran last Tuesday. Pushing it out of band does not remove the egress; it moves it somewhere with no host validation, no checksum enforcement in code, no audit and no test. The rule it appears to satisfy is about *production venue* hosts, and applying it to a public file server buys nothing while giving up every guarantee this ADR is for.
 

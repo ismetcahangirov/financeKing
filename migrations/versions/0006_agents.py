@@ -12,7 +12,7 @@ kilobytes -- and payloads in the log stream evict the operational history an inc
 needs. More importantly, log retention *expires*, and `ARCHITECTURE.md` section 11
 requires the exact prompt and response months later. A payload in Loki is a payload you
 will not have. The log line carries `audit_ref` and nothing else from the payload
-(`.claude/rules/logging-rules.md` clause 7).
+(`docs/rules/logging-rules.md` clause 7).
 
 `model_id` is a column rather than a detail because the same prompt sent to two
 successive models is two different experiments. A provider silently rolling a `*-latest`

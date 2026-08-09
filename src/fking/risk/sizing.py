@@ -206,7 +206,7 @@ class SizingInputs:
 
     `return_series` is trailing, most recent last, and is the caller's responsibility to
     have taken point-in-time -- a series that includes the bar being decided on is
-    look-ahead, and this module cannot detect that (`.claude/rules/no-lookahead.md`).
+    look-ahead, and this module cannot detect that (`docs/rules/no-lookahead.md`).
     """
 
     instrument: Instrument

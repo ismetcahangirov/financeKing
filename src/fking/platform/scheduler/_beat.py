@@ -20,7 +20,7 @@ time is due per tick and all three misfire policies agree; after an outage they 
 Two code paths would mean the outage path is the one never exercised, which is the one
 that has to work at 03:00 after a restart.
 
-Error handling follows `.claude/rules/error-handling.md` exactly. A job raising a member
+Error handling follows `docs/rules/error-handling.md` exactly. A job raising a member
 of the `FkingError` taxonomy is a failure this system raises on purpose: it is recorded
 against its fire time and the beat continues, because one broken job must not silence
 reconciliation. Anything else propagates out of the task, is re-raised by the next
@@ -91,7 +91,7 @@ class SchedulerBeat:
         self._catalogue = catalogue
         self._ledger = ledger
         # Injected, so a six-hour outage is one call with a different argument rather
-        # than a test that waits six hours (`.claude/rules/time-and-timezones.md`).
+        # than a test that waits six hours (`docs/rules/time-and-timezones.md`).
         self._clock = clock
         self._tick_interval_seconds = tick_interval_seconds
         self._concurrency = asyncio.Semaphore(max_concurrent_jobs)
@@ -229,7 +229,7 @@ class SchedulerBeat:
 
         `time.monotonic` for the duration, never a wall-clock subtraction: an NTP step
         correction mid-run produces a negative latency, which lands in a histogram as an
-        underflow (`.claude/rules/time-and-timezones.md`, the one exception).
+        underflow (`docs/rules/time-and-timezones.md`, the one exception).
         """
         started = time.monotonic()
         with (

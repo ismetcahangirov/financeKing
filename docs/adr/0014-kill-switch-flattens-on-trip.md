@@ -26,7 +26,7 @@ Forces:
 - This system is designed to run unattended. "Let a human decide" presumes a
   human inside the window over which an open position can move.
 - The supervisor already flattens the book on any unhandled exception
-  (`.claude/rules/error-handling.md`). Two paths through maximum uncertainty
+  (`docs/rules/error-handling.md`). Two paths through maximum uncertainty
   cannot behave oppositely.
 
 The constraint that forces a decision now:
@@ -50,7 +50,7 @@ This decision covers the kill switch only. It does not change `SafetyViolation`,
 
 **Why it lost.** Three reasons, in order of weight.
 
-First, **it is incoherent with a decision already made.** `.claude/rules/error-handling.md` gives the supervisor exactly one sanctioned `except Exception`, and that handler trips the kill switch, calls `execution.flatten_all()`, writes the fatal audit row, and exits. An unhandled exception is the least-understood state the system can be in, and the repository already answers it by flattening. A kill switch that does not flatten while the supervisor does means the response to uncertainty depends on which code path noticed it, which is not a safety design.
+First, **it is incoherent with a decision already made.** `docs/rules/error-handling.md` gives the supervisor exactly one sanctioned `except Exception`, and that handler trips the kill switch, calls `execution.flatten_all()`, writes the fatal audit row, and exits. An unhandled exception is the least-understood state the system can be in, and the repository already answers it by flattening. A kill switch that does not flatten while the supervisor does means the response to uncertainty depends on which code path noticed it, which is not a safety design.
 
 Second, **the "let a human decide" premise does not hold for this system.** `FAILSAFE.md` §2.6 is right that resume requires a human, and that requirement is unaffected by this ADR. But the argument for cancel-only needs something stronger: a human within the window over which an open crypto position can move. This system schedules its own work, runs continuously, and has no on-call rotation. Between a 03:00 trip and the operator waking up, "stop making it worse" leaves a position exposed to a market that does not stop. The reversibility argument is real but asymmetric in the wrong direction: the cost of a flatten you did not need is slippage on one exit, and the cost of an open position you could not supervise is unbounded.
 
@@ -62,7 +62,7 @@ Third, **the slippage objection argues against the wrong thing.** Flattening doe
 
 **What it would have given us.** The trigger taxonomy in #54 already distinguishes conditions, so it could distinguish responses: flatten on "we are losing money" (drawdown, daily loss), cancel-only on "we do not know what our position is" (reconciliation divergence, feed outage). That routes around the strongest objection by construction rather than by mitigation, and it is the answer a careful reader arrives at.
 
-**Why it lost.** It makes the kill switch's behaviour a function of the trigger's *classification*, and misclassification then becomes a safety failure with no backstop. Trip conditions arrive correlated and ambiguous — a testnet wipe presents simultaneously as a reconciliation divergence and a balance collapse, and `.claude/rules/exchange-integration.md` exists partly because telling those apart is hard. A design whose worst case is "we chose the wrong response because we labelled the incident wrong" is worse than one that always takes the bounded action. Sourcing the flatten from venue state achieves the same protection unconditionally, without requiring the taxonomy to be right under pressure.
+**Why it lost.** It makes the kill switch's behaviour a function of the trigger's *classification*, and misclassification then becomes a safety failure with no backstop. Trip conditions arrive correlated and ambiguous — a testnet wipe presents simultaneously as a reconciliation divergence and a balance collapse, and `docs/rules/exchange-integration.md` exists partly because telling those apart is hard. A design whose worst case is "we chose the wrong response because we labelled the incident wrong" is worse than one that always takes the bounded action. Sourcing the flatten from venue state achieves the same protection unconditionally, without requiring the taxonomy to be right under pressure.
 
 It is also two behaviours to test, exercise and reason about instead of one, on the code path that must work when nothing else does.
 

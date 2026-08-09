@@ -5,7 +5,7 @@ Every file under `tests/fixtures/archives/` is a genuine, checksum-verified reco
 hand-authored, which is the whole point: a hand-written CSV encodes what its author
 believes Binance emits, and the two things that actually break a loader -- `True`/`False`
 booleans and the 2025-01-01 spot microsecond cutover -- are the two things an author would
-never think to write down wrongly (`.claude/rules/testing-rules.md`).
+never think to write down wrongly (`docs/rules/testing-rules.md`).
 
 Mutations for the error paths are applied **in the test**, to bytes read from a recording,
 rather than committed as separate files. A mutation performed in the test is visible in the

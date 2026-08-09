@@ -20,7 +20,7 @@ matches the direction of risk.
 This module lives under `platform/config` rather than at the `fking/risk/ceilings.py`
 path named in CONFIGURATION.md section 8, because the validator that enforces it hangs
 off `RiskSettings` in the configuration tree, and `platform` imports no other `fking`
-module (.claude/rules/module-boundaries.md). `risk` may import `platform`; not the
+module (docs/rules/module-boundaries.md). `risk` may import `platform`; not the
 reverse.
 
 CONFIGURATION.md sections 8 and 9.

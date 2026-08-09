@@ -100,7 +100,7 @@ async def test_the_application_role_holds_nothing_on_the_feature_table(
     Revoking only the writes would leave the role able to run the read with no `as_of`
     at all, which is the read the whole design exists to make unavailable. A look-ahead
     defect is then `permission denied for table feature_values` rather than a review
-    miss (`.claude/rules/no-lookahead.md`).
+    miss (`docs/rules/no-lookahead.md`).
     """
     async with app_engine.connect() as connection:
         with pytest.raises((ProgrammingError, DBAPIError)) as refused:

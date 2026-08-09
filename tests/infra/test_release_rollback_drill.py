@@ -6,7 +6,7 @@ the lowest migration that refuses to undo itself. That fact is asserted here aga
 real PostgreSQL, by running the rollback rather than by reading the migration.
 
 The floor is *computed*, not named. It was `0002_audit_substrate` while that was the
-only irreversible migration, but `.claude/rules/append-only-audit.md` clause 4 requires
+only irreversible migration, but `docs/rules/append-only-audit.md` clause 4 requires
 irreversibility of every audit migration, so new ones appear above it and the floor
 rises. See `_rollback_floor`.
 
@@ -47,7 +47,7 @@ from tools.release.migrations import blocking, scan
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
-# `.claude/rules/append-only-audit.md`: `downgrade()` on an audit migration raises,
+# `docs/rules/append-only-audit.md`: `downgrade()` on an audit migration raises,
 # because dropping the table every trade is reconstructed from is a data-destruction
 # operation dressed as a schema operation.
 MIGRATION_DIR: Final[Path] = Path(__file__).resolve().parents[2] / "migrations" / "versions"
@@ -60,7 +60,7 @@ def _rollback_floor() -> str:
     whose `downgrade()` raises -- not necessarily at the audit substrate.
 
     Hard-coding `0002_audit_substrate` was correct only while it was the sole
-    irreversible migration. `.claude/rules/append-only-audit.md` clause 4 requires
+    irreversible migration. `docs/rules/append-only-audit.md` clause 4 requires
     irreversibility of *every* audit migration, so a new one above 0002 is the expected
     case, not an anomaly -- and it moves the floor up. A hard-coded assertion then fails
     against a schema that is strictly *more* protected than the one it was written for,

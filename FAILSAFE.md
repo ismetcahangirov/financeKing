@@ -86,7 +86,7 @@ The first row is the important one and it is the reason the kill switch is not i
 
 `on_trip_flatten` defaults to **`true`**. The trip closes the book. The full argument, including the rejected alternative at its strongest, is [ADR 0014](docs/adr/0014-kill-switch-flattens-on-trip.md); this section states the operational shape.
 
-The decisive reason is internal consistency. `.claude/rules/error-handling.md` gives the supervisor exactly one sanctioned `except Exception`, and that handler trips the switch, calls `execution.flatten_all()`, audits and exits. An unhandled exception is the least-understood state this system can reach, and it is already answered by flattening. A kill switch that instead left positions open would make the response to uncertainty depend on which code path happened to notice it, which is not a safety design.
+The decisive reason is internal consistency. `docs/rules/error-handling.md` gives the supervisor exactly one sanctioned `except Exception`, and that handler trips the switch, calls `execution.flatten_all()`, audits and exits. An unhandled exception is the least-understood state this system can reach, and it is already answered by flattening. A kill switch that instead left positions open would make the response to uncertainty depend on which code path happened to notice it, which is not a safety design.
 
 The second reason is that **this system runs unattended.** "Stop making it worse and let a human decide" needs a human inside the window over which an open crypto position can move, and between an 03:00 trip and someone waking up there is no such human. The cost of a flatten you did not need is slippage on one exit. The cost of a position you could not supervise is not bounded by anything.
 

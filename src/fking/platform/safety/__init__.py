@@ -34,7 +34,7 @@ from fking.platform.safety.exchange import (
 # tests/adversarial/ asserts that by scanning this file for the module's name, and it
 # refuses a *mention* as well as an import -- a comment naming it is one edit away from
 # importing it, and the substring check cannot tell the two apart. That is why the
-# reasoning is not restated here: ADR 0017 and .claude/rules/safety-kernel.md carry it,
+# reasoning is not restated here: ADR 0017 and docs/rules/safety-kernel.md carry it,
 # and duplicated documentation diverges (CLAUDE.md 13).
 #
 # The exchange path below is the opposite case: `fking.execution` is supposed to reach

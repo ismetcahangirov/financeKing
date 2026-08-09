@@ -160,7 +160,7 @@ select = ["E", "F", "B", "N", "UP", "RUF", "TRY", "DTZ", "BLE", "FURB", "PL", "S
 **Denylist AST check** at `tools/checks/naming.py`, run over `src/fking/` by the `checks` target described in [`./decimal-and-money.md`](./decimal-and-money.md):
 
 ```python
-"""Reject ambiguous identifiers. The table in .claude/rules/naming.md is the source of truth."""
+"""Reject ambiguous identifiers. The table in docs/rules/naming.md is the source of truth."""
 
 from __future__ import annotations
 
@@ -203,7 +203,7 @@ def main(root: Path) -> int:
             continue
         for name, lineno in bound_names(ast.parse(source, filename=str(path))):
             if name in BANNED:
-                failures.append(f"{path}:{lineno} ambiguous identifier '{name}' — see .claude/rules/naming.md")
+                failures.append(f"{path}:{lineno} ambiguous identifier '{name}' — see docs/rules/naming.md")
             elif name.endswith("_pct") and "fraction" in name:
                 failures.append(f"{path}:{lineno} '{name}' claims both percent and fraction")
     for failure in failures:

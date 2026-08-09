@@ -313,7 +313,7 @@ async def test_a_taxonomy_failure_is_recorded_and_the_beat_keeps_going(
 @pytest.mark.asyncio
 async def test_an_exception_outside_the_taxonomy_stops_the_beat(engine: AsyncEngine) -> None:
     """Not caught, not recorded as a job failure. An unknown state is not something to
-    keep scheduling through (`.claude/rules/error-handling.md`)."""
+    keep scheduling through (`docs/rules/error-handling.md`)."""
 
     async def exploding(fire: JobFire) -> None:
         del fire

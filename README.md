@@ -93,7 +93,9 @@ Full setup in [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 [`DATA_PIPELINE.md`](DATA_PIPELINE.md) · [`SOURCES.md`](SOURCES.md) · [`SECURITY.md`](SECURITY.md) · [`OBSERVABILITY.md`](OBSERVABILITY.md) · [`TESTING.md`](TESTING.md) · [`CODING_STANDARDS.md`](CODING_STANDARDS.md) · [`GIT_WORKFLOW.md`](GIT_WORKFLOW.md) · [`CODE_REVIEW.md`](CODE_REVIEW.md) · [`FAILSAFE.md`](FAILSAFE.md) · [`ERROR_RECOVERY.md`](ERROR_RECOVERY.md) · [`CONFIGURATION.md`](CONFIGURATION.md) · [`DEPLOYMENT.md`](DEPLOYMENT.md) · [`PERFORMANCE_GUIDE.md`](PERFORMANCE_GUIDE.md) · [`MEMORY_SYSTEM.md`](MEMORY_SYSTEM.md) · [`PROMPT_LIBRARY.md`](PROMPT_LIBRARY.md) · [`TOOLS.md`](TOOLS.md) · [`DECISION_FRAMEWORK.md`](DECISION_FRAMEWORK.md) · [`DOCUMENTATION_GUIDE.md`](DOCUMENTATION_GUIDE.md) · [`RELEASE_PROCESS.md`](RELEASE_PROCESS.md)
 
-**The `.claude/` operating system** — 45 agent definitions, 24 slash commands, 12 workflows, 16 rule files, 10 templates, 6 domain briefings, and durable project knowledge including a dated register of [verified facts](.claude/knowledge/verified-facts.md) and a [failure library](.claude/knowledge/failure-library.md) indexed by observable symptom.
+**[`docs/rules/`](docs/rules)** — 16 enforceable rules, one per invariant: the rule, the wrong version and the runtime failure it produces, the correct version, the mechanism that enforces it, and the single exception where one exists. Indexed in [`CLAUDE.md` §14](CLAUDE.md).
+
+**The `.claude/` operating system** — 45 agent definitions, 24 slash commands, 12 workflows, 10 templates, 6 domain briefings, and durable project knowledge including a dated register of [verified facts](.claude/knowledge/verified-facts.md) and a [failure library](.claude/knowledge/failure-library.md) indexed by observable symptom.
 
 ## A note on honesty
 

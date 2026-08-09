@@ -12,7 +12,7 @@ every strategy, backtest and risk process connects as reaches feature data only 
 `fking_feature_as_of()`, which is `SECURITY DEFINER` and takes an `as_of` it cannot be
 asked to ignore. That is what turns the most dangerous defect class in this project into
 `permission denied for table feature_values` instead of a review miss
-(`.claude/rules/no-lookahead.md`, `DATA_PIPELINE.md` section 7).
+(`docs/rules/no-lookahead.md`, `DATA_PIPELINE.md` section 7).
 
 **`available_at_utc`, never `event_time_utc`, governs visibility.** `event_time_utc` is
 when the thing happened; `available_at_utc` is the earliest instant this system could

@@ -11,13 +11,13 @@ Four decisions here are load-bearing.
 `ExposureAssessment` carrying an optional `Rejection`; it never raises for a limit
 breach. Raising would put a refusal -- an ordinary, expected, frequent outcome -- on the
 same code path as a bug, and the caller would then be obliged to write a handler that is
-indistinguishable from swallowing a real error (`.claude/rules/error-handling.md`).
+indistinguishable from swallowing a real error (`docs/rules/error-handling.md`).
 
 **Every limit is recorded, not only the one that bound.** The audit row carries a
 `LimitEvaluation` per limit with its threshold, its observed value and its remaining
 headroom, because the question asked in every post-incident review is "how close were the
 others", and a row holding only the binding limit cannot answer it
-(`.claude/rules/append-only-audit.md`).
+(`docs/rules/append-only-audit.md`).
 
 **Relative and absolute caps both enter the same `min()`, always.** A fraction-of-equity
 limit scales with equity, so anything that inflates the equity number -- a bad mark on an
@@ -81,7 +81,7 @@ _ONE: Final = Decimal("1")
 # The shape every injected clock in this repository has. Spelled here rather than
 # imported from `fking.strategy._contract` because that is a private submodule of another
 # package, and a cross-package import of a `_`-prefixed module is a boundary violation
-# regardless of what the layer contract permits (`.claude/rules/module-boundaries.md`).
+# regardless of what the layer contract permits (`docs/rules/module-boundaries.md`).
 Clock = Callable[[], datetime]
 
 BoundKind = Literal["ceiling", "floor"]
@@ -564,7 +564,7 @@ def validate_pre_trade(
     runs first and returns before `marks_usd` is read at all: a symbol the venue does not
     list cannot be sized, and sizing arithmetic against a symbol outside the resolved
     venue-intersection universe would produce a plausible number for an order that can
-    never be placed (`.claude/rules/exchange-integration.md` clause 10).
+    never be placed (`docs/rules/exchange-integration.md` clause 10).
     """
     decided_at_utc = clock()
 

@@ -26,7 +26,7 @@ the trigger and once in the verifier. Two copies of a hash recipe drift, and the
 find out is a verification job that reports every row as tampered -- after which the job
 gets muted.
 
-`.claude/rules/append-only-audit.md`, `.claude/rules/overfitting-defences.md`.
+`docs/rules/append-only-audit.md`, `docs/rules/overfitting-defences.md`.
 """
 
 from __future__ import annotations

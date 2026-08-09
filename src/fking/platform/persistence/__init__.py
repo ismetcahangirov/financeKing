@@ -4,7 +4,7 @@ Mechanism, not policy. This package knows that a fill row carries a `NUMERIC(38,
 `quote_price` and that `audit_log` refuses `UPDATE`. It has no opinion about what a
 fill means, and it imports no other `fking` package outside `fking.platform`, which is
 what keeps it importable from every layer without carrying a decision across a boundary
-(`.claude/rules/module-boundaries.md`).
+(`docs/rules/module-boundaries.md`).
 
 Three properties carry everything else:
 

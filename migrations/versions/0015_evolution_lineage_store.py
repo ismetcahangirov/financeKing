@@ -32,7 +32,7 @@ the whole design:
    has consumed 612 trials across nine generations reports itself as a two-trial
    newcomer and the family deflation term believes it.
 
-**Four layers of append-only, as `.claude/rules/append-only-audit.md` specifies.**
+**Four layers of append-only, as `docs/rules/append-only-audit.md` specifies.**
 Revoked `UPDATE`/`DELETE`/`TRUNCATE` for `fking_app`; a `BEFORE UPDATE OR DELETE` row
 trigger (`fking_append_only_guard`, shared with `0002` so there is one message and one
 place to harden); a per-row hash chain computed *in the database* at insert time; and
@@ -46,7 +46,7 @@ genome is content-addressed, so an `UPDATE` to one is a claim that a hash means 
 other than what it digests. A strategy row records that a genome entered the population;
 everything that happens to it afterwards is an event.
 
-`EVOLUTION_ENGINE.md` sections 1, 5.6 and 8; `.claude/rules/append-only-audit.md`.
+`EVOLUTION_ENGINE.md` sections 1, 5.6 and 8; `docs/rules/append-only-audit.md`.
 
 **Privilege note.** `CREATE SCHEMA` requires `CREATE` on the database, which
 `0008_least_privilege` did not grant -- it granted `CREATE ON SCHEMA public`, which is a
@@ -278,7 +278,7 @@ def upgrade() -> None:
             -- The producer's own id, stable across a republished event. Unique so that
             -- an at-least-once bus redelivery is a constraint violation the consumer can
             -- treat as "already applied" rather than a second row in an append-only
-            -- table that could never be removed (.claude/rules/idempotency.md).
+            -- table that could never be removed (docs/rules/idempotency.md).
             CONSTRAINT uq_lifecycle_event_event_id UNIQUE (event_id),
             CONSTRAINT ck_lifecycle_event_from_state_is_known
                 CHECK (from_state IN ({_STATES})),

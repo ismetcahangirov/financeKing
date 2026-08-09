@@ -91,7 +91,7 @@ class KlineRestSource(Protocol):
     """The kline endpoint, as the gap backfill sees it.
 
     A Protocol so that a test can replay recorded venue rows without a socket, which is
-    the seam `.claude/rules/testing-rules.md` requires -- and so that the backfiller
+    the seam `docs/rules/testing-rules.md` requires -- and so that the backfiller
     itself contains no transport code and can be reasoned about as a pure walk over
     windows. It is not a switch: `GuardedKlineRest` is the only implementation in
     `src/fking`.

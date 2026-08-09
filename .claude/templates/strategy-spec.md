@@ -8,7 +8,7 @@ The falsifiable thesis comes first. The invalidation rule comes second. The entr
 
 If you cannot complete section 1 with a sign, a horizon and a magnitude, stop. Go back to `../workflows/research.md`. There is nothing here to specify yet.
 
-Related: `../rules/no-lookahead.md`, `../rules/overfitting-defences.md`, `../contexts/crypto-perpetuals.md`, `../contexts/backtest-pitfalls.md`, `ARCHITECTURE.md` §5, `SURVIVAL_PROTOCOL.md`.
+Related: `../../docs/rules/no-lookahead.md`, `../../docs/rules/overfitting-defences.md`, `../contexts/crypto-perpetuals.md`, `../contexts/backtest-pitfalls.md`, `ARCHITECTURE.md` §5, `SURVIVAL_PROTOCOL.md`.
 
 ---
 

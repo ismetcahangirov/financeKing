@@ -10,7 +10,7 @@ Every property is stated against a plain `Decimal` comparison written out here, 
 by calling the predicate under test. A property test that reuses the implementation's
 own comparison proves only that the implementation agrees with itself.
 
-`.claude/rules/testing-rules.md` clause 2: property tests are mandatory for every
+`docs/rules/testing-rules.md` clause 2: property tests are mandatory for every
 function in `fking.risk`.
 """
 

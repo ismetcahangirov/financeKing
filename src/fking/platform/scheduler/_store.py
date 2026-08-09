@@ -7,7 +7,7 @@ key is the whole durability story:
 fire time has already been claimed -- by an earlier boot, by a run still in flight, or by
 a second process -- and the beat does not run it. "A restart does not re-fire jobs that
 already ran" is therefore a property of a unique index rather than of a code path
-somebody has to keep correct (`.claude/rules/idempotency.md`).
+somebody has to keep correct (`docs/rules/idempotency.md`).
 
 **The cursor is `max(scheduled_fire_utc)` over every claimed run, whatever its outcome.**
 A fire time is consumed once. That is a deliberate choice with a cost worth naming: a run
@@ -16,7 +16,7 @@ until somebody backfills it. The alternative -- a cursor over successful runs on
 retries a permanently failing window on every tick forever, which converts one broken
 window into a job that never advances and a log nobody can read. Recording the failure
 and stopping is the same trade this system makes everywhere else
-(`.claude/rules/error-handling.md`).
+(`docs/rules/error-handling.md`).
 
 **Unfinished rows are swept at boot, not on a timeout.** A row with no `finished_at_utc`
 means the process holding it died. The sweep is only sound because one beat runs at a
@@ -44,7 +44,7 @@ __all__ = ["SCHEDULER_ADVISORY_LOCK_KEY", "JobRunLedger"]
 # never collide with another advisory lock in this database -- PostgreSQL's advisory lock
 # space is global and untyped, so two subsystems picking the same number would deadlock
 # each other for reasons neither one can see. Keys in use: 5510477 (audit chain,
-# `.claude/rules/append-only-audit.md`), 8812331 (trial ledger).
+# `docs/rules/append-only-audit.md`), 8812331 (trial ledger).
 SCHEDULER_ADVISORY_LOCK_KEY: Final[int] = 7714903
 
 _CLAIM: Final[sa.TextClause] = sa.text(
@@ -61,7 +61,7 @@ _CLAIM: Final[sa.TextClause] = sa.text(
 # `finished_at_utc IS NULL` is not belt and braces. It is how a second writer learns it
 # lost -- by updating zero rows rather than by overwriting a verdict -- and the
 # `scheduler_job_run_completion_only` trigger from 0013 refuses the same rewrite from the
-# database side, in the order `.claude/rules/append-only-audit.md` argues for.
+# database side, in the order `docs/rules/append-only-audit.md` argues for.
 _FINISH: Final[sa.TextClause] = sa.text(
     """
     UPDATE scheduler_job_run

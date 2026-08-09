@@ -375,7 +375,7 @@ def resolve_archive_format(
 # The one sanctioned float division in the parsing path. A timestamp is not money:
 # microsecond epochs stay inside a double's 53 bits until the year 2255, and the
 # reasoning does not generalise to prices, which is why no price appears in this
-# module. .claude/rules/time-and-timezones.md carries the argument.
+# module. docs/rules/time-and-timezones.md carries the argument.
 _DIVISOR: Final[Mapping[EpochUnit, int]] = {
     EpochUnit.MILLISECONDS: 1_000,
     EpochUnit.MICROSECONDS: 1_000_000,

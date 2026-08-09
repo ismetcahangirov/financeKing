@@ -411,7 +411,7 @@ Four properties this buys, none of which a boolean gives you:
 | The objective function in detail | `../../SCORING_ENGINE.md` |
 | Kill switch operations, degraded modes, recovery | `../../FAILSAFE.md`, `../../ERROR_RECOVERY.md` |
 
-Related contexts: `./market-microstructure.md` (cost, capacity, impact), `./crypto-perpetuals.md` (mark price, funding, cascades), `./statistics-for-trading.md` (deflation, autocorrelation, effective sample size), `./backtest-pitfalls.md`, `../rules/no-lookahead.md`, `../rules/decimal-and-money.md`, `../knowledge/glossary.md`, `../../ARCHITECTURE.md` §6.
+Related contexts: `./market-microstructure.md` (cost, capacity, impact), `./crypto-perpetuals.md` (mark price, funding, cascades), `./statistics-for-trading.md` (deflation, autocorrelation, effective sample size), `./backtest-pitfalls.md`, `../../docs/rules/no-lookahead.md`, `../../docs/rules/decimal-and-money.md`, `../knowledge/glossary.md`, `../../ARCHITECTURE.md` §6.
 
 ---
 

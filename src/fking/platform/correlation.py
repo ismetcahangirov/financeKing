@@ -31,7 +31,7 @@ from uuid import UUID
 # The one sanctioned literal, for records emitted before any flow exists: configuration
 # loading, the allowlist dump, migration status. There is no "unknown", no "n/a" and no
 # empty string -- those would make the mandatory field satisfiable everywhere, which is
-# the same as not having it. `.claude/rules/logging-rules.md`, the one exception.
+# the same as not having it. `docs/rules/logging-rules.md`, the one exception.
 BOOT: Final[Literal["boot"]] = "boot"
 
 type CorrelationId = UUID | Literal["boot"]

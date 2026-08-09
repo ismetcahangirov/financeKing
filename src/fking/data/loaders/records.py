@@ -65,7 +65,7 @@ class KlineRecord:
         The open rather than the close, because a point-in-time query is keyed on the left
         edge of a half-open `[open, close)` interval, and because a bar keyed on its close
         is a bar that appears to have existed before it did
-        (`.claude/rules/no-lookahead.md`). Named to match `TradeRecord.event_time_utc` so
+        (`docs/rules/no-lookahead.md`). Named to match `TradeRecord.event_time_utc` so
         that code handling either shape needs no `isinstance` branch to ask when.
         """
         return self.open_time_utc
@@ -77,7 +77,7 @@ class TradeRecord:
 
     `venue_trade_id` stays a string. It is an identifier, not a quantity: nothing adds
     two of them, and it is the join key a REST-backfill seam reconciles on
-    (`.claude/rules/exchange-integration.md`), so the value that must match is the value
+    (`docs/rules/exchange-integration.md`), so the value that must match is the value
     the venue sent rather than whatever an int round trip produces.
 
     `is_buyer_maker` is the field trap 3 corrupts. It is the aggressor side inverted --

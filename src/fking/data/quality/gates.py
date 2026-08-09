@@ -108,7 +108,7 @@ class QualityGateError(DataIntegrityError):
 
     Defined here rather than in `fking.platform.errors` because it carries a `Gate`, and
     `platform` holds mechanism with no vocabulary from any other module
-    (`.claude/rules/module-boundaries.md`). It is inside the taxonomy by inheritance: a
+    (`docs/rules/module-boundaries.md`). It is inside the taxonomy by inheritance: a
     handler for `DataIntegrityError` catches it, and terminal-not-retryable is exactly
     right -- re-reading the same bytes produces the same verdict.
     """
@@ -135,7 +135,7 @@ OHLC_REJECTION_CEILING: Final[Decimal] = Decimal("0.0001")
 # and comparing the price ratio against these two bounds answers exactly that question in
 # exact Decimal arithmetic -- no float conversion, so the verdict does not depend on the
 # rounding of a logarithm nobody inspects. Monotonicity of log makes the two statements
-# identical; `.claude/rules/decimal-and-money.md` is why the float route was not taken even
+# identical; `docs/rules/decimal-and-money.md` is why the float route was not taken even
 # though the numeric exception would have permitted it.
 CONTINUITY_LOWER_RATIO: Final[Decimal] = Decimal("0.606530659712633423603799534991")
 CONTINUITY_UPPER_RATIO: Final[Decimal] = Decimal("1.64872127070012814684865078781")

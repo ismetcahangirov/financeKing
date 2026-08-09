@@ -5,7 +5,7 @@
     python -m tools.backup prune [--directory backups] [--keep-days 30] [--apply]
 
 `prune` without `--apply` prints what it *would* delete and deletes nothing. That is the
-default because `.claude/rules/append-only-audit.md` requires archival to be
+default because `docs/rules/append-only-audit.md` requires archival to be
 distinguishable from truncation, and a retention pass whose effect can only be observed
 after it has run is not distinguishable from either.
 

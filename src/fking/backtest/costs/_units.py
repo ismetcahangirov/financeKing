@@ -11,7 +11,7 @@ is written once. A negative spread is not a cheap market, it is a sign error; a 
 depth is not a thin book, it is a parse failure.
 
 There is no `float` alias here and none anywhere in this subpackage. The exception in
-`.claude/rules/decimal-and-money.md` permits `float` for statistical estimation inside
+`docs/rules/decimal-and-money.md` permits `float` for statistical estimation inside
 `fking.backtest`, and this module does not use it: quantiles are selected by nearest rank
 rather than interpolated, and the depth walk is linear, so every number the cost model
 produces is an exact decimal computation with no boundary to convert at.

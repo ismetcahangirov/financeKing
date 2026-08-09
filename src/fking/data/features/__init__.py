@@ -19,7 +19,7 @@ second governs visibility. `WHERE event_time <= :t` is the single most common sp
 look-ahead and it looks completely correct, which is why the filter is not left anywhere
 a caller can write it.
 
-`.claude/rules/no-lookahead.md`, `DATA_PIPELINE.md` sections 7 and 8.
+`docs/rules/no-lookahead.md`, `DATA_PIPELINE.md` sections 7 and 8.
 """
 
 from fking.data.features.registry import FEATURES, evaluate, registered, registered_names

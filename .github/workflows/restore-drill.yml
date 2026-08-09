@@ -81,6 +81,6 @@ jobs:
               "This means the most recent backup format may not be restorable, or a" \
               "hash chain did not verify after restore. A chain break after a restore" \
               "is a live risk incident, not a data-quality ticket" \
-              "(.claude/rules/append-only-audit.md)." \
+              "(docs/rules/append-only-audit.md)." \
               "" \
               "DEPLOYMENT.md section 6 carries the procedure this drill rehearses.")"

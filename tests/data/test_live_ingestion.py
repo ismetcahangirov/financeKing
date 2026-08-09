@@ -3,7 +3,7 @@
 The connection is a replay of `tests/fixtures/streams/`, driven through the same
 `LiveIngestSupervisor` production uses -- the only injected difference is the factory
 that opens the socket, which is the "mock the exchange, against recorded real responses"
-seam `.claude/rules/testing-rules.md` requires. Nothing here hand-writes a frame.
+seam `docs/rules/testing-rules.md` requires. Nothing here hand-writes a frame.
 
 The writer is a recording double rather than a real database. That is not a mocked
 store: `test_live_ingestion_against_postgres.py` runs the same writes against real

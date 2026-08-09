@@ -30,7 +30,7 @@ breaking the primary key's meaning.
 cannot express "only these two columns may ever change", so a `BEFORE UPDATE` row trigger
 does, and a `BEFORE DELETE` trigger refuses removal outright. The `DELETE` grant is
 revoked from `fking_ingest` as the primary control -- the trigger is the backstop, in the
-order `.claude/rules/append-only-audit.md` argues for, because a grant survives exactly
+order `docs/rules/append-only-audit.md` argues for, because a grant survives exactly
 until a later migration hands a broad role to a new service.
 
 **`bar.source` gains `rest_backfill`.** A bar recovered from `/api/v3/klines` after the

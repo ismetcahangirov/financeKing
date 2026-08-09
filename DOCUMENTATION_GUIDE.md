@@ -268,6 +268,7 @@ Write them as the question a reader is asking. "Why the database is never mocked
 | What blocks a merge | `CODE_REVIEW.md` §1 |
 | A module boundary or the data flow | `ARCHITECTURE.md`, plus an ADR |
 | A decision with rejected alternatives | `docs/adr/` via `/adr` — nothing else |
+| An invariant, its failure mode and its enforcement | `docs/rules/<rule>.md`, and the index in `CLAUDE.md` §14 if the file is new |
 | A non-negotiable | `CLAUDE.md`, by pull request, never in passing |
 | A verified fact about an exchange or a data source | `DATA_PIPELINE.md` and, if it changes the cost model, an ADR |
 

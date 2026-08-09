@@ -97,7 +97,7 @@ def test_no_domain_class_has_a_mutable_default(cls: type) -> None:
 def test_no_state_transition_returns_none(cls: type) -> None:
     """A method on a domain object returning `None` is a mutation, by construction.
 
-    `.claude/rules/immutability.md` fixes the naming: transitions are `with_*` and
+    `docs/rules/immutability.md` fixes the naming: transitions are `with_*` and
     return a new value. This catches the shape regardless of the name.
     """
     if not dataclasses.is_dataclass(cls):

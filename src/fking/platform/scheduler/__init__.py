@@ -3,7 +3,7 @@
 Mechanism, not policy. This package knows about fire times, run state and overlap; it
 knows nothing about bars, gaps, venues or strategies, and it must not learn -- a function
 here named `ingest_hour` or `reconcile` would be trading policy in the platform layer
-(`.claude/rules/module-boundaries.md`).
+(`docs/rules/module-boundaries.md`).
 
 Four things it owns:
 

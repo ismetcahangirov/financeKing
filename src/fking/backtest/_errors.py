@@ -7,7 +7,7 @@ opposite of `fking.platform.scheduler`, which deliberately sits outside the tree
 beat's own bugs cannot be recorded as failed jobs.
 
 They live here rather than in `fking.platform.errors` for the reason
-`.claude/rules/module-boundaries.md` gives: `platform` holds mechanism and gets no
+`docs/rules/module-boundaries.md` gives: `platform` holds mechanism and gets no
 trading vocabulary. A class named `CausalityError` describing an event scheduled into a
 simulated past is vocabulary that belongs to the engine.
 
@@ -47,7 +47,7 @@ class CausalityError(BacktestError):
 
     Not clamped to `now`. Clamping turns a causality violation into a fill that happened
     at a plausible-looking time, which is exactly the shape of bug that produces an
-    excellent equity curve and no error (`.claude/rules/no-lookahead.md`).
+    excellent equity curve and no error (`docs/rules/no-lookahead.md`).
     """
 
 
@@ -64,7 +64,7 @@ class UnregisteredSpecificationError(BacktestError):
 
     Refused rather than auto-registered. Registering here would charge the grid at the
     moment of execution, which is precisely the charge point
-    `.claude/rules/overfitting-defences.md` rejects: it prices optional stopping at zero.
+    `docs/rules/overfitting-defences.md` rejects: it prices optional stopping at zero.
     """
 
 

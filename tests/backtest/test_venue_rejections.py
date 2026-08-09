@@ -2,7 +2,7 @@
 
 Every bound in this file comes out of `tests/fixtures/recorded/`. Nothing asserts against
 a number somebody believed Binance enforces, which is the failure mode
-`.claude/rules/testing-rules.md` bans hand-written fixtures to prevent -- the recorded
+`docs/rules/testing-rules.md` bans hand-written fixtures to prevent -- the recorded
 notional floor is 5.00 and a plausible hand-written 10.00 would make a whole band of
 order sizes behave differently in backtest than on the venue.
 """

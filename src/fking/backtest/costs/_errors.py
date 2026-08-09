@@ -9,7 +9,7 @@ see the note on `CalibrationProvenanceError`.
 They descend from `BacktestError` rather than from `fking.platform.errors` directly,
 because a caller that wanted "any failure the backtest engine raises on purpose" must
 catch these too, and because `platform` gets no trading vocabulary
-(`.claude/rules/module-boundaries.md`).
+(`docs/rules/module-boundaries.md`).
 """
 
 from __future__ import annotations

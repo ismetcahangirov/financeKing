@@ -138,7 +138,7 @@ class CoverageReport:
     """Every requested series' coverage, and whether the run can honestly be served.
 
     There is no threshold field and no `tolerated_missing_bar_count`. A configurable
-    tolerance is the flag `.claude/rules/safety-kernel.md` refuses for the allowlist, in a
+    tolerance is the flag `docs/rules/safety-kernel.md` refuses for the allowlist, in a
     different costume: the number would be raised by whoever is in a hurry, and the run it
     admits is the one whose result nobody can distinguish from a real one.
     """

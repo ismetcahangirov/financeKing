@@ -29,7 +29,7 @@ Python. A counter the caller maintains voluntarily is a counter that will be wro
 the same trigger is what refuses an execution against a `spec_hash` nobody registered.
 
 **The three new columns are nullable and carry no `DEFAULT`.** That is the one
-`.claude/rules/append-only-audit.md` exception, and it is the whole of it: adding a
+`docs/rules/append-only-audit.md` exception, and it is the whole of it: adding a
 column changes the table's shape, and a `DEFAULT` or a backfill would make rows written
 before this migration *report* a context they never carried. `NULL` is the truthful
 record -- we did not capture it then. The digest recipe in `fking_trial_ledger_digest` is

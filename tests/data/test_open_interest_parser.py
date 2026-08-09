@@ -13,7 +13,7 @@ Three claims, each failing differently:
    not background noise.
 
 The malformed payloads below are mutations of the real recording's shape, not inventions:
-the header, the column count and the spacing all come from the file. `.claude/rules/
+the header, the column count and the spacing all come from the file. `docs/rules/
 testing-rules.md` bans hand-written *fixtures* precisely because an author cannot guess
 what a venue emits; a mutation of a verified recording is the sanctioned way to reach an
 error path the archive will not produce on demand.
@@ -104,7 +104,7 @@ def test_the_whole_recorded_day_parses_into_every_sample_it_holds() -> None:
 def test_the_value_is_the_exact_decimal_binance_wrote() -> None:
     """`Decimal("76608.79800000")`, not `Decimal(76608.798)`. The second carries the
     double's rounding error before this code runs, and widening the type afterwards cannot
-    undo it (`.claude/rules/decimal-and-money.md`)."""
+    undo it (`docs/rules/decimal-and-money.md`)."""
     first = _recorded_observations()[0]
 
     assert first.observed_value == Decimal("76608.79800000")

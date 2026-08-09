@@ -21,7 +21,7 @@ there, while backtest holds the whole history in memory and leaks. `close_time_u
 the stronger of the two available bounds: a bar whose close has not happened yet has not
 happened, even though its open is in the past, and a decision taken on its partial
 values is the single most common look-ahead defect there is
-(`.claude/rules/no-lookahead.md`).
+(`docs/rules/no-lookahead.md`).
 """
 
 from __future__ import annotations

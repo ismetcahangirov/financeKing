@@ -6,7 +6,7 @@ Research ends in a falsifiable hypothesis with a data availability verdict, or i
 
 **Negative results get committed.** A "no effect" note is the cheapest thing this project owns and the most frequently re-purchased: without the note, the same question gets re-investigated in four months by someone who has no way of knowing it was already answered, and the trials spent the first time still count against every result in the repository. Write the note, commit it on a `research/<n>-<slug>` branch, and open a pull request — research notes go through review like code, because the trial count they report is load-bearing downstream.
 
-Related: `../workflows/research.md`, `../agents/quant.md`, `../rules/no-lookahead.md`, `../contexts/statistics-for-trading.md`, `DATA_PIPELINE.md`.
+Related: `../workflows/research.md`, `../agents/quant.md`, `../../docs/rules/no-lookahead.md`, `../contexts/statistics-for-trading.md`, `DATA_PIPELINE.md`.
 
 ---
 

@@ -31,7 +31,7 @@ stall the read of every socket for the duration.
 
 The clock and the RNG are injected. A supervisor that read `datetime.now(UTC)` and the
 module-level `random` could not be replayed, and the backoff schedule could not be
-asserted (`.claude/rules/time-and-timezones.md`).
+asserted (`docs/rules/time-and-timezones.md`).
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ class ConnectionFactory(Protocol):
 
     Injected so that a test can replay recorded frames and then fail the socket at a
     chosen point -- the "mock the exchange, against recorded real responses" seam
-    `.claude/rules/testing-rules.md` requires. It is not a switch: the default is the
+    `docs/rules/testing-rules.md` requires. It is not a switch: the default is the
     guarded transport, and nothing in `src/fking` passes anything else.
     """
 

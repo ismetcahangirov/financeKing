@@ -49,7 +49,7 @@ PROVIDER_SDKS: Final[frozenset[str]] = frozenset(
     {"google", "google.genai", "google.generativeai", "groq", "openai", "anthropic"}
 )
 
-# `.claude/rules/llm-output-handling.md` clause 4: nothing derived from model output is
+# `docs/rules/llm-output-handling.md` clause 4: nothing derived from model output is
 # passed to any of these. In this package none of them appears at all, which is the
 # strongest available form of that guarantee.
 FORBIDDEN_CALLS: Final[frozenset[str]] = frozenset(

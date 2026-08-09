@@ -189,7 +189,7 @@ class GenomeProposal:
     cannot tell whether the second was ever written.
 
     **`thesis_statement` is not `Signal.rationale`, and the distinction is load-bearing.**
-    `.claude/rules/llm-output-handling.md` forbids any branch whose condition reads
+    `docs/rules/llm-output-handling.md` forbids any branch whose condition reads
     `rationale`, because that field travels with a decision toward the order path and a
     branch on it is an untyped control channel from a model into the risk engine. This
     field never leaves the admission decision, and the only two operations performed on

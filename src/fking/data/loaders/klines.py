@@ -38,7 +38,7 @@ __all__ = ["KLINE_COLUMNS", "parse_kline_row"]
 # The USDⓈ-M futures kline header, verbatim. `count` and `taker_buy_volume` are Binance's
 # names; the record renames them to `trade_count`, `taker_buy_base_volume` and so on,
 # because a bare `count` is ambiguous once three kinds of count exist in one system
-# (.claude/rules/naming.md). The translation belongs at this boundary, which is the only
+# (docs/rules/naming.md). The translation belongs at this boundary, which is the only
 # place both spellings are simultaneously correct.
 KLINE_COLUMNS: Final[tuple[str, ...]] = (
     "open_time",

@@ -210,7 +210,7 @@ def _decimal(
     TOML has a float type and `tick_size = 0.01` parses into one, at which point the value
     is already `0.01000000000000000020816681711721685...` and no later annotation recovers
     it. Requiring the quoted form is what makes the Decimal-from-str rule
-    (`.claude/rules/decimal-and-money.md`) hold across the file boundary rather than only
+    (`docs/rules/decimal-and-money.md`) hold across the file boundary rather than only
     inside the process.
     """
     found = _present(payload, key, path=path, where=where)

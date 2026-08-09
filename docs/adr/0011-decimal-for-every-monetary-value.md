@@ -53,9 +53,9 @@ is not repairable -- it must be re-parsed from the source text or discarded.
 
 **Why it lost.** Crypto has no fixed minor unit. Binance's `stepSize` and `tickSize` are per-symbol and change: BTCUSDT quantity steps at 1e-5 while other pairs step at 1e-8 or at 0.005, which is not even a power of ten. A single global scale must be chosen for the worst case (1e-18, to survive a future asset), at which point the integers are large, the conversions are everywhere, and every read and write is a scaling operation whose direction a reader must reconstruct. Worse, the scaling operations are where the bugs move to: a value scaled twice or not at all is off by 10^18 and is not obviously wrong in a log line, whereas a `Decimal` that is wrong is usually visibly wrong.
 
-The second reason is the boundary. Every venue serialises money as a decimal **string** and every database column here is `NUMERIC(38, 18)`. Integers would mean converting at every boundary in both directions, and `.claude/rules/decimal-and-money.md`'s central point is that money should enter the process once, from text, and never be transformed again. Adding a scaling step at each boundary reintroduces exactly the per-hop transformation the rule exists to remove.
+The second reason is the boundary. Every venue serialises money as a decimal **string** and every database column here is `NUMERIC(38, 18)`. Integers would mean converting at every boundary in both directions, and `docs/rules/decimal-and-money.md`'s central point is that money should enter the process once, from text, and never be transformed again. Adding a scaling step at each boundary reintroduces exactly the per-hop transformation the rule exists to remove.
 
-**What survives the rejection, and is adopted.** The strongest part of the integer case is that scale and meaning should be visible in the type rather than in a comment. That is adopted through naming rather than through newtypes: `notional_usd`, `fee_quote_usd`, `base_quantity`, `slippage_bps` — units in the identifier, enforced by an AST check that rejects `size`, `price`, `amount` and `qty` outright (`.claude/rules/naming.md`). It is a weaker guarantee than a distinct type and it is checked mechanically on every commit.
+**What survives the rejection, and is adopted.** The strongest part of the integer case is that scale and meaning should be visible in the type rather than in a comment. That is adopted through naming rather than through newtypes: `notional_usd`, `fee_quote_usd`, `base_quantity`, `slippage_bps` — units in the identifier, enforced by an AST check that rejects `size`, `price`, `amount` and `qty` outright (`docs/rules/naming.md`). It is a weaker guarantee than a distinct type and it is checked mechanically on every commit.
 
 ### Alternative 2 — float everywhere, with a tolerance-based comparison discipline
 
@@ -75,7 +75,7 @@ implicitly at a boundary nobody wrote down. Repairing that later is not a
 refactor -- a value that passed through a float cannot be recovered by
 widening the type afterwards, so it means re-ingesting.
 Why that is no longer payable: the schema is written once and audit rows are
-never updated (.claude/rules/append-only-audit.md). A wrong type in an
+never updated (docs/rules/append-only-audit.md). A wrong type in an
 append-only table is permanent.
 ```
 

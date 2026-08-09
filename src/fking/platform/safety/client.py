@@ -39,7 +39,7 @@ _ALLOWLIST_NAME: Final[str] = "the permitted host set (PERMITTED_HOSTS)"
 # reconnects has to say which exceptions mean "the socket died" and which mean "stop",
 # and without this it would either import `websockets` -- which an import-linter
 # contract forbids outside the kernel -- or fall back to `except Exception`, which is
-# the blanket handler `.claude/rules/error-handling.md` exists to prevent.
+# the blanket handler `docs/rules/error-handling.md` exists to prevent.
 #
 # `OSError` covers the connect-time failures websockets does not wrap (DNS, refused,
 # reset); `TimeoutError` covers `open_timeout` and any deadline a caller imposes.

@@ -20,7 +20,7 @@ both differences, not a warning and not a silent drop.
 an `as_of`, and that absence is deliberate: selecting a historical universe from today's
 intersection is survivorship bias wearing a safety check as a disguise. Historical
 membership is the point-in-time `universe_as_of(venue, as_of)` question, answered
-against listing and delisting timestamps (`.claude/rules/no-lookahead.md`).
+against listing and delisting timestamps (`docs/rules/no-lookahead.md`).
 
 Non-tradable symbols are **quarantined with a reason**, never dropped. Binance testnet
 serves non-ASCII symbols on purpose, and `str.isalnum()` returns `True` for some of them

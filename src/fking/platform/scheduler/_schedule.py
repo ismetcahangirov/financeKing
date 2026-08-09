@@ -13,7 +13,7 @@ fire times on every restart, so the same window is ingested twice under two diff
 names and neither run can be recognised as a duplicate of the other. Anchored, the fire
 times of an hourly job are the same instants in every process that has ever run it,
 which is what lets `(job_id, fire_time_utc)` be a durable idempotency key
-(`.claude/rules/idempotency.md`).
+(`docs/rules/idempotency.md`).
 
 The arithmetic is `timedelta // timedelta`, which is exact integer floor division, rather
 than `timedelta / timedelta`, which is a float. Over a multi-year anchor offset at

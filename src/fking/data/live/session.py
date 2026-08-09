@@ -17,7 +17,7 @@ a `continue`, and nobody reviewing that diff will be looking for it.
 import `websockets` -- only the safety kernel constructs transports, and an
 `import-linter` contract enforces it. And a test replaying recorded frames needs
 something to be, which is exactly the "mock the exchange, against recorded real
-responses" seam `.claude/rules/testing-rules.md` requires.
+responses" seam `docs/rules/testing-rules.md` requires.
 """
 
 from __future__ import annotations

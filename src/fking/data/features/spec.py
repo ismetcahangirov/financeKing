@@ -173,7 +173,7 @@ class FeatureSpec:
             # the flag exists to be asserted, not to be chosen.
             raise FeatureContractError(
                 f"{self.name} declares uses_trailing_statistics_only=False; a full-sample "
-                f"statistic cannot be point-in-time (.claude/rules/no-lookahead.md)"
+                f"statistic cannot be point-in-time (docs/rules/no-lookahead.md)"
             )
 
     def window(self) -> FeatureWindow:

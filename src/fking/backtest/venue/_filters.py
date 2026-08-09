@@ -12,7 +12,7 @@ carry its numbers as strings; a missing `NOTIONAL` block raises rather than defa
 zero, because a floor of zero disables the filter silently and the run still completes.
 Binance serialises these as decimal strings, so a non-string is a contract change worth
 stopping for -- and constructing a `Decimal` from a JSON number that a parser has already
-turned into a double is the money failure in `.claude/rules/decimal-and-money.md` arriving
+turned into a double is the money failure in `docs/rules/decimal-and-money.md` arriving
 through the one door left open.
 
 Check order is fixed: price lattice, price band, lot lattice, notional floor. It matters

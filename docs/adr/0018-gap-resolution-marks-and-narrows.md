@@ -31,7 +31,7 @@ Forces:
 - A partially backfilled gap recorded as closed is strictly worse than an open
   one: the coverage report then tells backtest it may run over a range that is
   still holed, and nothing downstream can tell.
-- CLAUDE.md 2 and .claude/rules/append-only-audit.md: an audit record the
+- CLAUDE.md 2 and docs/rules/append-only-audit.md: an audit record the
   application can rewrite is not an audit record, and the control has to be in
   the database rather than in the writer.
 

@@ -29,7 +29,7 @@ Terms are grouped, not alphabetised, because the groupings are how you actually 
 
 | Term | Definition |
 |---|---|
-| **Safety kernel** | `fking.platform.safety`. The module that makes demo-only structural rather than aspirational. 100% coverage floor. See [`../rules/safety-kernel.md`](../rules/safety-kernel.md). |
+| **Safety kernel** | `fking.platform.safety`. The module that makes demo-only structural rather than aspirational. 100% coverage floor. See [`../../docs/rules/safety-kernel.md`](../../docs/rules/safety-kernel.md). |
 | **Allowlist** | A `frozenset` of permitted hosts **compiled into source**. Not config, not environment, not database, not file. Widening it requires a source edit and a PR labelled `safety:critical`. |
 | **`guarded_client()`** | The only sanctioned way to construct an HTTP or WebSocket client. Validates the host on **every request**, not only at construction, because base URLs can be overridden per call. |
 | **`SafetyViolation`** | The exception raised when the allowlist is breached. **Never caught anywhere.** An `except` clause naming it is a defect. |
@@ -42,7 +42,7 @@ Terms are grouped, not alphabetised, because the groupings are how you actually 
 |---|---|---|
 | **`event_time`** | When the thing happened in the market. | Timezone-aware UTC, always. |
 | **`available_at`** | When *we* could first have known it. | The field that makes point-in-time possible. Usually later than `event_time`, sometimes much later. |
-| **`as_of`** | The mandatory query parameter on the feature store. Rows with `available_at > as_of` are physically unreachable. | Non-optional by design. See [`../rules/no-lookahead.md`](../rules/no-lookahead.md). |
+| **`as_of`** | The mandatory query parameter on the feature store. Rows with `available_at > as_of` are physically unreachable. | Non-optional by design. See [`../../docs/rules/no-lookahead.md`](../../docs/rules/no-lookahead.md). |
 | **Point-in-time** | A feature value at time *t* is reproducible using only data that existed at *t*. | The property, not a technique. |
 | **Look-ahead** | Any leak of future information into a past decision. | Does not fail — makes bad strategies look excellent. The most dangerous defect class here. |
 | **Feature store** | The declared inventory of what data exists, with earliest clean dates. **Refuses** requests for data we do not have rather than proxying. | `fking.data` |
@@ -74,7 +74,7 @@ Full treatment in [`../contexts/statistics-for-trading.md`](../contexts/statisti
 
 | Term | Definition |
 |---|---|
-| **Global trial counter** | The project-wide count of every configuration ever specified. **Monotone, never reset, charged at specification time**, covering the full declared grid even if the search is abandoned early. See [`../rules/overfitting-defences.md`](../rules/overfitting-defences.md). |
+| **Global trial counter** | The project-wide count of every configuration ever specified. **Monotone, never reset, charged at specification time**, covering the full declared grid even if the search is abandoned early. See [`../../docs/rules/overfitting-defences.md`](../../docs/rules/overfitting-defences.md). |
 | **Trial charge** | The increment a piece of work adds to the counter. Charged at registration, before data access. |
 | **Deflated Sharpe** | A Sharpe ratio corrected for the number of trials the project has run, its sample length, and the skew and kurtosis of returns. A bare Sharpe leaving any agent is a defect. |
 | **PSR** | Probabilistic Sharpe ratio: the probability the true Sharpe exceeds a benchmark, given the observed sample. |
@@ -124,7 +124,7 @@ Full treatment in [`../contexts/binance-testnet.md`](../contexts/binance-testnet
 
 | Term | Definition |
 |---|---|
-| **Event bus** | Redis Streams. **At-least-once delivery**, so every consumer is idempotent by design. See [`../rules/idempotency.md`](../rules/idempotency.md). |
+| **Event bus** | Redis Streams. **At-least-once delivery**, so every consumer is idempotent by design. See [`../../docs/rules/idempotency.md`](../../docs/rules/idempotency.md). |
 | **Idempotency key** | A stable key derived from an event's semantic content — never from `uuid4()` at consumption time, never from the stream message id alone. |
 | **Append-only audit** | Audit tables the application cannot rewrite, enforced by database grants and triggers plus a per-row hash chain. An audit log the application can rewrite is not an audit log. |
 | **Gateway** | The single module through which any LLM provider is reached. Owns routing, failover, quota accounting, caching, structured-output enforcement and prompt/response audit logging. |
@@ -138,7 +138,7 @@ Full treatment in [`../contexts/binance-testnet.md`](../contexts/binance-testnet
 
 ## 9. Words this project bans
 
-Each of these is ambiguous in a way that has a plausible reading which is wrong by orders of magnitude. Enforced by [`../rules/naming.md`](../rules/naming.md).
+Each of these is ambiguous in a way that has a plausible reading which is wrong by orders of magnitude. Enforced by [`../../docs/rules/naming.md`](../../docs/rules/naming.md).
 
 | Banned | Because | Say instead |
 |---|---|---|

@@ -18,7 +18,7 @@ Two rules, closing that route from both ends:
 2. **Nothing outside `fking.data` imports a compute module.** A strategy that imports
    `trailing_return_fraction` and calls it has a feature value that never passed through
    `evaluate`, never got an `available_at_utc` derived from a declared lag, and never
-   reached the store -- so every mechanism in `.claude/rules/no-lookahead.md` is bypassed
+   reached the store -- so every mechanism in `docs/rules/no-lookahead.md` is bypassed
    by an import statement.
 
 Static, like every check in this directory: the registry is read as a syntax tree rather

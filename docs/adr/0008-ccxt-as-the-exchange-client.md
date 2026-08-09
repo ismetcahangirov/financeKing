@@ -53,7 +53,7 @@ never delivers looks identical to a market with no activity.
 
 Being first in line for protocol changes is also worth less than it appears, because the change we care about has already happened and is already handled. `ccxt` >= 4.5.70 is correct on both the endpoint split and the post-`listenKey` model today (VF-010). The advantage is about the *next* change, which is a prediction, weighed against a release cadence that is an observation.
 
-**What survives the rejection, and is adopted.** The concern that a third-party client will lag a Binance change is legitimate, and it is why VF-010 carries a re-verification trigger on any client release rather than being treated as settled, and why the recorded-fixture corpus is re-recorded nightly with a diff on response *shape* (`.claude/rules/testing-rules.md`). A shape change in a nightly diff is how we find out, rather than by noticing that fills stopped.
+**What survives the rejection, and is adopted.** The concern that a third-party client will lag a Binance change is legitimate, and it is why VF-010 carries a re-verification trigger on any client release rather than being treated as settled, and why the recorded-fixture corpus is re-recorded nightly with a diff on response *shape* (`docs/rules/testing-rules.md`). A shape change in a nightly diff is how we find out, rather than by noticing that fills stopped.
 
 ### Alternative 2 — `python-binance`, or `binance-connector`
 

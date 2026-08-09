@@ -198,7 +198,7 @@ A CPCV evaluation counts **one trial per path**, registered as each path complet
 
 **How it is enforced structurally.** `BacktestEngine.run()` refuses to execute any `spec_hash` that was not registered beforehand, and reports every execution it does perform to the ledger. There is no code path that produces a backtest result outside the ledger's view, in exactly the way there is no code path that constructs an `Order` without the risk engine. This is the same architectural move for the same reason: a counter the caller is responsible for maintaining is a counter that will be wrong.
 
-The charge itself is `max(declared_grid_size, actual_executions)` per specification — the declaration prices optional stopping, and the execution report prices a grid that grew past what was declared. Neither number alone closes both evasions. The authoritative division of responsibility between `quant` (registration), `optimizer` (ledger mechanics) and the engine (enforcement) is in `.claude/rules/overfitting-defences.md`, section "Where the charge happens".
+The charge itself is `max(declared_grid_size, actual_executions)` per specification — the declaration prices optional stopping, and the execution report prices a grid that grew past what was declared. Neither number alone closes both evasions. The authoritative division of responsibility between `quant` (registration), `optimizer` (ledger mechanics) and the engine (enforcement) is in `docs/rules/overfitting-defences.md`, section "Where the charge happens".
 
 **Persistence.** `K` lives in Postgres, is monotonic, and survives restarts, redeploys and database migrations. It is never reset. A reset would be indistinguishable from a claim that the previous six months of searching never happened.
 

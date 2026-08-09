@@ -5,7 +5,7 @@ tests -- it is the property under test: `fking.agents` is the contract layer, an
 needed any of those to be exercised then the parse path would have something in scope
 that could re-ask.
 
-The audit recorder is a list, deliberately. `.claude/rules/testing-rules.md` forbids
+The audit recorder is a list, deliberately. `docs/rules/testing-rules.md` forbids
 mocking the database, and this is not one: `AuditRecorder` is a Protocol whose whole
 contract is "append this row", and a list satisfies it exactly. The row's journey into
 PostgreSQL belongs to the gateway (#72) and is tested there, against a real server.

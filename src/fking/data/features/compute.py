@@ -22,7 +22,7 @@ and therefore every version number -- untouched. Validation of the input series 
 once, at the registry boundary in `evaluate`, so the loops here can trust their input.
 
 `float` appears below, which is the sanctioned exception in
-`.claude/rules/decimal-and-money.md`: a standard deviation of returns is an estimate
+`docs/rules/decimal-and-money.md`: a standard deviation of returns is an estimate
 whose sampling error is many orders of magnitude larger than 2^-53. The conversion
 happens at a named boundary in one direction and comes back through `Decimal(str(...))`,
 never implicitly mid-expression, and what leaves this module is always `Decimal`.

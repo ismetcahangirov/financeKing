@@ -15,7 +15,7 @@ as the difference between it and the nearest real print.
 A quote is built only from a bar that has *closed*. `MarketDataEvent` dispatches a bar at
 `close_time_utc` for the same reason, and the two facts have to agree -- a quote derived
 from a bar whose high is not yet a fact is look-ahead with no error attached
-(`.claude/rules/no-lookahead.md`).
+(`docs/rules/no-lookahead.md`).
 """
 
 from __future__ import annotations

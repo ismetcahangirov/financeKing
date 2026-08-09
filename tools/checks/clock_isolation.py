@@ -22,7 +22,7 @@ rule exists to force. So the check keys on the *receiver*, not on the attribute 
 supplied and a test can freeze. Keying on the attribute alone would flag the correct
 code and get the check disabled.
 
-See .claude/rules/time-and-timezones.md.
+See docs/rules/time-and-timezones.md.
 """
 
 from __future__ import annotations

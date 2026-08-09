@@ -41,6 +41,6 @@ paths = [
     # The operating-manual documents show illustrative payloads and digests. They are
     # reviewed prose, not configuration, and they are where the example
     # `row_hash`/`sha256` values live.
-    '''\.claude/rules/.*\.md''',
+    '''docs/rules/.*\.md''',
     '''\.claude/agents/.*\.md''',
 ]

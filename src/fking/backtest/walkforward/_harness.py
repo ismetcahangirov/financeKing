@@ -5,7 +5,7 @@ Two properties, both of which are about arithmetic that flatters when it is wron
 **Every fold charges the ledger, before it is evaluated.** A re-fit is a distinct
 configuration evaluated against a distinct context, so twelve re-fits are twelve trials
 and not one. The charge is taken at specification time -- before the evaluator is
-called -- because `.claude/rules/overfitting-defences.md` charges the declared search
+called -- because `docs/rules/overfitting-defences.md` charges the declared search
 rather than the executed one: a fold abandoned after the first three looked good is
 still a selection, and charging on completion prices that selection at zero.
 

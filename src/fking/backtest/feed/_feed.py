@@ -9,7 +9,7 @@ There is no `fill_method`, no `allow_gaps`, no `max_missing_bar_count`. Each of 
 configuration value whose only purpose is to let a run proceed on bars that were never
 observed, and a guard that can be turned off in a config file is not a guard -- it is a
 documented procedure for turning it off, used by whoever is in a hurry
-(`.claude/rules/safety-kernel.md` makes the same argument about the host allowlist).
+(`docs/rules/safety-kernel.md` makes the same argument about the host allowlist).
 
 The reason interpolation is refused rather than merely discouraged is worth keeping next to
 the code that refuses it. A forward-filled bar repeats a price at a timestamp where no trade

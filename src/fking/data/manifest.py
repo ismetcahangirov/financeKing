@@ -18,7 +18,7 @@ symbols existed at time *t*". Selecting a historical universe from today's corpu
 survivorship bias wearing a safety check as a disguise -- a 2021 backtest would run over
 symbols chosen for having survived to 2026. That question is answered by the
 point-in-time `universe_as_of(venue, as_of)` query against listing and delisting
-timestamps (`.claude/rules/no-lookahead.md`), and the absence of a lookalike here is
+timestamps (`docs/rules/no-lookahead.md`), and the absence of a lookalike here is
 what stops the two being confused.
 
 Symbol names are read from directory names and are never normalised, lowered, or

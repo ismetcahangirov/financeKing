@@ -271,7 +271,7 @@ Two things the formula makes obvious and people still get wrong:
 
 ## 6. The global trial counter
 
-The deflation is only as honest as `N`, and `N` is the most gameable number in the system. The full rule lives in [`../rules/overfitting-defences.md`](../rules/overfitting-defences.md); the statistical reason it takes that exact shape is here.
+The deflation is only as honest as `N`, and `N` is the most gameable number in the system. The full rule lives in [`../../docs/rules/overfitting-defences.md`](../../docs/rules/overfitting-defences.md); the statistical reason it takes that exact shape is here.
 
 **Charged at specification time, not execution time.** You declare a 200-point grid and abandon it after 12 points because the first 12 looked bad. If you charge 12, you have understated `N` by 188 — but the selection event already happened at specification, because had one of those first 12 looked good you would have stopped there and reported it. The correct `N` is the size of the search you were willing to conduct.
 
@@ -445,11 +445,11 @@ The practical use is as a triage rule. A result implying a Sharpe above roughly 
 | Effective sample size, episode counting | `fking.backtest.validation`, reported by the `quant` agent in `HypothesisResult` |
 | Cost model parameters used in the net-edge calculation | `fking.backtest` cost model, calibrated per [`./binance-testnet.md`](./binance-testnet.md) §6 from production data only |
 | Hypothesis registration, spec hash, trial charge | `.claude/agents/quant.md`, artefacts under `artifacts/agents/quant/` |
-| The `float` exception that lets NumPy do this work at all | [`../rules/decimal-and-money.md`](../rules/decimal-and-money.md), "The one exception" |
+| The `float` exception that lets NumPy do this work at all | [`../../docs/rules/decimal-and-money.md`](../../docs/rules/decimal-and-money.md), "The one exception" |
 
 The statistical functions live in `fking.backtest.validation` and return `float`, because they are estimates with sampling error many orders of magnitude larger than `2^-53`. They convert to `Decimal(str(result))` at the module boundary before anything in `evolution` or the database sees them.
 
-Related: [`./backtest-pitfalls.md`](./backtest-pitfalls.md) for how these errors manifest operationally, [`../rules/no-lookahead.md`](../rules/no-lookahead.md) for the leak that makes all of this moot if violated, [`../rules/overfitting-defences.md`](../rules/overfitting-defences.md) for the enforcement mechanism, and [`../knowledge/verified-facts.md`](../knowledge/verified-facts.md) for the measured figures quoted above.
+Related: [`./backtest-pitfalls.md`](./backtest-pitfalls.md) for how these errors manifest operationally, [`../../docs/rules/no-lookahead.md`](../../docs/rules/no-lookahead.md) for the leak that makes all of this moot if violated, [`../../docs/rules/overfitting-defences.md`](../../docs/rules/overfitting-defences.md) for the enforcement mechanism, and [`../knowledge/verified-facts.md`](../knowledge/verified-facts.md) for the measured figures quoted above.
 
 ---
 

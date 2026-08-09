@@ -183,7 +183,7 @@ def _parse_signed_rate(raw: str, *, where: str) -> Decimal:
 
     Never via `float`: `Decimal(0.00037409)` carries the double's rounding error before
     this code runs, and widening the type afterwards cannot undo it
-    (`.claude/rules/decimal-and-money.md`).
+    (`docs/rules/decimal-and-money.md`).
     """
     if not _DECIMAL_TOKEN.match(raw):
         raise DataIntegrityError(

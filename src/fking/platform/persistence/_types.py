@@ -13,7 +13,7 @@ from typing import Final
 
 import sqlalchemy as sa
 
-# Matches the process-wide decimal context precision of 38 (.claude/rules/decimal-and-money.md),
+# Matches the process-wide decimal context precision of 38 (docs/rules/decimal-and-money.md),
 # so a value representable in the database is representable in memory and the round trip
 # cannot lose digits. The scale of 18 is what lets a satoshi-denominated quantity and a
 # USD notional live in the same type without either being truncated.

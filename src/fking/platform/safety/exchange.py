@@ -24,7 +24,7 @@ Three separate mechanisms, in the order they fire:
    ccxt's parsed structure. ccxt decodes JSON with the stdlib decoder and therefore
    hands back `float` for every price and quantity, and a value that has passed
    through a float is not repairable by widening the type afterwards
-   (.claude/rules/decimal-and-money.md). Returning text is what makes
+   (docs/rules/decimal-and-money.md). Returning text is what makes
    `json.loads(body, parse_float=Decimal)` the only way the adapter can read a number.
 
 `set_sandbox_mode(True)` is applied and is *not* the safety mechanism. It is a

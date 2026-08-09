@@ -91,7 +91,7 @@ def parse_decimal(raw: str, *, column: str) -> Decimal:
     Never via `float`. `Decimal(0.1)` is already
     `Decimal('0.1000000000000000055511151231257827021181583404541015625')` because the
     literal was rounded to the nearest double by the parser, and widening the type
-    afterwards cannot undo it (`.claude/rules/decimal-and-money.md`).
+    afterwards cannot undo it (`docs/rules/decimal-and-money.md`).
     """
     if not _DECIMAL_TOKEN.match(raw):
         raise RowRejected(

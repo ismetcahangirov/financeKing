@@ -8,7 +8,7 @@ reported -- stopping at the first would hide half the diagnosis, and the PBO hal
 one that implicates work beyond this candidate.
 
 Thresholds are applied literally. A deflated Sharpe of 0.9499 failed. A PBO of 0.3001
-failed. `.claude/rules/overfitting-defences.md` states the decision rule is written down
+failed. `docs/rules/overfitting-defences.md` states the decision rule is written down
 before the data is touched and applied exactly; a gate that rounds in the candidate's
 favour is a gate with one configurable digit, and that digit is adjusted by whoever is in
 a hurry.
@@ -39,7 +39,7 @@ from fking.backtest.validation._pbo import (
     probability_of_backtest_overfitting,
 )
 
-# `.claude/rules/overfitting-defences.md`, promotion thresholds: 0.95 is the base floor
+# `docs/rules/overfitting-defences.md`, promotion thresholds: 0.95 is the base floor
 # before the parameter-count penalty. Not a tunable -- lowering it is the failure this
 # gate exists to prevent, and raising it here would silently diverge from the promotion
 # gate that reads the same number.

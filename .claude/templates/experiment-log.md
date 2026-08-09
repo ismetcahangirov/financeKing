@@ -4,7 +4,7 @@ Copy this file to `docs/experiments/<yyyy-mm-dd>-<experiment-id>-<kebab-slug>.md
 
 An automated search over strategy space is a machine for producing overfit results: run enough configurations against fixed history and some will look excellent by chance alone. This document is one of the defences. It works only if the declaration genuinely precedes the run — a decision rule written after seeing the results is not a decision rule, it is a description of the result you liked.
 
-Related: `../rules/overfitting-defences.md`, `../agents/quant.md`, `EVOLUTION_ENGINE.md`, `SCORING_ENGINE.md`, `BACKTEST_ENGINE.md`.
+Related: `../../docs/rules/overfitting-defences.md`, `../agents/quant.md`, `EVOLUTION_ENGINE.md`, `SCORING_ENGINE.md`, `BACKTEST_ENGINE.md`.
 
 ---
 

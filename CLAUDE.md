@@ -319,7 +319,36 @@ Cross-link between documents rather than duplicating. Duplicated documentation d
 | `MEMORY_SYSTEM.md` | Agent memory tiers |
 | `PROMPT_LIBRARY.md` | Prompt engineering standards |
 | `DECISION_FRAMEWORK.md` | How to choose between options |
-| `.claude/` | Agents, commands, rules, workflows, templates |
+| `docs/adr/` | Architecture decision records, immutable once accepted |
+| `docs/rules/` | The enforceable rules, one file per invariant — indexed below |
+| `.claude/` | Agents, commands, workflows, templates, contexts, knowledge |
+
+### The rules
+
+Sixteen documents, each taking one invariant and carrying it all the way down: the rule, why it exists, a realistic wrong version with the runtime failure it produces, the correct version, the mechanism that enforces it, and the single exception if there is one.
+
+They live under `docs/` rather than inside `.claude/` on purpose. In `.claude/rules/` every one of them was loaded into the system prompt of every session and every subagent — roughly 83k tokens of fixed cost paid before the first instruction was read, most of it irrelevant to any given turn. Moving them out reclaims that budget.
+
+The cost of that is real and this table is the mitigation: **the rules no longer arrive unasked. Read the one that governs what you are about to touch, before you touch it.** Nothing below substitutes for the file — the reasoning is the part that stops a rule being discarded the first time it is inconvenient (§13), and the reasoning is not in this table.
+
+| Rule | Read it before |
+|---|---|
+| `docs/rules/safety-kernel.md` | Touching any network client, host, or credential. The compiled-in allowlist and why it admits no exception, not even a read-only one |
+| `docs/rules/module-boundaries.md` | Adding a module, an interface, or an import edge between packages |
+| `docs/rules/decimal-and-money.md` | Writing any price, quantity, fee, balance or PnL — and to see exactly where the one `float` exception is bounded |
+| `docs/rules/time-and-timezones.md` | Writing any `datetime`, parsing a venue epoch, or measuring elapsed time |
+| `docs/rules/immutability.md` | Adding a type to `domain` or writing a state transition on one |
+| `docs/rules/naming.md` | Naming anything numeric. Carries the banned-identifier denylist `tools/checks/naming.py` enforces |
+| `docs/rules/error-handling.md` | Raising, catching, retrying, or classifying a venue failure |
+| `docs/rules/idempotency.md` | Writing an event-bus consumer, or any effect that must survive being delivered twice |
+| `docs/rules/append-only-audit.md` | Touching an audit table, migrating one, or claiming a trade is reconstructable |
+| `docs/rules/logging-rules.md` | Adding a log line, choosing its level, or deciding what must never appear in one |
+| `docs/rules/no-lookahead.md` | Writing a feature, a label, a universe query, or a cross-validation split |
+| `docs/rules/overfitting-defences.md` | Running any parameter search, reporting any Sharpe, or promoting anything |
+| `docs/rules/testing-rules.md` | Writing tests, choosing fixtures, or arguing about a coverage floor |
+| `docs/rules/exchange-integration.md` | Touching a venue adapter, symbol parsing, a user-data stream, or a venue profile |
+| `docs/rules/llm-output-handling.md` | Writing an agent prompt or output schema, or using model-authored text for anything |
+| `docs/rules/quota-management.md` | Making an LLM call, or changing a retry, cache or provider budget |
 
 ---
 

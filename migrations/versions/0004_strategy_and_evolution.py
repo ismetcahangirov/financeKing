@@ -12,7 +12,7 @@ line this project draws between "inconvenient" and "the record is gone".
 
 `strategy_version` carries `spec_hash` because the trial ledger charges against it. If
 the hash changes between registration and test the result is void rather than weak
-(`.claude/rules/overfitting-defences.md`), and a column that only the ledger could
+(`docs/rules/overfitting-defences.md`), and a column that only the ledger could
 verify against would leave that check with nothing to compare.
 """
 

@@ -75,7 +75,7 @@ def test_a_rewritten_row_is_caught_at_its_own_seq() -> None:
     """The digest re-derived from the row's content no longer matches its row_hash.
 
     This is the superuser-with-the-trigger-disabled case from
-    `.claude/rules/append-only-audit.md`.
+    `docs/rules/append-only-audit.md`.
     """
     rows = chain_of(4)
     rows[2] = ChainRow(

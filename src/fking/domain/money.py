@@ -6,7 +6,7 @@ when `fill.instrument.quote_asset` answers the question exactly.
 
 `Money` exists for the places where no `Instrument` is in scope: `Account` holds a
 USDT balance and a BTC balance side by side, and `Portfolio` reports cash the same
-way. Two concrete callers, which is the bar `.claude/rules/module-boundaries.md` sets
+way. Two concrete callers, which is the bar `docs/rules/module-boundaries.md` sets
 before an abstraction may exist.
 """
 

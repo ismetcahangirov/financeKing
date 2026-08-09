@@ -34,7 +34,7 @@ class Order:
     correlation id and the order's own content, never randomly and never from a
     counter. That is what makes a retried submission after a timeout recognisable to
     the venue as the same order rather than a second one
-    (`.claude/rules/idempotency.md`). This type holds it; deriving it is `execution`'s
+    (`docs/rules/idempotency.md`). This type holds it; deriving it is `execution`'s
     job, because the derivation needs the venue's charset and length limits.
 
     `base_quantity` is unsigned. Direction lives in `side`, so there is no way to
@@ -85,7 +85,7 @@ class Fill:
     """One execution reported by the venue.
 
     `fee_quote` is the fee *charged*, not a rate. The two differ by a factor of the
-    notional, and the field name says which this is because `.claude/rules/naming.md`
+    notional, and the field name says which this is because `docs/rules/naming.md`
     bans the bare `fee` that would leave it open.
 
     A venue may report the commission in an asset that is not the instrument's quote

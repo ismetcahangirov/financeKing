@@ -3,7 +3,7 @@
 Deliberately a second implementation of checks that also exist in `fking.domain`, and
 not an import of them. `fking.domain._guards` is private to that package -- a leading
 underscore means the package makes no promise the module exists -- and
-`.claude/rules/module-boundaries.md` blocks a cross-package import of one. The domain's
+`docs/rules/module-boundaries.md` blocks a cross-package import of one. The domain's
 public promise is its constructors, which validate what they build; nothing here builds
 a domain object.
 

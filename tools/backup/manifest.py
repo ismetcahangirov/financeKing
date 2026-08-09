@@ -13,7 +13,7 @@ out-of-band facts a restore is verified against:
   arbitrary extension versions and the restore procedure needs to know what to use.
 
 Retention is a pure function over manifests, separately from any deletion, because
-`.claude/rules/append-only-audit.md` requires that archival never be indistinguishable
+`docs/rules/append-only-audit.md` requires that archival never be indistinguishable
 from truncation: a policy that can be read and asserted is one you can prove deleted
 only what it claimed to.
 """

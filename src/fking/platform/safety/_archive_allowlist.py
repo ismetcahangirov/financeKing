@@ -6,7 +6,7 @@ hosts a process holding order-placement code can reach *at all*. Adding
 venue adapter, and by every future refactor of a shared `_request()` helper -- and read
 paths become write paths during refactors (CLAUDE.md section 11). The archive is a data
 host, and the trading allowlist is not widened to reach it
-(.claude/rules/exchange-integration.md, ARCHITECTURE.md section 8).
+(docs/rules/exchange-integration.md, ARCHITECTURE.md section 8).
 
 So the two sets are disjoint, they live in separate modules, and the clients that carry
 them cannot see each other. Two clients that cannot reach each other's hosts is the
@@ -17,7 +17,7 @@ to the safety kernel and requires a pull request labelled `safety:critical`. The
 argument for refusing an addition is the same as in `_allowlist.py`: not "read-only",
 not "just to compare", not behind a flag.
 
-See .claude/rules/safety-kernel.md and issue #22.
+See docs/rules/safety-kernel.md and issue #22.
 """
 
 from __future__ import annotations

@@ -661,7 +661,7 @@ def test_changed_content_does_rewrite_the_file(root: Path) -> None:
 
 def test_the_same_quantity_spelled_two_ways_is_one_digest(root: Path) -> None:
     """`Decimal("1.50")` and `Decimal("1.5")` are one economic quantity, and the digest
-    treats them as one fact -- the same normalisation `.claude/rules/idempotency.md`
+    treats them as one fact -- the same normalisation `docs/rules/idempotency.md`
     requires of an idempotency key.
 
     Not academic. A `decimal128(38, 18)` column returns every value at eighteen places, so

@@ -306,7 +306,7 @@ class VenuePosition(BaseModel):
 
     symbol: str
     # Signed: negative is short. Binance spells it positionAmt, which is one of the
-    # names .claude/rules/naming.md exists to translate away at the adapter boundary.
+    # names docs/rules/naming.md exists to translate away at the adapter boundary.
     signed_base_quantity: VenueDecimal = Field(alias="positionAmt")
     entry_quote_price: VenueDecimal = Field(alias="entryPrice")
     unrealised_pnl_quote: VenueDecimal | None = Field(default=None, alias="unRealizedProfit")
