@@ -59,7 +59,7 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 ## Money and numerics
 
 ### F-001 — Float error accumulating across fills {#f-001}
-**Status**: class-known · **Defended by**: [`../rules/decimal-and-money.md`](../rules/decimal-and-money.md)
+**Status**: class-known · **Defended by**: [`../../docs/rules/decimal-and-money.md`](../../docs/rules/decimal-and-money.md)
 
 **Symptom**: reconciliation against the exchange leaves a residue that is tiny per trade and grows monotonically over weeks. It looks like an exchange bug. It is not.
 
@@ -72,7 +72,7 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 **Prevention**: `Decimal` constructed from `str`, always; take the raw string from the exchange response before any JSON parser has made it a float; `NUMERIC(38, 18)` in Postgres, never `DOUBLE PRECISION`; serialize as string on the wire.
 
 ### F-002 — Timestamp unit mismatch {#f-002}
-**Status**: verified-in-research (VF-015) · **Defended by**: [`../rules/time-and-timezones.md`](../rules/time-and-timezones.md), ADR 0013
+**Status**: verified-in-research (VF-015) · **Defended by**: [`../../docs/rules/time-and-timezones.md`](../../docs/rules/time-and-timezones.md), ADR 0013
 
 **Symptom**: two variants. The loud one — dates in the year 55000, or in 1970. The quiet one — a resampled series whose first and last timestamps look correct while the spacing in the middle is wrong.
 
@@ -85,7 +85,7 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 **Prevention**: normalization keyed on `(market, date)`, never a constant.
 
 ### F-003 — Decimal context mutated globally {#f-003}
-**Status**: class-known · **Defended by**: [`../rules/decimal-and-money.md`](../rules/decimal-and-money.md)
+**Status**: class-known · **Defended by**: [`../../docs/rules/decimal-and-money.md`](../../docs/rules/decimal-and-money.md)
 
 **Symptom**: results change depending on what ran first in the process. A test passes alone and fails in the suite, or vice versa.
 
@@ -195,7 +195,7 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 **Prevention**: never gate symbol validity on `str.isalnum()` or `[A-Z0-9]+`; open files with an explicit `encoding="utf-8"`; sanitise before using a symbol as a path component. The correct behaviour is to parse it successfully and exclude it via the universe intersection, not to crash and not to special-case it by name.
 
 ### F-013 — Filter rejection treated as an edge case {#f-013}
-**Status**: class-known · **Defended by**: [`../rules/exchange-integration.md`](../rules/exchange-integration.md)
+**Status**: class-known · **Defended by**: [`../../docs/rules/exchange-integration.md`](../../docs/rules/exchange-integration.md)
 
 **Symptom**: orders rejected for `minNotional` or lot-size violations, disproportionately on low-conviction signals.
 
@@ -208,7 +208,7 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 ## Event bus and idempotency
 
 ### F-014 — Retried order placement double-fills {#f-014}
-**Status**: class-known · **Defended by**: [`../rules/idempotency.md`](../rules/idempotency.md)
+**Status**: class-known · **Defended by**: [`../../docs/rules/idempotency.md`](../../docs/rules/idempotency.md)
 
 **Symptom**: the position is exactly twice the intended size after a network blip.
 
@@ -217,7 +217,7 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 **Prevention**: a deterministically derived `clientOrderId`, so the retry is the *same* order to the exchange and is rejected as a duplicate rather than accepted as a new one.
 
 ### F-015 — Non-idempotent consumer on at-least-once delivery {#f-015}
-**Status**: class-known · **Defended by**: [`../rules/idempotency.md`](../rules/idempotency.md)
+**Status**: class-known · **Defended by**: [`../../docs/rules/idempotency.md`](../../docs/rules/idempotency.md)
 
 **Symptom**: a duplicated fill in the ledger, or a counter that is too high, after a consumer restart or an `XAUTOCLAIM`.
 
@@ -228,7 +228,7 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 **Test**: the replay harness feeds every consumed event twice and asserts byte-identical final state.
 
 ### F-016 — `XACK` before the transaction commits {#f-016}
-**Status**: class-known · **Defended by**: [`../rules/idempotency.md`](../rules/idempotency.md)
+**Status**: class-known · **Defended by**: [`../../docs/rules/idempotency.md`](../../docs/rules/idempotency.md)
 
 **Symptom**: either an event whose effect never happened and which is never redelivered, or — if the ordering is inverted the other way and the dedupe row commits without the effect — an event that is permanently skipped.
 
@@ -241,7 +241,7 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 ## Validation and research
 
 ### F-017 — Look-ahead through full-sample statistics {#f-017}
-**Status**: class-known · **Defended by**: [`../rules/no-lookahead.md`](../rules/no-lookahead.md), [`../contexts/backtest-pitfalls.md`](../contexts/backtest-pitfalls.md)
+**Status**: class-known · **Defended by**: [`../../docs/rules/no-lookahead.md`](../../docs/rules/no-lookahead.md), [`../contexts/backtest-pitfalls.md`](../contexts/backtest-pitfalls.md)
 
 **Symptom**: an implausibly smooth equity curve, a Sharpe far above what the horizon can plausibly support, no losing months, and immediate death in forward testing.
 
@@ -252,7 +252,7 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 **Prevention**: the feature store takes a non-optional `as_of` and physically cannot return rows with `available_at > as_of`; the adversarial `LookaheadProbe` perturbs future bars and asserts every past value and decision is byte-identical, and must fail closed.
 
 ### F-018 — Overfitting via an abandoned parameter grid {#f-018}
-**Status**: class-known · **Defended by**: [`../rules/overfitting-defences.md`](../rules/overfitting-defences.md)
+**Status**: class-known · **Defended by**: [`../../docs/rules/overfitting-defences.md`](../../docs/rules/overfitting-defences.md)
 
 **Symptom**: a headline Sharpe that halves when the global trial count is applied, and a result that does not reproduce on a later window.
 
@@ -283,7 +283,7 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 ## Runtime and operations
 
 ### F-021 — Exception caught to keep the loop alive {#f-021}
-**Status**: class-known · **Defended by**: [`../rules/error-handling.md`](../rules/error-handling.md)
+**Status**: class-known · **Defended by**: [`../../docs/rules/error-handling.md`](../../docs/rules/error-handling.md)
 
 **Symptom**: one error line in the logs, then normal-looking operation, then a position nobody can explain.
 
@@ -292,7 +292,7 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 **Prevention**: catch the specific exception you can actually handle; unexpected state trips the kill switch rather than continuing. The one permitted broad catch is the top-level supervisor, and it exists to flatten the book, write the audit record and exit non-zero — never to continue.
 
 ### F-022 — Quota exhaustion stalls instead of degrading {#f-022}
-**Status**: class-known · **Defended by**: [`../rules/quota-management.md`](../rules/quota-management.md) · **Related**: OQ-001
+**Status**: class-known · **Defended by**: [`../../docs/rules/quota-management.md`](../../docs/rules/quota-management.md) · **Related**: OQ-001
 
 **Symptom**: agents stop responding, retries pile up, and the system waits rather than doing the work it can still do deterministically.
 
@@ -303,7 +303,7 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 **Prevention**: a persistent quota ledger that survives restarts; reservation before the call and reconciliation after; exhaustion returns a `degraded` status object and the system continues deterministic-only.
 
 ### F-023 — Prompt text in the log stream {#f-023}
-**Status**: class-known · **Defended by**: [`../rules/logging-rules.md`](../rules/logging-rules.md)
+**Status**: class-known · **Defended by**: [`../../docs/rules/logging-rules.md`](../../docs/rules/logging-rules.md)
 
 **Symptom**: log volume explodes, Loki queries time out, and the one investigation that needed the logs is the one that cannot run.
 
@@ -312,7 +312,7 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 **Prevention**: prompts and responses go to the append-only audit table; the log carries the audit row id. A size cap on log records is asserted in tests.
 
 ### F-024 — Audit row rewritten through the ORM {#f-024}
-**Status**: class-known · **Defended by**: [`../rules/append-only-audit.md`](../rules/append-only-audit.md)
+**Status**: class-known · **Defended by**: [`../../docs/rules/append-only-audit.md`](../../docs/rules/append-only-audit.md)
 
 **Symptom**: an audit row whose content does not match what was written, or a hash-chain verification failure.
 
@@ -332,13 +332,13 @@ A `class-known` entry is not speculation. It is the reason a specific line of de
 **Prevention**: purity is mandatory in `strategy` and `risk` — no I/O, no clock access, no unseeded randomness. Only the venue implementation differs.
 
 ### F-026 — Unvalidated agent output acted upon {#f-026}
-**Status**: class-known · **Defended by**: [`../rules/llm-output-handling.md`](../rules/llm-output-handling.md)
+**Status**: class-known · **Defended by**: [`../../docs/rules/llm-output-handling.md`](../../docs/rules/llm-output-handling.md)
 
 **Symptom**: a decision traced back to a model response that never conformed to its schema, or a field interpreted charitably by a lenient parser.
 
 **Mechanism**: a permissive parse — regex-extracting a JSON block, coercing types, defaulting a missing field. Each individually looks like robustness. Together they mean the deterministic gate is validating something the model never actually said.
 
-**Prevention**: parse into a Pydantic v2 model with `extra="forbid"` and strict types; an unparseable response is a failure, not something to interpret charitably; zero re-asks at runtime — the call fails, the raw response is audited, and the caller takes its deterministic path. A retry loop over a stochastic generator searches for output that passes validation, not output that is correct, and it suppresses the parse-failure rate that is the signal the prompt is broken. See [`../rules/llm-output-handling.md`](../rules/llm-output-handling.md).
+**Prevention**: parse into a Pydantic v2 model with `extra="forbid"` and strict types; an unparseable response is a failure, not something to interpret charitably; zero re-asks at runtime — the call fails, the raw response is audited, and the caller takes its deterministic path. A retry loop over a stochastic generator searches for output that passes validation, not output that is correct, and it suppresses the parse-failure rate that is the signal the prompt is broken. See [`../../docs/rules/llm-output-handling.md`](../../docs/rules/llm-output-handling.md).
 
 ---
 

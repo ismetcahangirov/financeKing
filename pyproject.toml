@@ -92,7 +92,7 @@ dev = [
     # asyncpg ships no inline types, and mypy --strict treats an untyped import as a
     # source of Any that propagates across every call path touching it.
     "asyncpg-stubs>=0.30",
-    # Test-only. TESTING.md and .claude/rules/testing-rules.md require a real
+    # Test-only. TESTING.md and docs/rules/testing-rules.md require a real
     # PostgreSQL + TimescaleDB rather than a mock, and testcontainers is what makes
     # that the default rather than something a developer has to remember to start.
     # It also binds a random host port, which matters on Windows where 5432 is
@@ -121,7 +121,7 @@ src = ["src", "tests", "tools"]
 extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
-# The union of the rule sets named across .claude/rules/. Each set is load-bearing
+# The union of the rule sets named across docs/rules/. Each set is load-bearing
 # for at least one rule in that directory: DTZ for time-and-timezones, BLE/TRY for
 # error-handling, G/LOG for logging-rules, ANN/N for naming, S for the eval/exec and
 # SQL-string bans in llm-output-handling.
@@ -161,7 +161,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# N818: both names are specified verbatim by .claude/rules/llm-output-handling.md and by
+# N818: both names are specified verbatim by docs/rules/llm-output-handling.md and by
 # issue #70's acceptance criteria, and both read as the refusal they are rather than as a
 # fault: `AgentOutputInvalid` and `FencedPayloadRejected` are statements about the input,
 # not about a malfunction. Renaming them to `...Error` would make the rule file, the
@@ -169,7 +169,7 @@ ignore = [
 # is a worse outcome than a suffix convention broken in one file with a reason.
 "src/fking/agents/_errors.py" = ["N818"]
 # A005: `fking.platform.logging` shadows the standard library's `logging`. The name is
-# deliberate -- `.claude/rules/logging-rules.md` and OBSERVABILITY.md both name this
+# deliberate -- `docs/rules/logging-rules.md` and OBSERVABILITY.md both name this
 # module, and a reader looking for the logging pipeline looks for `logging`. Python 3
 # resolves `import logging` inside it to the stdlib module by absolute import, so the
 # shadowing is nominal rather than real; nothing in this package imports stdlib logging
@@ -325,7 +325,7 @@ disallow_any_explicit = false
 #
 # This does NOT weaken the safety kernel's guarantee. Nothing is inferred from
 # ccxt's own annotations -- `guarded_ccxt` re-validates every URL in the sandbox
-# map it returns, and `.claude/rules/safety-kernel.md` treats those endpoints as
+# map it returns, and `docs/rules/safety-kernel.md` treats those endpoints as
 # dependency-supplied input precisely because the type system cannot vouch for
 # them.
 [[tool.mypy.overrides]]
@@ -450,7 +450,7 @@ type = "forbidden"
 #
 # So the adapter never names ccxt at all. It holds `GuardedExchange`, a Protocol in the
 # kernel whose one implementation carries an injected session and re-validates the URL
-# map that `set_sandbox_mode(True)` installs (ADR-0008, .claude/rules/safety-kernel.md).
+# map that `set_sandbox_mode(True)` installs (ADR-0008, docs/rules/safety-kernel.md).
 #
 # fking.platform is not a source module: fking.platform.safety.exchange is the one place
 # that may hold it, and that module is inside the kernel's 100% coverage floor.

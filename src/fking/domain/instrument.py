@@ -47,7 +47,7 @@ class Instrument:
         # Not require_asset_code: Binance spot testnet serves a deliberate non-ASCII
         # symbol in exchangeInfo, and whatever code points the venue sent are what we
         # must send back. Classifying a symbol as tradable is the venue adapter's job
-        # (.claude/rules/exchange-integration.md); refusing to hold it is not.
+        # (docs/rules/exchange-integration.md); refusing to hold it is not.
         require_text(self.symbol, "symbol")
         require_asset_code(self.base_asset, "base_asset")
         require_asset_code(self.quote_asset, "quote_asset")

@@ -2,7 +2,7 @@
 
 Builders and not instances because a specification names *instruments*, and instruments
 are venue facts resolved at startup from the intersection of the venue's tradable set and
-the archive's history (`.claude/rules/exchange-integration.md`). A module-level instance
+the archive's history (`docs/rules/exchange-integration.md`). A module-level instance
 would have to hardcode a tick size and a lot step, which is a declaration that the run's
 venue may contradict.
 

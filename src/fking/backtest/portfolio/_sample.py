@@ -28,7 +28,7 @@ than observations is the same manufacture of significance running in the opposit
 direction, so the floor is a refusal rather than a convenience.
 
 `float` inside this module is the statistical exception in
-`.claude/rules/decimal-and-money.md`, bounded by `_float_series` -- the one named
+`docs/rules/decimal-and-money.md`, bounded by `_float_series` -- the one named
 conversion boundary here. Everything published is `Decimal`, so nothing leaves as a
 `float`.
 """

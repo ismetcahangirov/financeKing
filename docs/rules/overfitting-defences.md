@@ -280,7 +280,7 @@ def thresholds_for(n_parameters: int) -> PromotionThresholds:
     """Each free parameter past the second halves the tolerated residual noise.
 
     Base 0.95 is the promotion floor; the per-hypothesis research verdict uses
-    its own pre-registered thresholds (../agents/quant.md). Promotion is the
+    its own pre-registered thresholds (../../.claude/agents/quant.md). Promotion is the
     stricter gate because it commits capital, not a conclusion.
     """
     extra = max(0, n_parameters - 2)
@@ -537,7 +537,7 @@ async def test_holdout_registration_without_authorisation_is_refused(conn, clock
         await register_and_charge(conn, spec, now=clock.now())
 ```
 
-**CI gates.** `make check` runs the above under `pytest`. A separate scheduled job asserts the ledger is internally consistent — `cumulative_trials` equals the running sum of `trials_charged` ordered by `seq`, and `max(seq)` never decreases between runs. A discrepancy is escalated as `needs-human` and outranks all other work, because it means every deflated Sharpe in the project is wrong (`../agents/quant.md`, escalation rules).
+**CI gates.** `make check` runs the above under `pytest`. A separate scheduled job asserts the ledger is internally consistent — `cumulative_trials` equals the running sum of `trials_charged` ordered by `seq`, and `max(seq)` never decreases between runs. A discrepancy is escalated as `needs-human` and outranks all other work, because it means every deflated Sharpe in the project is wrong (`../../.claude/agents/quant.md`, escalation rules).
 
 ## The one exception
 

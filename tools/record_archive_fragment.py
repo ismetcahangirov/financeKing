@@ -1,7 +1,7 @@
 """Record a real archive fragment from `data.binance.vision` into `tests/fixtures/archives/`.
 
 Run by hand, never in CI. It is the only way a parser fixture enters this repository,
-because `.claude/rules/testing-rules.md` bans hand-written fixtures outright: a
+because `docs/rules/testing-rules.md` bans hand-written fixtures outright: a
 hand-written CSV encodes what its author believes Binance emits, and the two things that
 actually break a loader -- `True`/`False` where every other exchange writes `true`, and
 microsecond epochs on spot but not futures -- are precisely the two things an author

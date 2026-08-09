@@ -11,7 +11,7 @@ price the decision could have transacted at is the open of bar *i+1*. Measuring 
 `close[i]` instead inflates the measured edge by exactly the move the feature was computed
 from, and for any momentum or reversal feature built on that same close, that move *is*
 the signal. It is the leak that most reliably produces a strategy which looks profitable
-and is not (`.claude/rules/no-lookahead.md`, `DATA_PIPELINE.md` section 7).
+and is not (`docs/rules/no-lookahead.md`, `DATA_PIPELINE.md` section 7).
 
 The consequence is testable rather than argued: perturb the close of bar *i* alone and a
 correctly aligned label at *i* does not move. `tests/lookahead/` runs exactly that, over

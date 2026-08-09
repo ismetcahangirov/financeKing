@@ -92,7 +92,7 @@ def require_non_negative_decimal(candidate: object, field_name: str) -> Decimal:
 def require_fraction(candidate: object, field_name: str) -> Decimal:
     """A finite `Decimal` in the closed interval [0, 1].
 
-    A dimensionless ratio, never a percent. `.claude/rules/naming.md` reserves `_pct`
+    A dimensionless ratio, never a percent. `docs/rules/naming.md` reserves `_pct`
     for 0-100 precisely so that a bare 0.02 cannot be read as either 2% or 0.02%.
     """
     fraction = require_decimal(candidate, field_name)

@@ -50,7 +50,7 @@ def read_connection() -> Iterator[duckdb.DuckDBPyConnection]:
     A developer in UTC+4 and CI in UTC then disagree about which day a bar belongs to,
     with no error on either side. This is the same pin, for the same reason, as
     `ALTER DATABASE fking SET timezone TO 'UTC'` in the Postgres schema
-    (`.claude/rules/time-and-timezones.md`).
+    (`docs/rules/time-and-timezones.md`).
     """
     connection = duckdb.connect(database=":memory:")
     try:

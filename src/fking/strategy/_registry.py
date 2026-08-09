@@ -57,7 +57,7 @@ class StrategyRegistry:
     Mutable by construction, unlike everything else in this package: registration is an
     accumulation, and a frozen registry would mean rebuilding the whole mapping per
     strategy. Nothing here is a domain object, so
-    `.claude/rules/immutability.md` does not bind it -- but the *specs* it holds are
+    `docs/rules/immutability.md` does not bind it -- but the *specs* it holds are
     frozen, and nothing it returns can be modified through the reference it hands back.
     """
 

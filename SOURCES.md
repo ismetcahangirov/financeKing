@@ -4,7 +4,7 @@ Every external service this system may talk to, what it costs, what it limits, w
 
 **Why this file exists separately from the research report.** [`docs/research/free-tier-landscape.md`](docs/research/free-tier-landscape.md) is an investigation with a date on it; this is the operational register that code and configuration are written against. The report explains *why* a number is what it is. This file is where you look when you need the number.
 
-**The column that earns this file its place is `availability_lag`.** A source's rate limit is an operational nuisance; its availability lag is a *correctness* property. [`.claude/rules/no-lookahead.md`](.claude/rules/no-lookahead.md) requires every record to carry `event_time` **and** `available_at`, and requires every registered feature to declare an `availability_lag`. That lag is a property of the source, not of the feature, so it belongs here — once, where it can be checked — rather than being re-guessed in each feature's registry entry. A feature that inherits a wrong lag does not fail; it produces a backtest that knew things early, which is the defect class `CLAUDE.md` §2 names as the most dangerous in the project.
+**The column that earns this file its place is `availability_lag`.** A source's rate limit is an operational nuisance; its availability lag is a *correctness* property. [`docs/rules/no-lookahead.md`](docs/rules/no-lookahead.md) requires every record to carry `event_time` **and** `available_at`, and requires every registered feature to declare an `availability_lag`. That lag is a property of the source, not of the feature, so it belongs here — once, where it can be checked — rather than being re-guessed in each feature's registry entry. A feature that inherits a wrong lag does not fail; it produces a backtest that knew things early, which is the defect class `CLAUDE.md` §2 names as the most dangerous in the project.
 
 **Rules for this file.**
 
@@ -17,7 +17,7 @@ Every external service this system may talk to, what it costs, what it limits, w
 
 ## 1. Trading venues
 
-These are the only hosts in the compiled-in allowlist (`src/fking/platform/safety/_allowlist.py`). Nothing else may be added without a `safety:critical` pull request — see [`.claude/rules/safety-kernel.md`](.claude/rules/safety-kernel.md). **Production exchange hosts are absent by design and there is no mechanism to add one at runtime.**
+These are the only hosts in the compiled-in allowlist (`src/fking/platform/safety/_allowlist.py`). Nothing else may be added without a `safety:critical` pull request — see [`docs/rules/safety-kernel.md`](docs/rules/safety-kernel.md). **Production exchange hosts are absent by design and there is no mechanism to add one at runtime.**
 
 | Host | Purpose | Limit | Checked |
 |---|---|---|---|
@@ -69,7 +69,7 @@ Full analysis, including the data-training finding that bears on provider choice
 | Google Gemini | all free-tier models | **`not published`** | **`not published`** | **`not published`** | **`not published`** | project |
 | Mistral | free ("lowest limits") | **`not published`** | **`not published`** | **`not published`** | **`not published`** | account |
 
-Google and Mistral both moved their free-tier numbers behind an account login during 2026. They are `not published`, which is a different and more useful statement than a number someone found in a forum post. Configuration uses conservative floors and the quota ledger measures the truth ([`.claude/rules/quota-management.md`](.claude/rules/quota-management.md)).
+Google and Mistral both moved their free-tier numbers behind an account login during 2026. They are `not published`, which is a different and more useful statement than a number someone found in a forum post. Configuration uses conservative floors and the quota ledger measures the truth ([`docs/rules/quota-management.md`](docs/rules/quota-management.md)).
 
 **GitHub Models was fully retired on 2026-07-30** — playground, catalogue, inference API and BYOK. It is not a candidate.
 
@@ -85,7 +85,7 @@ Google and Mistral both moved their free-tier numbers behind an account login du
 
 ### 3.3 Structured output capability
 
-The zero-re-ask rule in [`.claude/rules/llm-output-handling.md`](.claude/rules/llm-output-handling.md) depends on this row, so it is recorded here rather than left to the code to discover.
+The zero-re-ask rule in [`docs/rules/llm-output-handling.md`](docs/rules/llm-output-handling.md) depends on this row, so it is recorded here rather than left to the code to discover.
 
 | Provider | Enforced JSON schema | With tool calling |
 |---|---|---|
@@ -155,6 +155,6 @@ Three of these — Fear & Greed, CryptoPanic and FRED — are now registered sou
 
 ## 6. Adding a source
 
-Add the row in the same pull request as the code that calls it, and state all seven columns. If you cannot state `availability_lag`, you cannot register a feature that uses the source — that is not a formality, it is what sizes the purge and embargo in cross-validation ([`.claude/rules/no-lookahead.md`](.claude/rules/no-lookahead.md)).
+Add the row in the same pull request as the code that calls it, and state all seven columns. If you cannot state `availability_lag`, you cannot register a feature that uses the source — that is not a formality, it is what sizes the purge and embargo in cross-validation ([`docs/rules/no-lookahead.md`](docs/rules/no-lookahead.md)).
 
 New hosts get their own egress path. They do **not** go in `PERMITTED_HOSTS`; that allowlist is for trading venues and widening it for a data source would trade the project's single most important structural guarantee for a convenience.

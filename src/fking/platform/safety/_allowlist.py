@@ -8,7 +8,7 @@ does not distinguish intent because intent is not a property of a socket.
 It lives alone in its own module so that the diff which changes it cannot be buried
 among unrelated edits.
 
-See .claude/rules/safety-kernel.md and CLAUDE.md section 0.
+See docs/rules/safety-kernel.md and CLAUDE.md section 0.
 """
 
 from __future__ import annotations

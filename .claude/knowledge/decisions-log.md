@@ -42,7 +42,7 @@ Status: **active** · **SUPERSEDED by D-NNN** · **open to revisit** (a decision
 | D-018 | LLM agents on top of the core, never inside it | An LLM in the order path | active | `ARCHITECTURE.md` §9 |
 | D-019 | Gemini free tier primary, Groq fallback, behind a gateway | A single provider, called directly | active | `ARCHITECTURE.md` §9 · ADR 0009 |
 | D-020 | Survival score, not profit, as the objective | Return-based ranking | active | `ARCHITECTURE.md` §10 |
-| D-021 | Global, monotone trial counting charged at `max(declared, executed)` per specification | Per-study counts; execution-only counting; declaration-only counting | active | `.claude/rules/overfitting-defences.md` |
+| D-021 | Global, monotone trial counting charged at `max(declared, executed)` per specification | Per-study counts; execution-only counting; declaration-only counting | active | `docs/rules/overfitting-defences.md` |
 | D-022 | Property-based tests mandatory for risk and position math | Example-based tests only | active | `CLAUDE.md` §5 |
 | D-023 | Real Postgres in tests; exchange mocked from recorded responses | Mocked database; hand-written fixtures | active | `CLAUDE.md` §5 |
 | D-024 | Timestamp normalization keyed on `(market, date)` | A global or per-market unit constant | **SUPERSEDED by D-034** | ADR 0013 |
@@ -56,7 +56,7 @@ Status: **active** · **SUPERSEDED by D-NNN** · **open to revisit** (a decision
 | D-032 | Provider SDKs called directly behind this project's own gateway | `litellm`; `pydantic-ai` | active | `docs/research/free-tier-landscape.md` §3 · ADR 0009 |
 | D-033 | Promotion-gating statistics implemented in-project against worked examples | `mlfinlab` — which no longer has an installable release | active | `docs/research/free-tier-landscape.md` §4 · VF-025 |
 | D-034 | Archive format resolved per `(market, dataset, date)`; an undeclared combination raises | Sniffing the format from the file; a per-market constant with a date branch in the loader | active | ADR 0013 · `DATA_PIPELINE.md` §3 |
-| D-035 | `data.binance.vision` reached through a second allowlist and a credential-free client, never through `PERMITTED_HOSTS` | Adding the host to `PERMITTED_HOSTS` and reusing `guarded_client()`; fetching out of band with `curl` | active | ADR 0017 · `.claude/rules/safety-kernel.md` |
+| D-035 | `data.binance.vision` reached through a second allowlist and a credential-free client, never through `PERMITTED_HOSTS` | Adding the host to `PERMITTED_HOSTS` and reusing `guarded_client()`; fetching out of band with `curl` | active | ADR 0017 · `docs/rules/safety-kernel.md` |
 | D-036 | A filled gap is marked resolved and a partial fill narrows by inserting residual rows that inherit the original discovery instant | Updating the gap's bounds in place; deleting the row once the range is recovered | active | ADR 0018 · `DATA_PIPELINE.md` §5 |
 
 ---
@@ -71,7 +71,7 @@ Most rows above are adequately argued in their canonical document. These five ar
 
 **Why it lost**: the threat model is not malice. It is a config edit, a copied environment variable, an agent generating its own HTTP client, or a library changing a default base URL in a minor version bump. A guardrail living in configuration defends against none of those, **because configuration is precisely the thing that changes**. Compiling the allowlist into source means widening it requires a source edit and a reviewed PR labelled `safety:critical` — friction that is deliberate and is the single most important property of the system.
 
-**Revisit trigger**: none. This one does not have a revisit trigger, and the absence is intentional. If you are constructing an argument for revisiting it, the argument is the symptom. Full argument in [ADR 0006](../../docs/adr/0006-compiled-in-safety-allowlist.md); mechanism in [`../rules/safety-kernel.md`](../rules/safety-kernel.md).
+**Revisit trigger**: none. This one does not have a revisit trigger, and the absence is intentional. If you are constructing an argument for revisiting it, the argument is the symptom. Full argument in [ADR 0006](../../docs/adr/0006-compiled-in-safety-allowlist.md); mechanism in [`../../docs/rules/safety-kernel.md`](../../docs/rules/safety-kernel.md).
 
 ### D-005 — Strategies emit `Signal`; the risk engine alone constructs `Order`
 
@@ -113,13 +113,13 @@ Testnet is an **execution-plumbing** environment: it proves your order was forme
 
 The behavioural corollary is the point: **a hypothesis with a large parameter grid is expensive to everyone, forever.** So the right design is one or two parameters fixed a priori from a mechanism, tested once. If you cannot fix a parameter from theory, that is evidence you do not have a mechanism — and a hypothesis without a mechanism is a search.
 
-**Revisit trigger**: none. Exempting "exploratory" runs is the exact hole that makes the whole defence ornamental. See [`../rules/overfitting-defences.md`](../rules/overfitting-defences.md).
+**Revisit trigger**: none. Exempting "exploratory" runs is the exact hole that makes the whole defence ornamental. See [`../../docs/rules/overfitting-defences.md`](../../docs/rules/overfitting-defences.md).
 
 ### D-031 — The kill switch flattens on trip, sized from venue state
 
 **Rejected**: cancel resting orders and leave positions open — which `FAILSAFE.md` §2.4 previously argued for, at length and well.
 
-**Why it lost**: two documents in this repository stated opposite defaults, so one had to go. The argument that settled it was not about slippage but about **consistency**: `.claude/rules/error-handling.md` already has the supervisor flatten the book on any unhandled exception, which is the least-understood state the system can reach. A kill switch that left positions open would make the response to maximum uncertainty depend on which code path happened to notice it. Second, cancel-only's premise — *stop making it worse and let a human decide* — requires a human inside the window a crypto position can move in, and this system runs unattended.
+**Why it lost**: two documents in this repository stated opposite defaults, so one had to go. The argument that settled it was not about slippage but about **consistency**: `docs/rules/error-handling.md` already has the supervisor flatten the book on any unhandled exception, which is the least-understood state the system can reach. A kill switch that left positions open would make the response to maximum uncertainty depend on which code path happened to notice it. Second, cancel-only's premise — *stop making it worse and let a human decide* — requires a human inside the window a crypto position can move in, and this system runs unattended.
 
 **What survived the rejection**: cancel-only's sharpest objection was not about execution quality. It was that several triggers indicate our *position record itself* is untrustworthy, so closing orders sized from it can open a position rather than close one. That is correct, and it is why the flatten reads quantities from the venue and refuses to proceed at all when the venue cannot be read — halting with positions open and paging, rather than guessing.
 

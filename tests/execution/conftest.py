@@ -4,7 +4,7 @@ Every adapter test in this package replays bytes a real testnet returned. Nothin
 constructs a response by hand: a hand-written fixture encodes what its author believes
 Binance returns, and the two things nobody hand-writes wrongly are the exact string
 encoding of a decimal field and the deliberate non-ASCII symbols in `exchangeInfo`
-(`.claude/rules/testing-rules.md`).
+(`docs/rules/testing-rules.md`).
 
 `RecordedExchange` implements `GuardedExchange` -- the same Protocol the real
 `GuardedCcxtExchange` implements -- so a test drives `BinanceVenue` through the identical

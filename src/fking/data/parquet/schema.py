@@ -8,7 +8,7 @@ month produces something else. Two files, two schemas, one glob, and a scan that
 on a type mismatch nobody changed.
 
 **Column names mirror the record field names character for character.** `open_quote_price`
-rather than `open`, per `.claude/rules/naming.md`: a column named `price` is ambiguous
+rather than `open`, per `docs/rules/naming.md`: a column named `price` is ambiguous
 between mark, index, last and decision price, and -- more mechanically -- it is invisible
 to any check that keys on a unit suffix. `MONEY_COLUMN_SUFFIXES` below is exactly such a
 check's key, and it is what makes "every money column is `DECIMAL(38, 18)`" a total
@@ -19,7 +19,7 @@ year. `DATA_PIPELINE.md` section 6 carries the same table.
 in `fking.platform.numeric`, so a value representable in one is representable in all
 three and the round trip cannot lose digits. Parquet will store a `Decimal` as `double`
 without complaint if asked, and reading a float back out into a `Fill` is explicitly not
-covered by the numeric exception in `.claude/rules/decimal-and-money.md`.
+covered by the numeric exception in `docs/rules/decimal-and-money.md`.
 
 Timestamps are `timestamp[us, tz=UTC]`. Microseconds rather than milliseconds because
 spot archives from 2025-01-01 are microsecond epochs (VF-015, `docs/adr/0013`) and a

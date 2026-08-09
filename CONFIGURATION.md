@@ -100,7 +100,7 @@ Two of those lines are not what a first reading suggests, and both differences m
 
 **Step 3 does not exit 78.** It delegates to `fking.platform.safety.verify_endpoints_or_abort`, which raises `SafetyViolation` — a `BaseException` that `tools/checks/no_catch_safety.py` forbids catching anywhere in `src/` or `tests/`. A non-allowlisted endpoint therefore terminates the process on an uncaught exception rather than exiting tidily. That is deliberate: a process whose model of what it is talking to is wrong should die loudly, and the kernel outranks this document's exit-code convention.
 
-The **archive host and the LLM provider base URLs are deliberately not in step 2.** They are not venues and are not in the trading allowlist; adding them so one download or one completion works would widen the allowlist permanently, which `.claude/rules/safety-kernel.md` refuses. Those paths get their own egress checks.
+The **archive host and the LLM provider base URLs are deliberately not in step 2.** They are not venues and are not in the trading allowlist; adding them so one download or one completion works would widen the allowlist permanently, which `docs/rules/safety-kernel.md` refuses. Those paths get their own egress checks.
 
 ### The process refuses to start
 
@@ -336,7 +336,7 @@ This is the section with the rule that matters.
 #
 # Under platform/config rather than under risk/ because the validator that enforces it
 # hangs off RiskSettings in the configuration tree, and platform imports no other fking
-# module (.claude/rules/module-boundaries.md). risk may import platform; not the reverse.
+# module (docs/rules/module-boundaries.md). risk may import platform; not the reverse.
 #
 # Widening any of these requires a source edit and a PR labelled safety:critical.
 HARD_CEILINGS: Final[Mapping[str, Decimal]] = MappingProxyType({

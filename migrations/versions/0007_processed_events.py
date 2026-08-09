@@ -7,7 +7,7 @@ Reversible, and deliberately so. This is not an audit table: it holds no decisio
 history, only the claim that a given consumer group has already applied a given event. It
 is derived state, rebuildable in the sense that dropping it degrades the system to
 "every event may be applied twice" rather than to "the record of a trade is gone" -- which
-is the line `.claude/rules/append-only-audit.md` draws when it makes audit migrations
+is the line `docs/rules/append-only-audit.md` draws when it makes audit migrations
 irreversible.
 
 Two properties of the DDL are load-bearing:

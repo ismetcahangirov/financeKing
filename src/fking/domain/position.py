@@ -11,7 +11,7 @@ signed number, flat *is* zero, and `direction` cannot lie about it.
 `PositionTransition` carrying both the before and after states plus what the fill
 actually did -- how much closed, how much opened, what was realised, whether the
 position crossed through flat. The audit log needs every one of those numbers
-(`.claude/rules/append-only-audit.md`: "given only these rows, can I answer why this
+(`docs/rules/append-only-audit.md`: "given only these rows, can I answer why this
 order had this size at this moment?"), and a method returning only the new `Position`
 throws them away at the one point where they are cheap to compute.
 

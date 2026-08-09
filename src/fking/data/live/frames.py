@@ -1,6 +1,6 @@
 """Stream frames to canonical records. The venue's JSON is hostile input.
 
-Three rules from `.claude/rules/exchange-integration.md` are load-bearing here and each
+Three rules from `docs/rules/exchange-integration.md` are load-bearing here and each
 has an obvious wrong answer:
 
 **Parse into a model, never index into the dict.** `payload["k"]["c"]` raises `KeyError`
@@ -233,7 +233,7 @@ class MarkPriceFrame(_VenueModel):
 
     `funding_rate_fraction` is a fraction, not a percentage and not basis points --
     `0.0001` is one basis point per funding interval. Named for the unit because
-    `.claude/rules/naming.md` exists for exactly this field: a `funding_rate` read as
+    `docs/rules/naming.md` exists for exactly this field: a `funding_rate` read as
     percent by one caller and as a fraction by another is a 100x error in a number that
     is subtracted from PnL every eight hours.
     """

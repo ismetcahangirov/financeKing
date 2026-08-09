@@ -57,7 +57,7 @@ class SequenceGapDetector:
 
     Mutable by design and deliberately not a domain type: it is infrastructure whose
     whole job is to carry state across messages, in the same way `FrozenClock` is
-    (`.claude/rules/immutability.md`).
+    (`docs/rules/immutability.md`).
     """
 
     __slots__ = ("_last_event_time_utc", "_last_id")

@@ -8,7 +8,7 @@ against real data and fails the stationary case here.
 The stationary edge carries a deterministic sign-alternating perturbation rather than a
 seeded random one. A perturbation drawn from an RNG makes the tolerance a statement about
 that RNG's particular draw, and the first time somebody changes the seed the assertion is
-either vacuous or flaky (`.claude/rules/testing-rules.md`). The alternation does not
+either vacuous or flaky (`docs/rules/testing-rules.md`). The alternation does not
 cancel exactly -- the schedule has an even number of segments per fold, so the +/- pattern
 correlates weakly with distance -- and the residual it induces is the noise floor the
 tolerance is set from, computed in the comment on that test rather than tuned until green.

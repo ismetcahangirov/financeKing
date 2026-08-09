@@ -6,7 +6,7 @@ This defines an LLM agent the system runs unattended. Everything below the front
 
 Two things govern the whole document. **No agent output is trusted directly** — agents propose, deterministic code disposes (`CLAUDE.md` §10). And **the forbidden list matters more than the allowed list**, because an agent will find the gaps in an allowed list and will not find the gaps in a forbidden one.
 
-Related: `../rules/llm-output-handling.md`, `../rules/quota-management.md`, `MEMORY_SYSTEM.md`, `PROMPT_LIBRARY.md`.
+Related: `../../docs/rules/llm-output-handling.md`, `../../docs/rules/quota-management.md`, `MEMORY_SYSTEM.md`, `PROMPT_LIBRARY.md`.
 
 ---
 

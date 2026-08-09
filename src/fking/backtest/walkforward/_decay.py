@@ -17,7 +17,7 @@ identically, for all of them -- so a regression over one Sharpe per fold has zer
 variance along its x-axis and no slope exists. The measurement requires sub-fold
 resolution, which is what `segment_windows` produces and what this module consumes.
 
-**Arithmetic is `Decimal`, not `float`.** `.claude/rules/decimal-and-money.md` permits
+**Arithmetic is `Decimal`, not `float`.** `docs/rules/decimal-and-money.md` permits
 float64 for statistical estimates inside `fking.backtest`, and this would qualify on the
 sampling-error argument. It is `Decimal` anyway for a different reason: the slope is
 carried in a validation record that a promotion gate reads and a digest covers, and a

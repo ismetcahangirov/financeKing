@@ -5,7 +5,7 @@ mutable holder, `KillSwitchGate`. The split is the whole design:
 
 - **Deciding** what the state is, what the trip sequence must be, and whether a resume
   is permitted are pure. They take the clock as a parameter and perform no I/O, so a
-  trip is replayable from its journal rows months later (`.claude/rules/time-and-timezones.md`).
+  trip is replayable from its journal rows months later (`docs/rules/time-and-timezones.md`).
 - **Holding** the current state so the order path can read it in one attribute access is
   infrastructure, and infrastructure is allowed to be mutable in the same narrow way
   `FrozenClock` is.
@@ -118,7 +118,7 @@ class TripPolicy:
     path noticed it is not a safety design. Setting it false does not reopen order
     entry, does not skip cancellation, and does not skip the audit row -- it removes one
     remediation step and nothing else, which is why it is safe for it to be
-    configurable at all (`.claude/rules/safety-kernel.md` on flags that bypass gates).
+    configurable at all (`docs/rules/safety-kernel.md` on flags that bypass gates).
     """
 
     on_trip_flatten: bool = True

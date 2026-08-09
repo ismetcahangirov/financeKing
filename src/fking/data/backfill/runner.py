@@ -131,7 +131,7 @@ class _SymbolTally:
     and frozen into a `SymbolReport` at that function's return. It is deliberately not a
     domain type and it never leaves this module: what escapes is the frozen report, so no
     caller can hold a reference whose meaning changes underneath it
-    (`.claude/rules/immutability.md`).
+    (`docs/rules/immutability.md`).
     """
 
     symbol: str

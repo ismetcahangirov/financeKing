@@ -85,7 +85,7 @@ At runtime the observable symptom is the worst possible one: nothing. The order 
 
 Any change here requires a pull request labelled `safety:critical` and is
 blocked in CI otherwise. Do not add a host because it would make testing
-easier. Do not add a host "read-only". See .claude/rules/safety-kernel.md.
+easier. Do not add a host "read-only". See docs/rules/safety-kernel.md.
 """
 
 from __future__ import annotations

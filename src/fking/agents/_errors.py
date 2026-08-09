@@ -32,7 +32,7 @@ class AgentOutputInvalid(FkingError):
     The message names the agent and the audit reference, never the raw response: the
     raw text is already on the audit row, verbatim, and repeating it in an exception
     message puts model-authored text into the log stream, which
-    `.claude/rules/logging-rules.md` clause 7 forbids.
+    `docs/rules/logging-rules.md` clause 7 forbids.
     """
 
 

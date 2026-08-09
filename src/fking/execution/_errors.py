@@ -2,7 +2,7 @@
 
 Leaves of `FkingError` rather than siblings of it, so a handler meaning "any failure
 this codebase raises on purpose" catches them. They live here rather than in
-`fking.platform.errors` for the reason `.claude/rules/module-boundaries.md` gives:
+`fking.platform.errors` for the reason `docs/rules/module-boundaries.md` gives:
 `platform` holds mechanism and gets no trading vocabulary, and a class describing a
 venue's rejection of an order is vocabulary that belongs to `execution`.
 

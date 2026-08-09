@@ -624,7 +624,7 @@ async def test_a_non_allowlisted_endpoint_kills_the_process_naming_the_item(
     )
     assert record["item"] == PreflightItem.ALLOWLISTED_ENDPOINTS.value
     # The parsed host, never a substring of the URL. `"api.binance.com" in url` is the
-    # exact check .claude/rules/safety-kernel.md rejects in its Incorrect section: it
+    # exact check docs/rules/safety-kernel.md rejects in its Incorrect section: it
     # accepts `https://testnet.binance.vision/?note=api.binance.com` and misses
     # `https://api.binance.com.attacker.example`, so a test written that way asserts
     # something weaker than the property it is named after -- in the one file whose job

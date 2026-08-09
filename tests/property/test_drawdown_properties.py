@@ -10,7 +10,7 @@ non-decreasing along *every* path. A peak that can fall is a budget that silentl
 widens, which is the failure issue #52 opens with -- and it is invisible, because the
 dashboard then reads 0.0% drawdown while the account is a third below its high.
 
-`.claude/rules/testing-rules.md` clause 2.
+`docs/rules/testing-rules.md` clause 2.
 """
 
 from __future__ import annotations

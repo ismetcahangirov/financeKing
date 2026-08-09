@@ -19,7 +19,7 @@ The drift coefficient is a production measurement, in basis points of adverse mi
 movement per second of exposure to the interval, and it is stored on the model like every
 other calibrated parameter.
 
-Durations are `timedelta`, not `_ms` integers. `.claude/rules/naming.md` allows `_ms` for
+Durations are `timedelta`, not `_ms` integers. `docs/rules/naming.md` allows `_ms` for
 carrying a venue's own units and warns against computing with them, and the exact
 microsecond conversion below keeps the arithmetic in `Decimal` without a float ever
 appearing -- `timedelta.total_seconds()` returns a float and would be one.

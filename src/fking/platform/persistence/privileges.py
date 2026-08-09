@@ -29,7 +29,7 @@ rotated, revoked, or duplicated per service, while the privilege matrix changes 
 when the schema does. A single `LOGIN` role per class would tie the two together, and
 rotating a password would mean touching the role that owns the grants.
 
-`.claude/rules/append-only-audit.md`, `.claude/rules/no-lookahead.md`, `SECURITY.md`.
+`docs/rules/append-only-audit.md`, `docs/rules/no-lookahead.md`, `SECURITY.md`.
 """
 
 from __future__ import annotations

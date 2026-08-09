@@ -23,7 +23,7 @@ in both, which is the parity `ARCHITECTURE.md` section 4 makes structural.
 
 The instruments arrive from the caller rather than being written here. Tick size and lot
 step are venue facts resolved at startup from the tradable universe
-(`.claude/rules/exchange-integration.md`), and a strategy that hardcoded them would be
+(`docs/rules/exchange-integration.md`), and a strategy that hardcoded them would be
 declaring an instrument that may not be listed on the venue the run is pointed at.
 """
 

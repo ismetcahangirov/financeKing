@@ -25,7 +25,7 @@ class Bar:
     flag, because a flag is a thing every consumer must remember to check and one of
     them will not -- and the one that does not is computing a feature from a partial
     bar, which is look-ahead that produces a plausible equity curve rather than an
-    error (`.claude/rules/no-lookahead.md`).
+    error (`docs/rules/no-lookahead.md`).
     """
 
     instrument: Instrument
@@ -60,7 +60,7 @@ class Bar:
         # The OHLC ordering check is the cheapest data-quality gate in the system and
         # it fires on real archive corruption: a mis-keyed epoch unit puts a 2026 bar
         # next to a 1970 one, and the merge that follows produces a high below its own
-        # open. See .claude/rules/time-and-timezones.md.
+        # open. See docs/rules/time-and-timezones.md.
         extremes = (self.open_quote_price, self.close_quote_price)
         if self.high_quote_price < max(extremes) or self.low_quote_price > min(extremes):
             raise DomainError(
@@ -86,7 +86,7 @@ class Tick:
 
     `venue_trade_id` rather than a locally minted id: it is the only identifier both
     sides of a reconciliation agree on, and gap detection across a REST backfill seam
-    joins on it (`.claude/rules/exchange-integration.md`).
+    joins on it (`docs/rules/exchange-integration.md`).
     """
 
     instrument: Instrument

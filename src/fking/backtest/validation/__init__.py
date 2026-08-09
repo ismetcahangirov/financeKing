@@ -21,7 +21,7 @@ The trial count is a required field on `SharpeEvidence` with no default, so no S
 this package can be expressed without it (`BACKTEST_ENGINE.md` section 6.5).
 
 `float` is used for the statistics under the exception in
-`.claude/rules/decimal-and-money.md`, bounded to two named conversion boundaries -- one in
+`docs/rules/decimal-and-money.md`, bounded to two named conversion boundaries -- one in
 `_deflated`, one in `_pbo`. Every value this package publishes is `Decimal`, and the
 equity curve these statistics are computed from never becomes one.
 

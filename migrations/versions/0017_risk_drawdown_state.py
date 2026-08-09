@@ -24,13 +24,13 @@ incident -- which is precisely when somebody would be tempted to "fix" a peak do
 **The trailing window is a child table, not a JSON column.** Every mark carries an equity
 figure, and an equity figure in a `jsonb` blob is invisible to the
 `information_schema` scan that asserts no money column is `DOUBLE PRECISION`
-(`.claude/rules/decimal-and-money.md`). `NUMERIC(38, 18)` per mark is what makes that
+(`docs/rules/decimal-and-money.md`). `NUMERIC(38, 18)` per mark is what makes that
 scan able to see them. The surrogate `state_id` rather than a composite
 `(scope, subject_id)` foreign key is not decoration either: an unindexed foreign-key
 column makes every parent delete a sequential scan of the child, and the composite form
 leaves `subject_id` uncovered by any leading index.
 
-**Deliberately not append-only.** `.claude/rules/append-only-audit.md` governs the tables
+**Deliberately not append-only.** `docs/rules/append-only-audit.md` governs the tables
 a trade is reconstructed from; this is live operational state whose whole purpose is to
 be updated on every fill and every mark. What a breach *was* is recorded in
 `limit_breach` and `audit_log`, both of which are append-only. What this table promises

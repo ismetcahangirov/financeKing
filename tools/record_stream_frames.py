@@ -1,7 +1,7 @@
 """Record real WebSocket frames from a Binance testnet market-data stream.
 
 Run by hand, never in CI, for the same reason `record_archive_fragment.py` is:
-`.claude/rules/testing-rules.md` bans hand-written fixtures outright. A hand-written
+`docs/rules/testing-rules.md` bans hand-written fixtures outright. A hand-written
 frame encodes what its author believes Binance emits, and the fields that actually
 break a live ingester are the ones an author would never think to write down wrongly --
 `k.x` false on every frame but the last of a minute, `E` and `T` differing by a

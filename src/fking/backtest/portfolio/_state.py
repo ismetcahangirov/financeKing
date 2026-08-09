@@ -4,7 +4,7 @@ Every transition returns a new object. Nothing here mutates `self`, and the mapp
 fields are copied into a `MappingProxyType` at construction -- `frozen=True` protects
 the binding, not the object bound, and a `dict` field on a frozen dataclass is the
 immutability bug that passes review because the decorator is right there at the top of
-the class (`.claude/rules/immutability.md`).
+the class (`docs/rules/immutability.md`).
 
 **Cash carries the full notional, on both sides.** A buy debits `quantity * price` plus
 the fee; a sell credits it minus the fee. Equity is then `cash + sum(signed quantity x

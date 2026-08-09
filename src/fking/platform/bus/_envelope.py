@@ -13,7 +13,7 @@ wrong). Only the content is stable across both.
 
 **Money is a decimal string on the wire, and a `float` in a payload is refused.** A JSON
 number is an IEEE 754 double in every parser that will ever read it, and this payload is
-a reconstruction source. `.claude/rules/decimal-and-money.md` permits `float` inside
+a reconstruction source. `docs/rules/decimal-and-money.md` permits `float` inside
 statistical computation in `backtest` and `data`; it never permits one to cross a module
 boundary, and the bus is the module boundary.
 
@@ -108,7 +108,7 @@ class EventEnvelope(BaseModel):
     # indistinguishable from a correct id and hides a producer that never computed one.
     event_id: str = Field(min_length=1)
     # `fking.<module>.<noun>.<verb>`, verb in the past tense: an event is a fact that
-    # already happened. `.claude/rules/naming.md`. The module segment makes the producer
+    # already happened. `docs/rules/naming.md`. The module segment makes the producer
     # readable from a Grafana panel with no lookup.
     event_type: str = Field(min_length=1)
     schema_version: int = Field(ge=1)

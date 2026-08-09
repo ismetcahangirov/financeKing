@@ -260,7 +260,7 @@ def _unhandled_section(section: Never) -> PortfolioError:
     to resolve a call to know whether control leaves the function.
 
     The `Never` parameter is `typing.assert_never`'s mechanism, carrying this project's
-    own exception instead of the `AssertionError` that `.claude/rules/error-handling.md`
+    own exception instead of the `AssertionError` that `docs/rules/error-handling.md`
     keeps out of the taxonomy. Once every `ReportSection` member is covered above, mypy
     narrows `section` to `Never` at the call and it type-checks; add a sixth member
     without a branch for it and `section` narrows to that member, which is not

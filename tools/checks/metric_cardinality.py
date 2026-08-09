@@ -15,7 +15,7 @@ allowlisted `symbol` label and fills it from an exchange response, which is host
 input; `venue=order.correlation_id` declares `venue` and builds one series per trade.
 Neither is visible to the registry, so the increment call sites are walked as an AST.
 
-`.claude/rules/naming.md` and `OBSERVABILITY.md` section 4 carry the reasoning.
+`docs/rules/naming.md` and `OBSERVABILITY.md` section 4 carry the reasoning.
 """
 
 from __future__ import annotations

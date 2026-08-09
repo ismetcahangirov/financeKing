@@ -16,7 +16,7 @@ that is down, and a migration mid-flight. A safety mechanism whose unavailabilit
 must destructure rather than an exception it can swallow (issue #53).
 
 Everything here is frozen and every field is validated at construction, for the reason
-in `.claude/rules/immutability.md`: these objects are read by the risk engine, the boot
+in `docs/rules/immutability.md`: these objects are read by the risk engine, the boot
 sequence and the audit writer, and a mutable one makes the value each of them sees a
 function of scheduling order.
 """
@@ -71,7 +71,7 @@ class TripTrigger:
     states which dimension applies, because the triggers do not share one: a drawdown
     trip is a fraction, a rejection-spike trip is a count, a spread trip is basis
     points. Naming the field `drawdown_fraction` would be honest for one trigger and a
-    lie for the other two (`.claude/rules/naming.md`).
+    lie for the other two (`docs/rules/naming.md`).
     """
 
     trigger_id: str

@@ -22,7 +22,7 @@ own order-rate budget are counted and dispatched, not swallowed. A run with zero
 rejections against a venue that rejects in reality is a finding about the simulator.
 
 The venue is mutable, deliberately, and it is infrastructure rather than a domain object:
-it holds the working book, the resting queue and the report. `.claude/rules/immutability.md`
+it holds the working book, the resting queue and the report. `docs/rules/immutability.md`
 binds domain types, and every record this class hands out -- `RestingOrder`, `Fill`,
 `VenueFillRecord`, `VenueReport` -- is frozen.
 """
@@ -350,7 +350,7 @@ class BacktestVenue:
         Refused rather than delayed. A limiter that sleeps until the budget clears turns
         a capacity problem into a latency problem, and latency in the order path is how a
         strategy gets fills at prices its decision never saw
-        (`.claude/rules/exchange-integration.md`).
+        (`docs/rules/exchange-integration.md`).
         """
         cutoff = arrives_at_utc - self._order_rate_window
         self._recent_submissions = [sent for sent in self._recent_submissions if sent > cutoff]

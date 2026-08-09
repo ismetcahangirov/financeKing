@@ -1,6 +1,6 @@
 """The evolution schema refuses rewrites, has no state column, and detects tampering.
 
-Four groups, matching the four layers of `.claude/rules/append-only-audit.md`: the
+Four groups, matching the four layers of `docs/rules/append-only-audit.md`: the
 grants, the immutability trigger, the hash chain, and the migration that will not
 downgrade. The third group is the one that would be easiest to leave out and the one
 that matters most -- a superuser can disable the trigger, and the chain is the only

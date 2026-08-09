@@ -52,7 +52,7 @@ class FoldEvaluationError(WalkForwardError):
 
     Raised by the caller's evaluator, caught by `run_walk_forward`, and recorded in
     `folds_failed` with its reason. The trial is charged either way: the configuration
-    was specified and the data was reached for, and `.claude/rules/overfitting-defences.md`
+    was specified and the data was reached for, and `docs/rules/overfitting-defences.md`
     charges at specification time precisely so that abandoning a run cannot make it free.
     """
 

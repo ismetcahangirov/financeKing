@@ -47,7 +47,7 @@ def _require_utc(candidate: datetime, field_name: str) -> datetime:
     launders the wrong guess into a confident value. Duplicated here rather than
     imported because the domain's guard lives in a private submodule, and a cross-package
     import of a `_`-prefixed module is a boundary violation whichever direction it points
-    (`.claude/rules/module-boundaries.md`).
+    (`docs/rules/module-boundaries.md`).
     """
     if candidate.tzinfo is None or candidate.utcoffset() is None:
         raise ValueError(f"{field_name} must be timezone-aware; got naive {candidate!r}")
@@ -123,7 +123,7 @@ class AgentCallRecord:
 
     Mirrors the table column for column, name for name, so a row can be splatted into
     this type with no translation layer -- a mapping dictionary is where `qty` quietly
-    gets paired with `notional_usd` (`.claude/rules/naming.md`).
+    gets paired with `notional_usd` (`docs/rules/naming.md`).
     """
 
     call_id: UUID
@@ -188,7 +188,7 @@ class AuditRecorder(Protocol):
     flush inside the caller's transaction, which is what the gateway does.
 
     There is no `update`, no `correct` and no `delete`, here or on the table
-    (`.claude/rules/append-only-audit.md`). A correction is a new row.
+    (`docs/rules/append-only-audit.md`). A correction is a new row.
     """
 
     def record(self, call_record: AgentCallRecord) -> None:

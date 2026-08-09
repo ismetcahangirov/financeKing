@@ -33,7 +33,7 @@ Forces:
 
 The constraint that forces a decision now:
 CONFIGURATION.md section 9 and PROMPT_LIBRARY.md section 3 specify
-`max_reask_attempts: Literal[0]`. `.claude/rules/llm-output-handling.md`
+`max_reask_attempts: Literal[0]`. `docs/rules/llm-output-handling.md`
 previously allowed exactly one repair attempt with the ValidationError fed back.
 Issue #70 ships the parse path, and a parse path cannot implement both. An
 unresolved disagreement sitting in that function is precisely where charitable
@@ -79,7 +79,7 @@ The repair capability is not lost. It moves to the golden-set harness, where the
 mid-decision — a loop that costs a developer's attention rather than the runtime's
 quota, and that produces a prompt fix rather than a per-call patch.
 
-`.claude/rules/llm-output-handling.md` now states zero and names the one-repair design
+`docs/rules/llm-output-handling.md` now states zero and names the one-repair design
 as the rejected alternative, so the three documents agree. This ADR is the durable
 record of *why*, which a rule file's prose is not: a rule can be edited back by anyone
 who finds it inconvenient, and an accepted ADR can only be superseded by another one.
@@ -102,7 +102,7 @@ making a claim about hostile input, and validation happens on our side regardles
 
 ### Alternative 1 — exactly one repair, with the ValidationError fed back (strongest rejected)
 
-**What it would have given us.** This is the position `.claude/rules/llm-output-handling.md`
+**What it would have given us.** This is the position `docs/rules/llm-output-handling.md`
 previously held, and the distinction it draws is real. Resampling the same prompt is a
 search over the model's output distribution; re-asking with `"field 'conviction': decimal
 fields must be JSON strings, not JSON numbers"` attached supplies information the model
@@ -124,7 +124,7 @@ surfaces — and this system runs unattended, so nothing else is watching.
 
 Second, **quota is scarce, shared and non-refundable.** A repair spends the budget the
 golden set needs, on the failure path, at whatever hour the failure happens. Under the
-priority floors in `.claude/rules/quota-management.md` that spend is taken from
+priority floors in `docs/rules/quota-management.md` that spend is taken from
 whichever class is admitted next, which is not the class that caused it.
 
 Third, **"exactly one" is not a stable boundary.** It is one line from "exactly two",

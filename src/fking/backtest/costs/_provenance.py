@@ -45,6 +45,6 @@ def require_production_provenance(candidate: str, field_name: str) -> str:
             f"{field_name} names testnet ({candidate!r}); cost parameters are calibrated "
             f"from production market data only. Testnet-measured cost feeds exactly one "
             f"consumer -- the divergence monitor in fking.execution -- and never a "
-            f"calibration. See .claude/rules/exchange-integration.md clause 9."
+            f"calibration. See docs/rules/exchange-integration.md clause 9."
         )
     return candidate

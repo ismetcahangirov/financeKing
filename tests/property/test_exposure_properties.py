@@ -7,7 +7,7 @@ ones nobody enumerates -- a net-short book receiving a long, an asset held throu
 instruments, an equity number inflated by a bad mark, a permitted notional that quantizes
 to dust.
 
-`.claude/rules/testing-rules.md` clause 2: property tests are mandatory for every function
+`docs/rules/testing-rules.md` clause 2: property tests are mandatory for every function
 in `fking.risk`.
 """
 

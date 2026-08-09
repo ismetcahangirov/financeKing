@@ -5,7 +5,7 @@ Two separate claims are checked here, and only the first is about output.
 The audit row must carry **every** limit that was evaluated, each with its threshold and
 its observed value -- not only the one that bound. The question asked in every
 post-incident review is "how close were the others", and a row holding one limit cannot
-answer it (`.claude/rules/append-only-audit.md`).
+answer it (`docs/rules/append-only-audit.md`).
 
 The universe check must run **before** any sizing arithmetic. That is a claim about call
 ordering, not about the returned value: a rejection produced after the arithmetic ran

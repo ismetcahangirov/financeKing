@@ -3,7 +3,7 @@
 No tests of its own. The filters come from `tests/fixtures/recorded/` -- the same
 `exchangeInfo` body a real testnet returned -- because a hand-written
 `min_notional_quote` encodes what its author believes the venue enforces, and the number
-in the recording is `5.00000000` (`.claude/rules/testing-rules.md`).
+in the recording is `5.00000000` (`docs/rules/testing-rules.md`).
 
 The body is read with `json.loads(..., parse_float=Decimal)` so that nothing in the
 payload can reach a `Decimal` through a binary double, even though every filter Binance

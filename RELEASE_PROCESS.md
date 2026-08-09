@@ -254,7 +254,7 @@ Then commit the `CHANGELOG.md` index update to `main` as a `docs:` commit.
 
 **A rollback here is not "deploy the previous tag", and the reason is that the two halves of a release move in opposite directions.**
 
-For a stateless service, code and schema are one thing. Here the previous tag may predate a migration, and `downgrade()` on the audit substrate and the trial ledger **raises by design** — rolling back a schema that holds the audit trail is a data-destruction operation dressed as a schema operation (`.claude/rules/append-only-audit.md`). So there are two procedures, and which one applies is a fact about the range, computed at tag time by `make release` and written into the notes:
+For a stateless service, code and schema are one thing. Here the previous tag may predate a migration, and `downgrade()` on the audit substrate and the trial ledger **raises by design** — rolling back a schema that holds the audit trail is a data-destruction operation dressed as a schema operation (`docs/rules/append-only-audit.md`). So there are two procedures, and which one applies is a fact about the range, computed at tag time by `make release` and written into the notes:
 
 | Range contains | Procedure | Schema |
 |---|---|---|

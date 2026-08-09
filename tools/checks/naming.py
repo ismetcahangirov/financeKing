@@ -1,4 +1,4 @@
-"""Reject ambiguous identifiers. The table in .claude/rules/naming.md is the source of truth.
+"""Reject ambiguous identifiers. The table in docs/rules/naming.md is the source of truth.
 
 `size` is not vague, it is dangerous: in a trading system it plausibly means base
 quantity, quote notional, contract count, or position value in USD -- four numbers
@@ -98,7 +98,7 @@ def check_source(source: str, *, label: str, exempt: frozenset[str] = frozenset(
     for name, lineno in bound_names(ast.parse(source, filename=label)):
         if name in BANNED and name not in exempt:
             failures.append(
-                f"{label}:{lineno} ambiguous identifier '{name}' -- see .claude/rules/naming.md"
+                f"{label}:{lineno} ambiguous identifier '{name}' -- see docs/rules/naming.md"
             )
         elif name.endswith("_pct") and "fraction" in name:
             failures.append(f"{label}:{lineno} '{name}' claims both percent and fraction")

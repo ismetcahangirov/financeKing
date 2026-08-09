@@ -10,7 +10,7 @@ Those are separable failures. A validator could satisfy the biconditional perfec
 still hand back an object whose `max_leverage` had been quietly reduced to the ceiling,
 or one that a later module could raise back above it.
 
-`.claude/rules/testing-rules.md` clause 2: property tests are mandatory for every
+`docs/rules/testing-rules.md` clause 2: property tests are mandatory for every
 function in `fking.risk`.
 """
 

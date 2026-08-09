@@ -27,7 +27,7 @@ class Venue(StrEnum):
     Every member is a testnet. There is no production member, and adding one would be
     a change to the demo-only guarantee rather than an addition to an enum -- the
     compiled-in host allowlist in `fking.platform.safety` is the mechanism, and this
-    type is not a second place to widen it. See `.claude/rules/safety-kernel.md`.
+    type is not a second place to widen it. See `docs/rules/safety-kernel.md`.
     """
 
     BINANCE_SPOT_TESTNET = "binance-spot-testnet"

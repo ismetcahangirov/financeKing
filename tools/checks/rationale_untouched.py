@@ -2,7 +2,7 @@
 
 `rationale` is the one channel through which arbitrary model-authored text travels
 intact through this system -- including anything an injected news headline persuaded a
-model to echo back. Every other guarantee in `.claude/rules/llm-output-handling.md`
+model to echo back. Every other guarantee in `docs/rules/llm-output-handling.md`
 survives that only as long as nothing downstream ever *acts* on it.
 
 The moment any code branches on its contents, the free-text field has become an untyped
@@ -97,7 +97,7 @@ def check_source(source: str, *, label: str, permitted: bool = False) -> list[st
     return [
         f"{label}:{node.lineno} reads .{GUARDED_FIELD}; it is stored and displayed, "
         f"never parsed, matched, branched on or used as a cache key "
-        f"-- .claude/rules/llm-output-handling.md"
+        f"-- docs/rules/llm-output-handling.md"
         for node in _guarded_accesses(ast.parse(source, filename=label))
     ]
 

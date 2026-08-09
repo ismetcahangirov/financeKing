@@ -37,7 +37,7 @@ was for:
   is a separate series with a separate meaning and would need its own `AltSourceSpec` with
   its own measured lag and unit; hanging them off this source's declaration would give
   four series one source's lag by accident. They are one registry entry each away, when
-  something needs them (`.claude/rules/overfitting-defences.md`: a column nobody has a
+  something needs them (`docs/rules/overfitting-defences.md`: a column nobody has a
   hypothesis for is a search nobody charged for).
 
 **This file refuses rather than tallies**, for the same reason `funding.py` does: a day
@@ -241,7 +241,7 @@ def _parse_open_interest(raw: str, *, where: str) -> Decimal:
 
     Never via `float`: `Decimal(76608.798)` carries the double's rounding error before this
     code runs, and widening the type afterwards cannot undo it
-    (`.claude/rules/decimal-and-money.md`).
+    (`docs/rules/decimal-and-money.md`).
 
     Non-negative is the only magnitude claim made. An upper bound would have to be
     per-instrument -- 76,608 is a plausible BTC figure and an absurdly small DOGE one -- so

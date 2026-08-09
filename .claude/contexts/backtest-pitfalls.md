@@ -73,7 +73,7 @@ Better still: do not compute PnL by multiplying aligned series at all. Run the s
 - **Point-in-time feature store.** A feature value at `t` must be reproducible from data that existed at `t`, and the store enforces it.
 - **An adversarial leakage test** that actively attempts to inject future data and **must fail closed**. It runs in `make check`.
 - **Latency sensitivity as a standing diagnostic.** Re-run with one extra bar of execution delay. A result that dies is a leak.
-- Full rules: [`../rules/no-lookahead.md`](../rules/no-lookahead.md).
+- Full rules: [`../../docs/rules/no-lookahead.md`](../../docs/rules/no-lookahead.md).
 
 ---
 
@@ -194,7 +194,7 @@ The design lesson is in the grid, not the code: `funding_horizon_h` has three va
 
 ### The project's mechanical defence
 
-- **Global, monotone trial counter charged at specification time**, feeding the deflated Sharpe. Never reset, never expired, never reduced. [`../rules/overfitting-defences.md`](../rules/overfitting-defences.md).
+- **Global, monotone trial counter charged at specification time**, feeding the deflated Sharpe. Never reset, never expired, never reduced. [`../../docs/rules/overfitting-defences.md`](../../docs/rules/overfitting-defences.md).
 - **Combinatorial purged cross-validation** with purge and embargo, reporting a fold Sharpe *distribution* and a sign-consistency figure rather than a point estimate.
 - **A permanently held-out period, burned once touched**, tracked in a holdout ledger and requiring human authorisation.
 - **Champion/challenger promotion requiring forward performance**, not validation performance.
@@ -506,4 +506,4 @@ Any unanswered item makes the result **blocked**, not marginal. Rejecting is the
 
 ## If you remember nothing else
 
-**None of these seven fails loudly — they all fail flatteringly.** A backtest is a claim, not evidence, and the default assumption is that a good-looking result is wrong. Count trials at specification time, resolve the universe point-in-time, calibrate costs from production, count episodes rather than observations, and re-run with one extra bar of delay before you believe anything. Related: [`../rules/no-lookahead.md`](../rules/no-lookahead.md), [`../rules/overfitting-defences.md`](../rules/overfitting-defences.md), [`./statistics-for-trading.md`](./statistics-for-trading.md), [`./binance-testnet.md`](./binance-testnet.md), [`../knowledge/verified-facts.md`](../knowledge/verified-facts.md), and [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md) §4 for why parity is the defence that makes the rest enforceable.
+**None of these seven fails loudly — they all fail flatteringly.** A backtest is a claim, not evidence, and the default assumption is that a good-looking result is wrong. Count trials at specification time, resolve the universe point-in-time, calibrate costs from production, count episodes rather than observations, and re-run with one extra bar of delay before you believe anything. Related: [`../../docs/rules/no-lookahead.md`](../../docs/rules/no-lookahead.md), [`../../docs/rules/overfitting-defences.md`](../../docs/rules/overfitting-defences.md), [`./statistics-for-trading.md`](./statistics-for-trading.md), [`./binance-testnet.md`](./binance-testnet.md), [`../knowledge/verified-facts.md`](../knowledge/verified-facts.md), and [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md) §4 for why parity is the defence that makes the rest enforceable.

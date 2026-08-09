@@ -17,7 +17,7 @@ A restart cannot reach `open_first_time` without a caller stating in one word th
 subject has no history -- which is a reviewable line, not a silent default.
 
 **Everything here is pure.** `as_of_utc` is a parameter on every transition, never a
-clock read: `.claude/rules/time-and-timezones.md` makes clock access in `risk`
+clock read: `docs/rules/time-and-timezones.md` makes clock access in `risk`
 mechanically impossible (`tools/checks/clock_isolation.py`), and the reason is that a
 risk decision which depends on the wall clock cannot be replayed and therefore cannot be
 audited. The caller -- the OMS fill consumer, the mark-update consumer, the recovery
@@ -160,7 +160,7 @@ class DrawdownStateError(ValueError):
 def _require_utc(candidate: object, field_name: str) -> datetime:
     """A timezone-aware datetime whose offset is exactly UTC.
 
-    Rejects rather than converts, for the reason in `.claude/rules/time-and-timezones.md`:
+    Rejects rather than converts, for the reason in `docs/rules/time-and-timezones.md`:
     `astimezone(UTC)` launders a wrong guess made three modules ago into a confident
     value, and the resulting day boundary is then wrong by the guessed offset for the
     life of the account.
@@ -443,7 +443,7 @@ def to_row(state: DrawdownState) -> Mapping[str, object]:
     A codec rather than an ORM mapping, and it lives here rather than in
     `fking.platform.persistence` for a boundary reason: `risk` may not perform I/O
     (`CLAUDE.md` section 4) and `platform` may not import another `fking` module
-    (`.claude/rules/module-boundaries.md`), so neither package can hold both the type and
+    (`docs/rules/module-boundaries.md`), so neither package can hold both the type and
     the SQL. The type and its exact serialisation live together; the statement that binds
     the result lives with whoever owns the recovery sequence.
 

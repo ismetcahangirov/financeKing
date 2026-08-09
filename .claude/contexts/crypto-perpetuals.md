@@ -118,7 +118,7 @@ short_2_btc = funding_cash_flow(position_base_quantity=Decimal("-2"), event=even
 # Decimal('12.850060')   -> the short receives 12.85 USDT
 ```
 
-Every literal is built from `str`, the timestamp is timezone-aware, and the object is frozen (`../rules/decimal-and-money.md`).
+Every literal is built from `str`, the timestamp is timezone-aware, and the object is frozen (`../../docs/rules/decimal-and-money.md`).
 
 ---
 
@@ -302,7 +302,7 @@ Requirements this places on the engine:
 | ADL quantile monitoring from the user data stream | `fking.execution` |
 | Funding as an attributed P&L component in the survival score | `fking.evolution` |
 
-Related: `./market-microstructure.md` for the cost side, `./binance-testnet.md` for the environment, `./backtest-pitfalls.md` for the replay rules, `./statistics-for-trading.md` for what skew and fat tails do to inference, `./risk-vocabulary.md` for the limit taxonomy, `../knowledge/glossary.md`, `../rules/no-lookahead.md`, `../../ARCHITECTURE.md` §6.
+Related: `./market-microstructure.md` for the cost side, `./binance-testnet.md` for the environment, `./backtest-pitfalls.md` for the replay rules, `./statistics-for-trading.md` for what skew and fat tails do to inference, `./risk-vocabulary.md` for the limit taxonomy, `../knowledge/glossary.md`, `../../docs/rules/no-lookahead.md`, `../../ARCHITECTURE.md` §6.
 
 ---
 

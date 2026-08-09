@@ -85,7 +85,7 @@ def test_a_decimal_crosses_the_wire_as_a_normalised_string() -> None:
 
 
 def test_a_float_in_a_payload_is_refused() -> None:
-    """`.claude/rules/decimal-and-money.md`: a float never crosses a module boundary, and
+    """`docs/rules/decimal-and-money.md`: a float never crosses a module boundary, and
     the bus is the module boundary."""
     with pytest.raises(PayloadError, match="float"):
         _envelope(payload={"close_quote_price": 64000.10})

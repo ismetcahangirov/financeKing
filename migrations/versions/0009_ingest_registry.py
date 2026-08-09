@@ -6,7 +6,7 @@ Revises: 0008_least_privilege
 Reversible. Nothing here is an audit trail: every row is re-derivable by re-running the
 backfill against the same checksum-verified archives, so dropping these tables costs
 hours of downloading rather than a record of a decision. That is the line
-`.claude/rules/append-only-audit.md` draws, and these tables sit on the recoverable side
+`docs/rules/append-only-audit.md` draws, and these tables sit on the recoverable side
 of it -- `coverage_gap.discovered_at_utc` is the one column that does not survive a
 rebuild, and it is a diagnostic aid rather than evidence a trade is reconstructed from.
 

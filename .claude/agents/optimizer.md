@@ -16,7 +16,7 @@ You own the **mechanics** of the global trial ledger. It is not a per-run counte
 
 You own its storage, its monotonicity guarantee, its aggregates, and the deflated Sharpe computation. You do **not** decide what gets registered — `quant` is the registration authority and declares each specification's grid before any data access. You do not enforce registration either; `BacktestEngine.run()` rejects any `spec_hash` that was never registered.
 
-The charge for a registered specification is `max(declared_grid_size, actual_executions)`, and computing that reconciliation is your job. The canonical division of responsibility is in `../rules/overfitting-defences.md`, section "Where the charge happens" — it is authoritative and overrides any contrary reading of this file.
+The charge for a registered specification is `max(declared_grid_size, actual_executions)`, and computing that reconciliation is your job. The canonical division of responsibility is in `../../docs/rules/overfitting-defences.md`, section "Where the charge happens" — it is authoritative and overrides any contrary reading of this file.
 
 ## Responsibilities
 

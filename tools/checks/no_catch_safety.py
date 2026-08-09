@@ -11,7 +11,7 @@ assert it was raised is the first step toward code that does; use
 `pytest.raises(SafetyViolation)`, which is a call rather than an except clause and so
 does not appear here.
 
-See .claude/rules/error-handling.md and .claude/rules/safety-kernel.md.
+See docs/rules/error-handling.md and docs/rules/safety-kernel.md.
 """
 
 from __future__ import annotations

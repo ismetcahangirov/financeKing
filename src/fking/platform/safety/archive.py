@@ -14,7 +14,7 @@ What this path does not have is as load-bearing as what it does:
 - No access to `PERMITTED_HOSTS`. It validates against `ARCHIVE_HOSTS`, and the two sets
   are disjoint -- asserted in `tests/platform/safety/test_archive_allowlist.py`.
 
-Issue #22; .claude/rules/safety-kernel.md.
+Issue #22; docs/rules/safety-kernel.md.
 """
 
 from __future__ import annotations

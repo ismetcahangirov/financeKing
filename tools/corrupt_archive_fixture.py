@@ -1,7 +1,7 @@
 """Derive the corrupted-archive corpus in `tests/fixtures/corrupt/` from the recordings.
 
 Every corrupt fixture is a **declared, deterministic mutation of a real recording**, never
-an authored file. `.claude/rules/testing-rules.md` bans hand-written fixtures, and a
+an authored file. `docs/rules/testing-rules.md` bans hand-written fixtures, and a
 corrupt corpus is where that ban matters most: the point of these files is to prove a gate
 fires on the shape Binance actually emits, and a hand-typed CSV would encode what its
 author believes a truncated archive or a lowercased boolean looks like.

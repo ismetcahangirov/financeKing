@@ -30,7 +30,7 @@ by the model's willingness to comply. `tools/checks/agent_schema_fields.py` fail
 build if one is ever added.
 
 Nor does any model name an instrument. `ThesisProposal.symbol_index` is an index into a
-universe the deterministic core resolved (`.claude/rules/exchange-integration.md`), so
+universe the deterministic core resolved (`docs/rules/exchange-integration.md`), so
 the worst a hallucinated or injected value can do is fall outside the range and be
 refused by `resolve_symbol`. A `symbol: str` field would let a model name a market this
 system has never listed, and the string would look exactly like a real one.

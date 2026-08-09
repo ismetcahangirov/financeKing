@@ -693,10 +693,10 @@ class DatabaseSettings(BaseModel):
     # The privilege-holding group roles, which are what grants name and what
     # `has_table_privilege` is asserted against. Not what anything connects as.
     migration_role: str = "fking_migrator"
-    # Holds no UPDATE or DELETE on audit tables. .claude/rules/append-only-audit.md.
+    # Holds no UPDATE or DELETE on audit tables. docs/rules/append-only-audit.md.
     application_role: str = "fking_app"
     # Writes market data; the application role holds SELECT only, which is what makes
-    # "a strategy cannot rewrite history" a permission error. .claude/rules/no-lookahead.md.
+    # "a strategy cannot rewrite history" a permission error. docs/rules/no-lookahead.md.
     ingest_role: str = "fking_ingest"
 
     @model_validator(mode="after")

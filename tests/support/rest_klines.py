@@ -7,7 +7,7 @@ archive CSV. So a page can be assembled from bytes this repository already recor
 run by `tests/data/test_archive_fixture_integrity.py` -- instead of from a JSON file
 somebody typed.
 
-That distinction is the point of `.claude/rules/testing-rules.md`'s ban on hand-written
+That distinction is the point of `docs/rules/testing-rules.md`'s ban on hand-written
 fixtures. The two fields an author would get wrong are the two that matter here: the
 decimals are strings rather than numbers, and the epochs are integers whose unit decides
 whether a bar lands in 2025 or in 1970. Transcribing recorded rows into the wire shape

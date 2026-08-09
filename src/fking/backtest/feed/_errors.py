@@ -10,7 +10,7 @@ error, which is why all three raise here instead.
 They are leaves of `BacktestError` rather than of `fking.platform.errors.DataIntegrityError`
 even where the fault is in the corpus, because the decision being recorded is the engine's:
 the corpus is what it is, and what raises is this module's refusal to serve a run from it.
-`.claude/rules/module-boundaries.md` puts the vocabulary in the layer that owns the
+`docs/rules/module-boundaries.md` puts the vocabulary in the layer that owns the
 decision.
 """
 

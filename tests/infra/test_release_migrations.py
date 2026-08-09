@@ -116,7 +116,7 @@ def test_every_migration_in_the_repository_classifies() -> None:
 
 
 def test_the_audit_substrate_is_irreversible() -> None:
-    """`.claude/rules/append-only-audit.md`: `downgrade()` on an audit migration raises
+    """`docs/rules/append-only-audit.md`: `downgrade()` on an audit migration raises
     by design. If this ever passes as REVERSIBLE, either the classifier broke or the
     audit trail became droppable, and both are release-blocking."""
     audit = VERSIONS_DIR / "0002_audit_substrate.py"

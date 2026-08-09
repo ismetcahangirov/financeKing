@@ -3,7 +3,7 @@
 `CLAUDE.md` section 5 makes property tests mandatory for all risk and position math, on
 the stated grounds that example-based tests confirm the cases somebody thought of while
 position arithmetic fails on the ones they did not -- partial closes, direction flips,
-zero-crossings, dust quantities. `.claude/rules/testing-rules.md` clause 2 restates it and
+zero-crossings, dust quantities. `docs/rules/testing-rules.md` clause 2 restates it and
 quotes this checker's source. Until issue #170 the checker did not exist: `risk/ceilings.py`
 and `risk/limits.py` both shipped with no property test and passed every gate, and a
 reviewer going looking is what caught it.

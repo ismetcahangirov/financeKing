@@ -6,7 +6,7 @@ a *production exchange* -- it is about where orders could go. Redis is local
 infrastructure inside the Compose network, holds no venue credentials and accepts no
 order. Adding `redis://` hosts to the trading allowlist to satisfy a symmetry would
 widen the one set whose narrowness is the system's central guarantee, which is exactly
-the move `.claude/rules/safety-kernel.md` refuses.
+the move `docs/rules/safety-kernel.md` refuses.
 
 What does apply is the import contract: only `fking.platform` may construct a Redis
 client, so a consumer in `fking.execution` cannot quietly open its own connection with

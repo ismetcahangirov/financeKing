@@ -13,7 +13,7 @@ Core, not the ORM. There are no mapped classes here and no relationship graph, f
 reasons. `fking.domain` already owns the types the system reasons about, and they are
 frozen dataclasses that import nothing -- mapping them would either mutate them or
 produce a second parallel set of "the same" types. And `fking.platform` imports no other
-`fking` module (`.claude/rules/module-boundaries.md`), so the mapping could not name
+`fking` module (`docs/rules/module-boundaries.md`), so the mapping could not name
 them even if that were desirable. Rows go in and out as tuples of primitives; the
 translation to and from domain objects belongs in the module that owns the concept.
 
@@ -164,7 +164,7 @@ venue = sa.Table(
     sa.Column("display_name", identifier(), nullable=False),
     # Not decoration and not a flag: the CHECK below makes a production venue row
     # unrepresentable. The compiled-in host allowlist is the mechanism that stops a
-    # production request (.claude/rules/safety-kernel.md); this stops the *database*
+    # production request (docs/rules/safety-kernel.md); this stops the *database*
     # from being the place someone records one, which is how a second source of truth
     # about "which venues exist" gets started.
     sa.Column("is_testnet", sa.Boolean(), nullable=False, server_default=sa.true()),
@@ -187,7 +187,7 @@ instrument = sa.Table(
     sa.Column("min_notional_quote", money(), nullable=False),
     # Point-in-time universe membership. Selecting a backtest universe from today's
     # tradable set is survivorship bias; `listed_at_utc <= as_of < COALESCE(delisted...)`
-    # is the query that is not (.claude/rules/no-lookahead.md).
+    # is the query that is not (docs/rules/no-lookahead.md).
     sa.Column("listed_at_utc", utc_timestamp(), nullable=False),
     sa.Column("delisted_at_utc", utc_timestamp(), nullable=True),
     _recorded_at_utc(),
@@ -534,7 +534,7 @@ coverage_gap = sa.Table(
 # The one table in this schema the application role holds *no* privilege on, not even
 # SELECT. `fking_app` reaches it only through `fking_feature_as_of()`, which takes an
 # `as_of` and cannot be asked to ignore it, so a look-ahead defect is a permission error
-# rather than a review miss (.claude/rules/no-lookahead.md, DATA_PIPELINE.md section 7).
+# rather than a review miss (docs/rules/no-lookahead.md, DATA_PIPELINE.md section 7).
 #
 # `available_at_utc` is the earliest instant this system could have known the value;
 # `event_time_utc` is when the thing happened. Only the first governs visibility, and the
@@ -555,7 +555,7 @@ feature_values = sa.Table(
     sa.Column("symbol", identifier(), nullable=False),
     sa.Column("event_time_utc", utc_timestamp(), nullable=False),
     sa.Column("available_at_utc", utc_timestamp(), nullable=False),
-    # `feature_value`, not `value`: .claude/rules/naming.md bans the bare noun, and the
+    # `feature_value`, not `value`: docs/rules/naming.md bans the bare noun, and the
     # money-column scans key on the suffix, so a column named `value` would be invisible
     # to both.
     sa.Column("feature_value", money(), nullable=False),
@@ -648,7 +648,7 @@ strategy_version = sa.Table(
         nullable=True,
     ),
     # The hash the trial ledger charges against. If it changes between registration and
-    # test the result is void rather than weak (.claude/rules/overfitting-defences.md).
+    # test the result is void rather than weak (docs/rules/overfitting-defences.md).
     sa.Column("spec_hash", postgresql.BYTEA(), nullable=False),
     sa.Column("lifecycle_state", identifier(), nullable=False),
     sa.Column("created_at_utc", utc_timestamp(), nullable=False),
@@ -828,7 +828,7 @@ order = sa.Table(
     sa.Column("order_id", postgresql.UUID(as_uuid=True), primary_key=True),
     # The exchange-side idempotency key, derived deterministically from the correlation
     # id and the order's content. UNIQUE here so a duplicate placement fails locally
-    # before it reaches the venue (.claude/rules/idempotency.md).
+    # before it reaches the venue (docs/rules/idempotency.md).
     sa.Column("client_order_id", identifier(), nullable=False, unique=True),
     sa.Column("correlation_id", postgresql.UUID(as_uuid=True), nullable=False),
     sa.Column(
@@ -1178,7 +1178,7 @@ trial_ledger = sa.Table(
     sa.Column("prev_hash", postgresql.BYTEA(), nullable=False),
     sa.Column("row_hash", postgresql.BYTEA(), nullable=False),
     # Nullable in the catalogue, mandatory in practice. 0018 added them to a table that
-    # already held rows, and `.claude/rules/append-only-audit.md` permits adding a
+    # already held rows, and `docs/rules/append-only-audit.md` permits adding a
     # nullable column while forbidding a backfill: a row written before the search
     # context existed must not report one it never carried. The accumulate trigger
     # refuses any new row that omits them, which is NOT NULL from 0018 forward without
@@ -1447,7 +1447,7 @@ APPEND_ONLY_TABLES: Final[frozenset[str]] = frozenset(
 HASH_CHAINED_TABLES: Final[frozenset[str]] = frozenset({"audit_log", "trial_ledger"})
 
 # What `test_schema_contract.py` and the information_schema scan key on. A column named
-# `price` would be invisible to both, which is why .claude/rules/naming.md bans the bare
+# `price` would be invisible to both, which is why docs/rules/naming.md bans the bare
 # noun in the first place.
 MONEY_COLUMN_SUFFIXES: Final[tuple[str, ...]] = (
     "_quote",

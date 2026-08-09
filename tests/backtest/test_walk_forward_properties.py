@@ -8,7 +8,7 @@ distance to the first test.
 
 The invariant asserted here is the one whose violation does not fail: a training window
 that reaches into its test period produces a better Sharpe, a cleaner equity curve and no
-error anywhere (`.claude/rules/no-lookahead.md`).
+error anywhere (`docs/rules/no-lookahead.md`).
 """
 
 from __future__ import annotations

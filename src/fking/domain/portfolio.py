@@ -5,7 +5,7 @@ Both types wrap their mapping fields in `MappingProxyType` inside `__post_init__
 frozen dataclass is still mutable through the reference, and that is the immutability
 bug that passes review because `frozen=True` is right there at the top of the class
 and the reviewer stops reading. The copy plus the proxy is what makes the guarantee
-real (`.claude/rules/immutability.md`).
+real (`docs/rules/immutability.md`).
 """
 
 from __future__ import annotations

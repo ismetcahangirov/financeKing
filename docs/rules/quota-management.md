@@ -12,7 +12,7 @@ The gateway in `fking.agents.gateway` is the only code in this repository that i
 4. **Exhaustion degrades to deterministic-only operation.** `complete()` returns a `Degraded` result object. It does not raise, does not stall, and does not produce an exception storm across every scheduled agent on the same beat.
 5. **`429` handling honours `Retry-After` and never retries into the same exhausted window.** The window is marked cooled-down in the ledger, and the request either fails over to the other provider or returns `Degraded`.
 6. **Responses are cached on `sha256(model | temperature | top_p | schema_hash | prompt)`**, and only when `temperature == 0`.
-7. **Every agent declares a token budget, an invocation ceiling and a timeout in its own definition** (see `../agents/quant.md`: "≤ 45k tokens, ≤ 5 invocations/day, 900s timeout").
+7. **Every agent declares a token budget, an invocation ceiling and a timeout in its own definition** (see `../../.claude/agents/quant.md`: "≤ 45k tokens, ≤ 5 invocations/day, 900s timeout").
 8. **Configured limits can only lower the effective limit**, never raise it: the gateway takes `min(configured, HARD_CEILING)` against a compiled-in ceiling.
 
 ## Why
@@ -29,7 +29,7 @@ The system schedules dozens of agent invocations per day across research, evalua
 
 ## The numbers we do not have
 
-**The published Gemini and Groq free-tier figures are unverified.** That research was cut short by a session limit on 2026-08-01 and is tracked as GitHub issue #19, recorded as **OQ-001** in `../knowledge/open-questions.md`. Nothing in this repository states a vendor RPM, RPD or TPM as fact, and nothing should.
+**The published Gemini and Groq free-tier figures are unverified.** That research was cut short by a session limit on 2026-08-01 and is tracked as GitHub issue #19, recorded as **OQ-001** in `../../.claude/knowledge/open-questions.md`. Nothing in this repository states a vendor RPM, RPD or TPM as fact, and nothing should.
 
 The consequence is a design property, not a caveat: **the ledger measures reality, and configuration supplies conservative floors below anything the vendor is believed to allow.**
 
@@ -555,7 +555,7 @@ async def test_sampled_responses_are_never_cached(gateway, cache) -> None:
     assert cache.size == 0
 ```
 
-**Per-agent budgets** are declared in the agent definition and enforced by the runtime before the reservation is requested — an agent that has spent its daily invocation ceiling never reaches the ledger at all, so its exhaustion is local and does not consume project-wide quota accounting. `../agents/quant.md` is the reference form: token budget, invocation ceiling, timeout, and a stated behaviour under exhaustion mid-task.
+**Per-agent budgets** are declared in the agent definition and enforced by the runtime before the reservation is requested — an agent that has spent its daily invocation ceiling never reaches the ledger at all, so its exhaustion is local and does not consume project-wide quota accounting. `../../.claude/agents/quant.md` is the reference form: token budget, invocation ceiling, timeout, and a stated behaviour under exhaustion mid-task.
 
 ## The one exception
 

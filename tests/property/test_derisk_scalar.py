@@ -10,7 +10,7 @@ non-monotone reading means a deeper drawdown can size larger than a shallower on
 the schedule is no longer a schedule. And a value above 0 at full budget means the
 limit does not actually stop anything -- it merely narrows.
 
-`.claude/rules/testing-rules.md` clause 2: property tests are mandatory for every
+`docs/rules/testing-rules.md` clause 2: property tests are mandatory for every
 function in `fking.risk`.
 """
 

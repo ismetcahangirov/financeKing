@@ -26,7 +26,7 @@ Forces:
   dominates there.
 - Feature reads are point-in-time and are enforced by a SECURITY DEFINER
   function the application role can execute but cannot bypass
-  (.claude/rules/no-lookahead.md). That mechanism is Postgres-specific.
+  (docs/rules/no-lookahead.md). That mechanism is Postgres-specific.
 - One machine, zero budget, unattended operation. Every additional server is a
   process to supervise, a backup to rehearse and a version to upgrade.
 
@@ -49,9 +49,9 @@ is a data-provenance break.
 
 **Why it lost.** The split does not fall where the argument assumes. The time series that has to be *fast* is the archive, and the archive is immutable, regenerable, and read by exactly one consumer — the backtest engine, in-process. That is a file-format problem, not a database problem, and Parquet plus DuckDB solves it with **no server at all**: no second daemon to supervise, no second backup to rehearse (#114), no second connection pool, no second failure mode at 03:00. Taking ClickHouse means taking its operational cost to solve a problem an embedded reader already solves.
 
-The time series that has to be *correct* is the operational one — feature values with `event_time` and `available_at`, read as-of. Its correctness rests on machinery ClickHouse does not have: a `SECURITY DEFINER` function that the application role can execute while holding no `SELECT` on the underlying table, so a look-ahead leak is `permission denied` rather than a review miss (`.claude/rules/no-lookahead.md`). That is the strongest guarantee in the data platform and it is Postgres-specific. Moving features to ClickHouse would trade an enforced invariant for read throughput on a query that returns 500 rows.
+The time series that has to be *correct* is the operational one — feature values with `event_time` and `available_at`, read as-of. Its correctness rests on machinery ClickHouse does not have: a `SECURITY DEFINER` function that the application role can execute while holding no `SELECT` on the underlying table, so a look-ahead leak is `permission denied` rather than a review miss (`docs/rules/no-lookahead.md`). That is the strongest guarantee in the data platform and it is Postgres-specific. Moving features to ClickHouse would trade an enforced invariant for read throughput on a query that returns 500 rows.
 
-Third, the audit substrate settles it. Append-only is enforced by revoked grants, a `BEFORE UPDATE OR DELETE` trigger, and a per-row hash chain computed inside the database at insert (`.claude/rules/append-only-audit.md`). ClickHouse has no row triggers and no per-row grant model of that kind. An audit log the application layer promises not to rewrite is not an audit log.
+Third, the audit substrate settles it. Append-only is enforced by revoked grants, a `BEFORE UPDATE OR DELETE` trigger, and a per-row hash chain computed inside the database at insert (`docs/rules/append-only-audit.md`). ClickHouse has no row triggers and no per-row grant model of that kind. An audit log the application layer promises not to rewrite is not an audit log.
 
 **What survives the rejection, and is adopted.** The columnar argument is correct about the archive, and it is adopted in full — that is what the Parquet plus DuckDB half of this decision is. The rejection is of the *second server*, not of columnar storage.
 

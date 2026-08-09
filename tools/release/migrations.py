@@ -6,7 +6,7 @@ aspirational, so it is worth being explicit about what it is measuring.
 A rollback of a stateless service is "deploy the previous tag". Here it is not, because
 `downgrade()` on the audit substrate **raises by design** -- dropping a table that holds
 the audit trail is a data-destruction operation dressed as a schema operation
-(`.claude/rules/append-only-audit.md`). So a release whose range contains such a
+(`docs/rules/append-only-audit.md`). So a release whose range contains such a
 migration has a *different* rollback procedure from one that does not: code goes back,
 schema stays forward, and that only works if every migration in the range was additive.
 Which of the two procedures applies is a fact about the code, knowable at tag time, and

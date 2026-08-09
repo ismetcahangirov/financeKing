@@ -22,7 +22,7 @@ class TrialCountUnavailableError(ValidationGateError):
     ledger that is empty, unreachable, or misread returns zero, and zero read as "no
     selection took place" deflates by nothing at all -- which reports a search over ten
     thousand configurations as though it had survived a coin flip
-    (`.claude/rules/overfitting-defences.md`). An unreadable ledger is a refusal, never
+    (`docs/rules/overfitting-defences.md`). An unreadable ledger is a refusal, never
     a benchmark of zero.
     """
 

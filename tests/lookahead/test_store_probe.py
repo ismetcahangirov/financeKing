@@ -7,7 +7,7 @@ the revision existed.
 
 The second test is the one that makes the first mean something. It runs the same read with
 one predicate changed -- `available_at_utc <= :as_of` becomes `event_time_utc <= :as_of` --
-and requires the probe to go **red**. That is the leak `.claude/rules/no-lookahead.md`
+and requires the probe to go **red**. That is the leak `docs/rules/no-lookahead.md`
 calls the single most common form of the bug, it looks completely correct in a diff, and
 without this test nothing in the repository would notice if it were introduced.
 

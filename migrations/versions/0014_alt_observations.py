@@ -21,7 +21,7 @@ privilege on `alt_observations` at all, and reads only through `fking_alt_as_of(
 is `SECURITY DEFINER` and takes an `as_of` it cannot be asked to ignore. `WHERE
 event_time <= :t` is the single most common spelling of look-ahead and it looks completely
 correct, which is why the filter is inside a function the caller cannot rewrite
-(`.claude/rules/no-lookahead.md`).
+(`docs/rules/no-lookahead.md`).
 
 **`available_at_utc > event_time_utc`, strictly, unlike `feature_values`.** There, a
 feature computed from a bar that has already closed is legitimately knowable at its own

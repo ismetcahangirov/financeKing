@@ -26,7 +26,7 @@ refuses both. The `finished_at_utc IS NULL` predicate in the application's own `
 is the same rule stated from the other side -- it is how a second writer learns it lost,
 by updating zero rows.
 
-**Deliberately not append-only.** `.claude/rules/append-only-audit.md` governs tables a
+**Deliberately not append-only.** `docs/rules/append-only-audit.md` governs tables a
 trade is reconstructed from; this one is operational state, and a run genuinely has two
 states. The audit story for what the system *did* is `audit_log` (#94). What this table
 promises is narrower and is enforced here: a claim is never rewritten, and a completion

@@ -101,7 +101,7 @@ def venue_endpoints(settings: Settings) -> tuple[str, ...]:
     The archive host and the LLM provider base URLs are deliberately absent. They are
     not venues, they are not in the trading allowlist, and adding them so that one
     download or one completion works would widen the allowlist permanently -- which is
-    the exact move `.claude/rules/safety-kernel.md` refuses. Those paths get their own
+    the exact move `docs/rules/safety-kernel.md` refuses. Those paths get their own
     egress checks in #22 and in the agent gateway.
     """
     binance = settings.exchange.binance
@@ -130,7 +130,7 @@ def _verify_key_file(key_path: Path) -> None:
         _LOG.warning(
             "secret_file_mode_unchecked",
             # The sanctioned startup value: nothing has happened yet from which a real
-            # correlation id could be derived. .claude/rules/logging-rules.md, the one
+            # correlation id could be derived. docs/rules/logging-rules.md, the one
             # exception.
             correlation_id="boot",
             key_path=str(key_path),

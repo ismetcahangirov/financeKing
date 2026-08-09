@@ -13,7 +13,7 @@ The three that matter, in the order they would hurt if broken:
    under a float and is rejected by the venue with `-1013` on a value that prints as if
    it were correct.
 
-`.claude/rules/testing-rules.md` clause 2: property tests are mandatory for every
+`docs/rules/testing-rules.md` clause 2: property tests are mandatory for every
 function in `fking.risk`.
 """
 

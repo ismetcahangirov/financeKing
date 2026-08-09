@@ -141,7 +141,7 @@ class RunConfig:
         # `frozen=True` protects the binding, not the object bound: a plain dict here is
         # still mutable through the reference a caller kept, and a parameter changed
         # mid-run would leave the config hash describing a configuration that no longer
-        # exists (`.claude/rules/immutability.md`).
+        # exists (`docs/rules/immutability.md`).
         object.__setattr__(self, "parameters", MappingProxyType(dict(self.parameters)))
 
     def seed_for(self, label: str) -> int:

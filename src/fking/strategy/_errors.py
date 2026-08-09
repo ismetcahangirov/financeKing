@@ -2,7 +2,7 @@
 
 Every class here is a leaf of `FkingError`, so a caller that genuinely means "any
 failure this codebase raises on purpose" catches them too. They live here rather than
-in `fking.platform.errors` for the reason `.claude/rules/module-boundaries.md` gives:
+in `fking.platform.errors` for the reason `docs/rules/module-boundaries.md` gives:
 `platform` holds mechanism and gets no trading vocabulary, and a class describing a
 strategy declaring a feature the corpus has never held is vocabulary that belongs to
 this package.

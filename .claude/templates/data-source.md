@@ -4,7 +4,7 @@ Copy this file to `docs/data-sources/<kebab-slug>.md`, one per source. Example: 
 
 A data source is onboarded when this document is complete and its verification commands have been run, not when the first file downloads. The traps section is the reason: every ingestion defect this project has hit produced plausible numbers rather than an error, and plausible numbers propagate into features, backtests, and eventually into a strategy that looks excellent for reasons unrelated to the market. The cost of finding one of these late is a re-run of everything computed since.
 
-Related: `DATA_PIPELINE.md`, `../rules/no-lookahead.md`, `../rules/time-and-timezones.md`, `../contexts/binance-testnet.md`, `research-note.md`.
+Related: `DATA_PIPELINE.md`, `../../docs/rules/no-lookahead.md`, `../../docs/rules/time-and-timezones.md`, `../contexts/binance-testnet.md`, `research-note.md`.
 
 ---
 

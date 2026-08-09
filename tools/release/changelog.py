@@ -292,7 +292,7 @@ def _rollback_forward_schema(notes: ReleaseNotes) -> list[str]:
         "`alembic downgrade` is **not** part of this procedure and must not be run. "
         "Those migrations refuse by design — rolling back a schema that holds the audit "
         "trail is a data-destruction operation dressed as a schema operation "
-        "(`.claude/rules/append-only-audit.md`).",
+        "(`docs/rules/append-only-audit.md`).",
         "",
         "The refusal is **not a clean abort**, which is the part that catches people. "
         "`migrations/env.py` commits each revision on its own, so a `downgrade` "

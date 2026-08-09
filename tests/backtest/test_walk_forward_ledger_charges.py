@@ -6,7 +6,7 @@ file is the statement about the database, and the two are not the same claim: th
 that matters at the gate is that the charge is *durable* -- that a fold which crashed after
 being charged cannot get its trial back, because `trial_ledger` refuses `UPDATE` and
 `DELETE` at the database and the running total is computed by a trigger rather than
-supplied by the caller (`.claude/rules/append-only-audit.md`).
+supplied by the caller (`docs/rules/append-only-audit.md`).
 
 A recording list cannot show that. A list can be truncated, and a mock ledger is a ledger
 whose monotonicity is whatever the test author wrote. Against the real table, the twelve
@@ -16,7 +16,7 @@ The charge is deliberately not batched into one row of `trials_charged = 12`. A 
 distinct configuration evaluated against a distinct context, so each one carries its own
 `spec_hash` -- and the `UNIQUE` constraint on that column then makes double-charging a
 single fold an `IntegrityError` rather than an accounting drift nobody notices
-(`.claude/rules/overfitting-defences.md`).
+(`docs/rules/overfitting-defences.md`).
 
 `run_walk_forward` is synchronous and the driver is asyncpg, so the harness runs in a
 worker thread and the charger hands each insert back to the test's event loop, blocking

@@ -28,7 +28,7 @@ Forces:
 - Redis is already in the stack for caching and locks, so it is a running
   daemon either way.
 - Retention has to be finite on one disk, and the audit trail -- not the bus --
-  is what has to survive for years (.claude/rules/append-only-audit.md).
+  is what has to survive for years (docs/rules/append-only-audit.md).
 
 The constraint that forces a decision now:
 #18 builds the bus, and every consumer in the project is written against its
@@ -38,7 +38,7 @@ delivery semantics. Idempotency is a design constraint on each consumer
 
 ## Decision
 
-**We use Redis Streams as the event bus, with one consumer group per logical consumer, `XAUTOCLAIM` for reclaiming stranded messages, and `XACK` only after the effect and its `processed_events` row have committed in one Postgres transaction.** Delivery is at-least-once and every consumer is idempotent by design, keyed on a hash of the event's semantic content rather than on the stream message id (`.claude/rules/idempotency.md`). The bus is a transport with bounded retention; durable history lives in the append-only audit tables (ADR-0003), not in the stream.
+**We use Redis Streams as the event bus, with one consumer group per logical consumer, `XAUTOCLAIM` for reclaiming stranded messages, and `XACK` only after the effect and its `processed_events` row have committed in one Postgres transaction.** Delivery is at-least-once and every consumer is idempotent by design, keyed on a hash of the event's semantic content rather than on the stream message id (`docs/rules/idempotency.md`). The bus is a transport with bounded retention; durable history lives in the append-only audit tables (ADR-0003), not in the stream.
 
 ## Alternatives considered
 
@@ -46,7 +46,7 @@ delivery semantics. Idempotency is a design constraint on each consumer
 
 **What it would have given us.** Kafka is the reference answer for exactly this problem and the reasons are good ones. Retention is measured in weeks or months rather than in whatever fits in RAM, so replaying a month of events to rebuild a projection is a routine operation rather than a data-recovery exercise — and this system genuinely wants that, because the evolution engine re-derives scores from history. Consumer-group offset management is battle-tested against every failure mode a decade of production has found. Partitioning gives ordered parallelism per key, so per-symbol ordering would come free rather than being a property of having one partition. The ecosystem is enormous, and Redpanda removes the ZooKeeper/KRaft objection while keeping the protocol.
 
-**Why it lost.** Retention is the strongest part of that case and it is answering a requirement this system does not have. `ARCHITECTURE.md` §11's guarantee is that a trade is reconstructable **from the audit log**, months later, with no access to application memory — and the audit log is a partitioned, hash-chained, append-only Postgres table with parquet cold archival (`.claude/rules/append-only-audit.md`). If reconstruction depended on the bus, the audit tables would be redundant; since it does not, long bus retention buys a capability that is already owned elsewhere. Paying Kafka's operational cost for it is paying twice.
+**Why it lost.** Retention is the strongest part of that case and it is answering a requirement this system does not have. `ARCHITECTURE.md` §11's guarantee is that a trade is reconstructable **from the audit log**, months later, with no access to application memory — and the audit log is a partitioned, hash-chained, append-only Postgres table with parquet cold archival (`docs/rules/append-only-audit.md`). If reconstruction depended on the bus, the audit tables would be redundant; since it does not, long bus retention buys a capability that is already owned elsewhere. Paying Kafka's operational cost for it is paying twice.
 
 That cost is the decisive part. A broker on one machine is a JVM (or a second Rust daemon), its own disk budget competing with the archive and Postgres, its own memory reservation competing with the backtest process that ADR-0001 already flags as the memory risk, its own upgrade path, and its own failure mode to diagnose unattended at 03:00. Against that: throughput here is bounded by *decisions* per second across a handful of symbols on minute bars. Redis Streams is not close to its limit at that volume, and Redis is already running for caching and locks — so the marginal cost of using it as the bus is one library and zero daemons.
 

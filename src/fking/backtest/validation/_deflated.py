@@ -28,7 +28,7 @@ omitting kurtosis inflates the deflated figure *specifically* for the strategies
 likely to blow up (`BACKTEST_ENGINE.md` section 6.5).
 
 `float` inside this module is the statistical exception in
-`.claude/rules/decimal-and-money.md`: these are estimates whose sampling error is many
+`docs/rules/decimal-and-money.md`: these are estimates whose sampling error is many
 orders of magnitude larger than 2^-53. The exception is bounded by `_float_inputs`, the
 one named conversion boundary in this package -- `Decimal` in on the way down,
 `Decimal(str(...))` out on the way back, never implicitly mid-expression. Everything this
@@ -86,7 +86,7 @@ class SharpeEvidence(BaseModel):
     An episode is an independent occurrence of the phenomenon the strategy trades, never
     a bar: 41,208 hourly bars containing 37 distinct funding-extremity episodes is a
     sample of 37, and treating it as 41,208 overstates the t-statistic by a factor near
-    33 (`.claude/rules/overfitting-defences.md` clause 7).
+    33 (`docs/rules/overfitting-defences.md` clause 7).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

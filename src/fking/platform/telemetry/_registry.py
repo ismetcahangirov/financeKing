@@ -35,7 +35,7 @@ from typing import Final, Literal
 
 METRIC_PREFIX: Final[str] = "fking_"
 
-# Matches the module map in `.claude/rules/module-boundaries.md`, plus `telemetry` for
+# Matches the module map in `docs/rules/module-boundaries.md`, plus `telemetry` for
 # the SDK's own self-reporting, which belongs to no trading module.
 PERMITTED_SUBSYSTEMS: Final[frozenset[str]] = frozenset(
     {

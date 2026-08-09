@@ -113,7 +113,7 @@ class NormalizationResult:
     def rejection_fraction(self) -> Decimal:
         """Rejected rows as a fraction of rows read; `0` for an empty file.
 
-        A fraction in [0, 1], never a percent -- `.claude/rules/naming.md` reserves
+        A fraction in [0, 1], never a percent -- `docs/rules/naming.md` reserves
         `_pct` for 0-100 so that a bare `0.001` cannot be read as either 0.1% or 0.001%.
         """
         if self.rows_in == 0:

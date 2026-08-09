@@ -18,7 +18,7 @@ the reason the migrator role exists at all: a table's owner may
 application role that owns `audit_log` can switch off the append-only guard while every
 grant in the catalogue still reads as correct.
 
-`.claude/rules/append-only-audit.md`, `.claude/rules/no-lookahead.md`, `SECURITY.md`.
+`docs/rules/append-only-audit.md`, `docs/rules/no-lookahead.md`, `SECURITY.md`.
 """
 
 from __future__ import annotations
@@ -490,7 +490,7 @@ def test_the_grant_matrix_survives_a_downgrade_and_a_second_upgrade(scratch_dsn:
     It runs on a `scratch_dsn` upgraded only as far as 0008, rather than stepping a
     `head` database down to 0007, and that is the load-bearing detail. Reaching 0007
     from head means passing through every revision above it, and audit migrations
-    refuse to downgrade by design (`.claude/rules/append-only-audit.md` clause 4).
+    refuse to downgrade by design (`docs/rules/append-only-audit.md` clause 4).
     The old form therefore carried an undeclared requirement that every migration ever
     added above 0008 stay reversible -- a requirement nothing stated and nobody could
     satisfy, which 0015 was simply the first to break.

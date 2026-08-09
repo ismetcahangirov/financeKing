@@ -40,7 +40,7 @@ __all__ = [
 
 # The two kinds a strategy may declare. Deliberately not `float`: a threshold compared
 # against a price, a return or a fraction is money-adjacent arithmetic, and
-# `.claude/rules/decimal-and-money.md` allows `float` only inside statistical
+# `docs/rules/decimal-and-money.md` allows `float` only inside statistical
 # computation in `backtest` and `data`.
 ParameterValue = Decimal | int
 

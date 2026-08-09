@@ -1,7 +1,7 @@
 """Validation shared by the declarative types in this package.
 
 Deliberately not `fking.domain._guards`. That module is private to `domain` for the
-reason `.claude/rules/module-boundaries.md` gives -- a leading underscore means the
+reason `docs/rules/module-boundaries.md` gives -- a leading underscore means the
 package promises nothing about it -- and reaching across a package boundary into one
 would make a `domain` refactor break `strategy` silently. The duplication is four
 functions; the coupling it avoids is permanent.
@@ -40,7 +40,7 @@ def require_utc(moment: datetime, field_name: str) -> datetime:
 
     A non-UTC aware datetime is rejected rather than converted. `astimezone(UTC)` would
     silently accept a value whose offset was guessed wrong upstream; raising forces the
-    guess to be made where the data enters (`.claude/rules/time-and-timezones.md`).
+    guess to be made where the data enters (`docs/rules/time-and-timezones.md`).
     """
     if moment.tzinfo is None or moment.utcoffset() is None:
         raise StrategyContractError(f"{field_name} must be timezone-aware; got naive {moment!r}")

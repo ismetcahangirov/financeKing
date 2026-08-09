@@ -16,11 +16,11 @@ edge" and substituting a large number reads as "excellent", and both are inventi
 
 **The risk-free rate is zero and is not a parameter.** A demo account holds no
 interest-bearing collateral, so a non-zero rate would be a number with no source -- and
-`.claude/rules/naming.md` is explicit that a magic constant in risk-adjacent code with
+`docs/rules/naming.md` is explicit that a magic constant in risk-adjacent code with
 no provenance gets "cleaned up" later by someone who does not know what it protected.
 
 `float` inside this module is the statistical exception in
-`.claude/rules/decimal-and-money.md`, bounded by `_float_series`. Every money-of-record
+`docs/rules/decimal-and-money.md`, bounded by `_float_series`. Every money-of-record
 quantity -- equity, realised PnL, fees, funding -- stays `Decimal` from the fill that
 produced it to the report that publishes it, and never passes through here at all.
 """

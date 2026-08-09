@@ -171,7 +171,7 @@ class RunContext:
         sequence order them. Scheduling before it is refused outright -- and refused
         rather than clamped, because a clamped fill happens at a plausible-looking time
         and produces an excellent equity curve with no error anywhere
-        (`.claude/rules/no-lookahead.md`).
+        (`docs/rules/no-lookahead.md`).
         """
         occurs_at_utc = event.occurs_at_utc
         current_utc = self._clock()

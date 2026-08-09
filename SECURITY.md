@@ -359,7 +359,7 @@ Four properties are worth stating because none of them is visible from the grant
 
 **Ownership is separate from privilege, and that is the point.** A table's owner may `ALTER TABLE ... DISABLE TRIGGER` regardless of what has been revoked from it. If `fking_app` owned `audit_log` it could switch off the append-only guard in one statement while every grant in the catalogue still read as correct. Ownership is the privilege people forget to check, so it is asserted over the whole catalogue rather than over the two tables that obviously matter.
 
-**`TRUNCATE` is why the grant is the primary control and the trigger is the backstop**, not the other way round: `TRUNCATE` fires no row trigger and can only be stopped by a revoked grant (`.claude/rules/append-only-audit.md`).
+**`TRUNCATE` is why the grant is the primary control and the trigger is the backstop**, not the other way round: `TRUNCATE` fires no row trigger and can only be stopped by a revoked grant (`docs/rules/append-only-audit.md`).
 
 **The login roles are created without a password**, so a database that has been migrated but not provisioned refuses connections rather than accepting them on an empty credential. `python -m fking.platform.persistence provision-roles --admin-dsn ...` applies the credentials the configured DSNs already carry. A password in a migration would be a secret in version control, identical on every deployment and unrotatable without a new migration.
 

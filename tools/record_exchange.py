@@ -1,7 +1,7 @@
 """Record real Binance testnet responses into the fixture corpus.
 
 Run by hand, never in CI, for the same reason `record_stream_frames.py` is:
-`.claude/rules/testing-rules.md` bans hand-written fixtures outright. A hand-written
+`docs/rules/testing-rules.md` bans hand-written fixtures outright. A hand-written
 exchange response encodes what its author believes Binance returns, and the two things
 nobody would ever hand-write wrongly are exactly the two that break a venue adapter --
 the precise string encoding of a decimal field (`"0.00001000"`, not `1e-5`), and the
