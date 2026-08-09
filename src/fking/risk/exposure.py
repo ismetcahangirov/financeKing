@@ -64,6 +64,7 @@ from fking.risk.limits import RiskLimits
 __all__ = [
     "EXPOSURE_HARD_CEILINGS",
     "EXPOSURE_HARD_FLOORS",
+    "Clock",
     "ExposureAssessment",
     "ExposureLimits",
     "LimitEvaluation",
