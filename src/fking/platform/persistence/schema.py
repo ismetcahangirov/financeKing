@@ -1266,10 +1266,43 @@ trial_execution = sa.Table(
     # completes: batching at the end lets a crashed run launder its failed paths.
     sa.Column("path_label", identifier(), nullable=False),
     sa.Column("charged", sa.Boolean(), nullable=False),
+    # How the execution ended, and the traceback if it ended badly. A crashed run is still
+    # a trial, and a ledger that recorded only completed runs would let a search keep the
+    # paths it liked and report the count of what it kept.
+    #
+    # Nullable because rows written before 0021 recorded neither, and a default would have
+    # them assert an outcome they never carried. The reconcile trigger refuses a new row
+    # without one, which is NOT NULL from 0021 forward without rewriting a historical row
+    # -- and rewriting one is what an append-only table forbids.
+    sa.Column("outcome", identifier(), nullable=True),
+    sa.Column("failure_detail", identifier(), nullable=True),
+    # How far the run got. A traceback says what killed it and this says when, which is
+    # the difference between a configuration that cannot start and one that dies at hour
+    # nine of an eighteen-month replay.
+    sa.Column("dispatched_event_count", sa.Integer(), nullable=True),
     sa.Index("ix_trial_execution_correlation_id", "correlation_id"),
     sa.UniqueConstraint("spec_hash", "execution_index", name="spec_hash_execution_index"),
     sa.CheckConstraint("execution_index >= 1", name="index_is_positive"),
     sa.CheckConstraint("octet_length(config_hash) = 32", name="config_hash_is_sha256"),
+    sa.CheckConstraint(
+        "outcome IS NULL OR outcome IN ('completed', 'failed')", name="outcome_is_known"
+    ),
+    # The biconditional rather than two one-way checks: a completed row carrying a
+    # traceback is as wrong as a failed row without one.
+    sa.CheckConstraint(
+        "outcome IS NULL OR ((outcome = 'failed') = (failure_detail IS NOT NULL))",
+        name="failure_detail_matches_outcome",
+    ),
+    # A traceback is unbounded and this table is append-only, so one runaway recursion
+    # would leave a permanent row larger than the rest of the table.
+    sa.CheckConstraint(
+        "failure_detail IS NULL OR octet_length(failure_detail) <= 16384",
+        name="failure_detail_is_bounded",
+    ),
+    sa.CheckConstraint(
+        "dispatched_event_count IS NULL OR dispatched_event_count >= 0",
+        name="dispatched_event_count_is_counted",
+    ),
 )
 
 # ---------------------------------------------------------------------------
