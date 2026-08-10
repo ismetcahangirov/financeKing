@@ -56,16 +56,19 @@ class ReferenceBudget:
         return self.wall_clock_seconds * (1.0 + TOLERANCE_FRACTION)
 
 
-#: Measured by the `bench` job on pull request #208: **3.60 s** over 143,651 events
-#: (39,908 events/second), peak RSS 242 MB, on a GitHub-hosted `ubuntu-latest` runner.
+#: Measured by the `bench` job on pull request #208, over 143,651 events on a
+#: GitHub-hosted `ubuntu-latest` runner: **3.60 s** (39,908 events/second, peak RSS
+#: 242.0 MB) and **3.46 s** (41,497 events/second, peak RSS 241.4 MB) on two consecutive
+#: builds -- a 4% spread.
 #:
 #: Recorded at 5.0 s rather than at 3.60 s, and the gap is a deliberate trade rather than
-#: rounding. A shared runner's CPU allocation varies by tens of percent between builds, so
-#: a budget at the measurement plus 20% would fail builds that changed nothing -- and a
-#: gate that cries wolf is a gate that gets marked `continue-on-error` within a month. At
-#: 5.0 s the ceiling is 6.0 s, which still fails any regression that costs more than 66%
-#: of the current per-event cost, and comfortably fails the doubling this budget exists to
-#: catch. Tighten it once several builds' readings exist to bound the spread with.
+#: rounding. Two builds do not bound a shared runner's distribution, whose CPU allocation
+#: varies by tens of percent between builds; a budget at the measurement plus 20% would
+#: fail builds that changed nothing, and a gate that cries wolf gets marked
+#: `continue-on-error` within a month. At 5.0 s the ceiling is 6.0 s, which still fails
+#: any regression costing more than 66% extra per event and comfortably fails the doubling
+#: this budget exists to catch. Tighten it once a dozen readings exist -- if the spread
+#: holds at a few percent, 4.5 s is defensible and 4.0 s is not.
 #:
 #: Peak RSS is the Linux reading, which is 44% above the same workload's 168 MB on Windows
 #: -- glibc's allocator returns less to the OS than Windows' heap does. The larger of the
