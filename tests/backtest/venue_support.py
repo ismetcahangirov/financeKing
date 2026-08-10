@@ -13,7 +13,7 @@ publishes is already a string.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -25,6 +25,7 @@ import yaml
 from fking.backtest.costs import CostModel, SpreadQuantile
 from fking.backtest.venue import (
     BacktestVenue,
+    PaperVenue,
     SymbolFilters,
     parse_order_rate_budget,
     parse_symbol_filters,
@@ -88,21 +89,81 @@ def make_venue(  # noqa: PLR0913 - one keyword per varying field of the fixture;
 ) -> BacktestVenue:
     """A venue carrying the recorded filters and a production-provenance cost model."""
     budget, window = recorded_order_rate_budget()
-    resolved = (
-        model
-        if model is not None
-        else cost_model(
-            spreads={SYMBOL: flat_spread_profile(spread_bps)},
-            depth={SYMBOL: depth_profile(touch_base=touch_base, band_base=band_base)},
-        )
-    )
     return BacktestVenue(
-        cost_model=resolved,
+        cost_model=_resolved_cost_model(
+            model, spread_bps=spread_bps, touch_base=touch_base, band_base=band_base
+        ),
         filters={SYMBOL: recorded_filters()},
         order_rate_budget=order_rate_budget if order_rate_budget is not None else budget,
         order_rate_window=window,
         quantile=quantile,
     )
+
+
+def make_paper_venue(  # noqa: PLR0913 - the same fixture keywords as make_venue plus the
+    # clock; the two builders must stay one-for-one or the parity fixtures stop comparing
+    # like with like.
+    *,
+    clock: Callable[[], datetime],
+    model: CostModel | None = None,
+    spread_bps: Decimal = Decimal("2.00"),
+    touch_base: Decimal = Decimal("2"),
+    band_base: Decimal = Decimal("10"),
+    quantile: SpreadQuantile = SpreadQuantile.P50,
+    order_rate_budget: int | None = None,
+) -> PaperVenue:
+    """The paper venue on the same calibration as `make_venue`, plus an injected clock.
+
+    Same inputs on purpose. A paper fixture with its own spread or its own depth would
+    make a backtest/paper difference look like a venue difference when it is a fixture
+    difference, which is the confusion the whole parity exercise exists to remove.
+    """
+    budget, window = recorded_order_rate_budget()
+    return PaperVenue(
+        clock=clock,
+        cost_model=_resolved_cost_model(
+            model, spread_bps=spread_bps, touch_base=touch_base, band_base=band_base
+        ),
+        filters={SYMBOL: recorded_filters()},
+        order_rate_budget=order_rate_budget if order_rate_budget is not None else budget,
+        order_rate_window=window,
+        quantile=quantile,
+    )
+
+
+def _resolved_cost_model(
+    model: CostModel | None, *, spread_bps: Decimal, touch_base: Decimal, band_base: Decimal
+) -> CostModel:
+    if model is not None:
+        return model
+    return cost_model(
+        spreads={SYMBOL: flat_spread_profile(spread_bps)},
+        depth={SYMBOL: depth_profile(touch_base=touch_base, band_base=band_base)},
+    )
+
+
+class SteppingClock:
+    """A clock a test advances explicitly, standing in for wall time in a paper run.
+
+    Explicit rather than real: a paper venue releases an ack once its clock has passed the
+    scheduled instant, and a test that waited for actual milliseconds would be slow when
+    it passed and flaky when the machine was loaded. Advancing the clock by hand tests the
+    same branch with none of that.
+    """
+
+    __slots__ = ("_now_utc",)
+
+    def __init__(self, now_utc: datetime) -> None:
+        self._now_utc = now_utc
+
+    def __call__(self) -> datetime:
+        return self._now_utc
+
+    def advance(self, elapsed: timedelta) -> None:
+        """Move wall time forward. Never backward: a clock that rewinds is a defect."""
+        if elapsed < timedelta(0):
+            raise ValueError(f"a clock cannot go backward; got {elapsed}")
+        self._now_utc += elapsed
 
 
 def make_bar(  # noqa: PLR0913 - one keyword per varying field of the fixture;
