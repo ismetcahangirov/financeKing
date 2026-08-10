@@ -21,6 +21,12 @@ declared label horizon and reports out-of-sample performance as a decay slope ra
 a mean. The venue simulator and the portfolio metric suite arrive in their own pull
 requests and hang off this loop.
 
+Combinatorial purged cross-validation lives in `fking.backtest.cpcv` and is deliberately
+*not* re-exported here. "Path" already means the equity path in this namespace --
+`PathStatistics`, `path_economics` -- and in CPCV it means one combination of test groups;
+hoisting `PathDistribution` and `path_distribution` alongside them would put two different
+meanings of the word one line apart in `__all__`. Import the subpackage.
+
 A backtest that is not bit-reproducible is not evidence, it is an anecdote with a number
 attached -- so **a result that differs between two runs of the same `config_hash`
 outranks everything else on the queue**. It is not a flake to be retried: until the
