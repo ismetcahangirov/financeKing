@@ -253,5 +253,67 @@ Kept here so that profiling starts from knowledge rather than from zero. Update 
 | Feature computation | pandas object-dtype columns from mixed-type reads | Parse to typed dtypes at ingestion (§4.3) |
 | Position arithmetic | `Decimal` *construction*, not arithmetic | Hoist construction out of the loop; construct at the boundary (§4.6) |
 | Ingestion | Peak RSS on a full symbol-year of trades | Chunked read, write Parquet per partition, never hold a full year in memory |
-| Walk-forward | Serial fold execution | Parallelise across folds only (§6) |
+| Walk-forward | Serial fold execution | Parallelise across folds only (§6), bounded by `WorkerMemoryBudget` (§11) |
 | Live loop | Synchronous work on the event loop starving the WS keepalive | `asyncio.to_thread` (§4.4) |
+| Event loop, per event | `fking.domain.codec.encode` for the trace digest — every event is encoded twice, once as itself and once as its trace entry | Already cut roughly in half by per-type dispatch caching (#109). What remains is inherent to the digest; see `docs/perf/README.md` for why an incremental digest was rejected |
+| Event queue | `QueuedEvent` ordering-key construction under `heapq` | Already fixed (#109): the key is built once at insertion |
+
+---
+
+## 11. The reference workload and its budget
+
+The methodology in §1.1 is expensive by design, and the risk is not that it is slow. It is that it becomes slow enough that somebody reduces `n_groups`, and the defence quietly weakens to fit the hardware. The budget exists to make that a conversation rather than a commit.
+
+### The workload
+
+`make bench` runs one pinned workload and nothing else: **CPCV N=8, k=2 — 28 paths — over a 20/60-minute mean-crossover strategy on BTCUSDT 1-minute bars, 2024-01-01 to 2024-01-15, seed 20240101.** 143,651 dispatched events. It is defined in `tools/bench/_workload.py`, and every one of those parameters is a module constant, so changing the workload is a diff somebody reviews rather than a flag somebody passes.
+
+The bars are synthesised from a pinned seed rather than read from the Parquet corpus, because the corpus is not committed and a budget CI cannot assert is the terminal-only number this replaces. **The consequence is that the budget covers the engine — queue ordering, handler arithmetic, per-event encoding and digesting — and not the Parquet read path.** A regression in the read path will not be caught here.
+
+The workload reports zero trades on every path by construction, so `path_distribution` refuses and no Sharpe can come out of it. That is deliberate: a benchmark that emitted a plausible-looking distribution would eventually have one of its numbers quoted.
+
+### The budget, and the machine it was measured on
+
+| | |
+|---|---|
+| **Budget** | **32.0 s wall clock**, single process |
+| **Tolerance** | 20% over — the build fails above 38.4 s |
+| **Machine** | GitHub-hosted `ubuntu-latest` runner, 4 vCPU / 16 GiB, CPython 3.12 |
+| **Measured** | 2026-08-10, by the `bench` CI job (issue #109) |
+| **Peak RSS** | ~170 MB, recorded rather than gated |
+| **Where it lives** | `tools/bench/_budget.py` |
+
+Wall clock, not CPU. A change that halves CPU time and triples I/O has not helped, and against a CPU budget it would read as a 50% win.
+
+**The budget is a CI number, and there is deliberately no developer-machine budget.** The laptop this work was done on (i7-10870H, 16 GiB, Windows 11) produced 11.6 s and 43.4 s for the identical workload within a single session — a 3.7x spread from background load and thermal throttling, eighteen times the tolerance. A gate asserted there would fail on a busy afternoon and pass on a genuine 50% regression the next morning, and a gate that does that gets disabled within a month.
+
+So locally, `make bench` is for comparing a change against the commit before it, back to back, in one sitting — which is the comparison a noisy machine can support. `make bench ARGS="--check"` will run anywhere, and its verdict means nothing off the reference machine.
+
+### When it fails
+
+The failure message carries the previous number, the current number and the overshoot. There are exactly two honest responses:
+
+1. The change made the engine slower, and either it is worth it or it is not.
+2. The budget is genuinely too small, in which case `tools/bench/_budget.py` gets a new measurement and the reason, in a reviewed diff.
+
+Shrinking the workload is not a third option. If the honest conclusion is that a full CPCV run costs more than the budget allows, the budget goes up — `n_groups` does not go down.
+
+### Bounding the fold pool
+
+Fold parallelism (§6) is bounded by memory, never by cores. `os.cpu_count()` inside a container reports the host's cores rather than the cgroup's quota, which is how a 2-CPU container ends up running sixteen workers.
+
+`fking.backtest.WorkerMemoryBudget` does the arithmetic — container limit, less a parent reserve, divided by a *measured* per-worker peak RSS — and `resolve_worker_total` **refuses** a request above what fits rather than reducing it. An oversubscribed pool does not fail: it swaps, produces every number a healthy run produces, and reports a wall clock that is an artefact of the swapping. That number then becomes a budget somebody defends.
+
+```python
+budget = WorkerMemoryBudget(
+    memory_limit_bytes=container_memory_limit_bytes() or 4 * 1024**3,
+    per_worker_peak_rss_bytes=170_000_000,   # make bench prints this
+)
+report = run_cpcv(partition, evaluate=..., charge=..., worker_total=4, memory_budget=budget)
+```
+
+`container_memory_limit_bytes()` returns `None` off a cgroup rather than falling back to physical RAM, so the caller has to state a limit — and stating it is what makes the number visible in review.
+
+### The evidence
+
+`docs/perf/` holds the dated profiling records and the analysis that produced this budget, including what was optimised, what was measured, and the two optimisations that were considered and rejected for weakening the determinism check.
