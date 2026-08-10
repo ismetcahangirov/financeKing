@@ -60,7 +60,9 @@ imports:  ## import-linter architecture contracts
 ## The AST checks enforce rules that no off-the-shelf linter knows about: that a
 ## money-named field is never a float, that strategy and risk never read the wall
 ## clock, that SafetyViolation is never caught, that ambiguous trading nouns never
-## become identifiers, that every feature computation is in the registry the
+## become identifiers, that nothing but fking.risk constructs an Order -- which
+## import-linter cannot express, because the forbidden thing is the call and not the
+## import -- that every feature computation is in the registry the
 ## look-ahead probe iterates, that no agent schema can express a position size or a
 ## host, and that nothing branches on an LLM's free-text rationale. docs/rules/
 ## carries the reasoning for each.
@@ -76,6 +78,7 @@ checks:  ## Project-specific AST and documentation checks
 	$(UV) run python tools/checks/clock_isolation.py $(SRC)
 	$(UV) run python tools/checks/no_catch_safety.py $(SRC) tests
 	$(UV) run python tools/checks/naming.py $(SRC)
+	$(UV) run python tools/checks/order_construction.py $(SRC)
 	$(UV) run python tools/checks/feature_registry.py $(SRC)
 	$(UV) run python tools/checks/agent_schema_fields.py $(SRC)/agents
 	$(UV) run python tools/checks/rationale_untouched.py $(SRC)
