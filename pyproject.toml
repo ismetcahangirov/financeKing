@@ -262,6 +262,15 @@ ignore = [
 # ignore is scoped to migrations/ alone; S608 stays on everywhere a string reaches SQL
 # from anything a caller supplied.
 "migrations/versions/*.py" = ["S608"]
+# S311: `random.Random(seed)` is the point, not an oversight. Monte Carlo resampling
+# needs reproducible pseudo-randomness -- the same `run_seed` producing the same draws
+# across processes is issue #43's own acceptance criterion -- and `SystemRandom` or
+# `secrets` would take reproducibility away for no security benefit, because nothing
+# here is adversarial: a bootstrap path is not a token, a nonce or a session key.
+"src/fking/backtest/montecarlo/_rng.py" = ["S311"]
+# S311: the regression fixture constructs `random.Random` directly to prove
+# `resample_blocks`'s own boundary checks, independent of `path_rng`'s seed derivation.
+"tests/backtest/test_monte_carlo_block_bootstrap.py" = ["S311"]
 
 [tool.ruff.lint.isort]
 # `src` resolves first-party by looking for `<entry>/<package>`, which finds `fking`

@@ -27,6 +27,11 @@ Combinatorial purged cross-validation lives in `fking.backtest.cpcv` and is deli
 hoisting `PathDistribution` and `path_distribution` alongside them would put two different
 meanings of the word one line apart in `__all__`. Import the subpackage.
 
+Trade-sequence bootstrap, block bootstrap and parameter perturbation live in
+`fking.backtest.montecarlo`, for the same reason and the same treatment: a third sense of
+"path" -- one Monte Carlo resampling -- stays out of this namespace. Import the
+subpackage.
+
 A backtest that is not bit-reproducible is not evidence, it is an anecdote with a number
 attached -- so **a result that differs between two runs of the same `config_hash`
 outranks everything else on the queue**. It is not a flake to be retried: until the
