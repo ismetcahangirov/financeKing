@@ -67,7 +67,7 @@ def test_a_float_parameter_never_reaches_the_footer() -> None:
     # `docs/rules/decimal-and-money.md`: the footer prints the parameter set verbatim, so
     # a float arriving here would be printed as the binary double it already is.
     with pytest.raises(TearsheetInputError, match="is a float, not a Decimal"):
-        inputs_for(parameters={"entry_threshold": cast("Decimal", 0.1)})
+        inputs_for(parameters={"entry_threshold": cast(Decimal, 0.1)})
 
 
 def test_a_blank_feature_version_is_refused() -> None:

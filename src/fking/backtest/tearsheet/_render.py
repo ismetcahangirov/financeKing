@@ -200,8 +200,10 @@ def _audit_section(findings: tuple[AuditFinding, ...]) -> list[str]:
     if not findings:
         lines.extend(
             [
-                '<p class="note">No audit findings were recorded. An empty battery is '
-                "seven unanswered questions, not seven passes.</p>",
+                (
+                    '<p class="note">No audit findings were recorded. An empty battery '
+                    "is seven unanswered questions, not seven passes.</p>"
+                ),
                 "</section>",
             ]
         )
