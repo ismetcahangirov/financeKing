@@ -25,7 +25,7 @@ part every test had to construct.
 from __future__ import annotations
 
 import heapq
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from functools import total_ordering
 
@@ -56,13 +56,30 @@ class QueuedEvent:
     sequence: int
     event: Event
 
+    #: The key, built once at insertion instead of twice per comparison. `heapq` performs
+    #: O(log n) comparisons per push and per pop, so a key rebuilt inside `__lt__` is
+    #: rebuilt tens of times per event -- 14% of a reference CPCV run's wall clock
+    #: (`docs/perf/2026-08-10-cpcv-reference-profile.md`). It is derived from the three
+    #: fields above and from nothing else, so it is not a fourth ordering component and
+    #: the module docstring's prohibition still holds.
+    #:
+    #: `compare=False` keeps it out of the generated `__eq__`, where it would be a
+    #: redundant restatement of the fields it came from; `init=False` keeps it off the
+    #: constructor, so no caller can supply a key that disagrees with them.
+    _ordering_key: tuple[datetime, int, int] = field(init=False, compare=False, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "_ordering_key", (self.occurs_at_utc, int(self.priority), self.sequence)
+        )
+
     @property
     def ordering_key(self) -> tuple[datetime, int, int]:
         """The total order, exposed so a test can assert it is injective."""
-        return (self.occurs_at_utc, int(self.priority), self.sequence)
+        return self._ordering_key
 
     def __lt__(self, other: QueuedEvent) -> bool:
-        return self.ordering_key < other.ordering_key
+        return self._ordering_key < other._ordering_key
 
 
 class EventQueue:
