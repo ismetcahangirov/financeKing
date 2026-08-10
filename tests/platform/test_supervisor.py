@@ -7,11 +7,18 @@ method that drifts from the interface fails the build rather than these assertio
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from decimal import FloatOperation, getcontext, localcontext
 
 import pytest
+import structlog
+
+# Private, and the only handle on the cache described in `_restored_logging_configuration`.
+# structlog exposes no public way to drop a cached bind, and leaving it cached breaks
+# other test files rather than this one.
+from structlog._config import BoundLoggerLazyProxy
 
 from fking.platform.config import EX_CONFIG, ConfigError, Settings, load_settings
 from fking.platform.numeric import DECIMAL_PRECISION
@@ -56,6 +63,37 @@ def _isolated_decimal_context() -> Iterator[None]:
     """
     with localcontext():
         yield
+
+
+@pytest.fixture(autouse=True)
+def _restored_logging_configuration() -> Iterator[None]:
+    """`start()` installs the process-wide logging configuration, which is also the point.
+
+    Two things have to be undone, and the second is the one that is easy to miss.
+
+    The configuration itself is snapshotted and restored rather than reset to defaults,
+    because the suite's other logging tests configure structlog too and handing them a
+    default they did not choose is the same bug pointed the other way.
+
+    The caches are harder. `configure_logging` sets `cache_logger_on_first_use=True` and
+    `WriteLoggerFactory` captures `sys.stdout` *at configuration time*, which under pytest
+    is that test's `capsys` object. structlog caches by overwriting `bind` on the module's
+    `_LOG` proxy, so a proxy first used here stays bound to a capture object that dies with
+    this test -- and every later assertion on that module's output reads an empty string,
+    in a file this one does not touch. Restoring `_CONFIG` does not undo that; only
+    dropping the cached `bind` does.
+    """
+    saved = structlog.get_config()
+    try:
+        yield
+    finally:
+        structlog.configure(**saved)
+        for name, module in list(sys.modules.items()):
+            if not name.startswith("fking"):
+                continue
+            for attribute in vars(module).values():
+                if isinstance(attribute, BoundLoggerLazyProxy):
+                    attribute.__dict__.pop("bind", None)
 
 
 # --------------------------------------------------------------------------- fakes
