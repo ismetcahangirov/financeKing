@@ -15,7 +15,7 @@ requires-python = ">=3.12,<3.13"
 # technology set here would pin ~40 packages whose version constraints nobody can
 # yet defend, which is the failure mode issue #1 names as this phase's main risk.
 dependencies = [
-    "alembic>=1.14",
+    "alembic>=1.19.0",
     "asyncpg>=0.30",
     # The only exchange client (#5, ADR-0008, ARCHITECTURE.md 7). >= 4.5.70 is a floor
     # rather than a preference: it is the first release correct on *both* halves of the
@@ -50,7 +50,7 @@ dependencies = [
     "opentelemetry-sdk>=1.30",
     "pyarrow>=18.0",
     "pydantic>=2.11",
-    "pydantic-settings>=2.7",
+    "pydantic-settings>=2.15.0",
     # Not imported by anything in src/fking. duckdb's own conversion of a
     # TIMESTAMP WITH TIME ZONE into a Python datetime imports pytz, and raises
     # `Required module 'pytz' failed to import` without it -- so every read of an
@@ -74,15 +74,15 @@ packages = ["src/fking"]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.14.0",
+    "ruff>=0.16.2",
     "mypy>=1.18.0",
     "import-linter>=2.3",
     "pytest>=8.3",
     "pytest-asyncio>=1.0",
     "pytest-cov>=6.0",
     "pytest-randomly>=3.16",
-    "hypothesis>=6.130",
-    "coverage>=7.6",
+    "hypothesis>=6.165.2",
+    "coverage>=7.15.4",
     # Test-only. The compose contract test parses the compose files as YAML rather
     # than grepping them, so a reformat, a line wrap or a comment cannot make a
     # violation invisible to the check. Not a runtime dependency: nothing in
