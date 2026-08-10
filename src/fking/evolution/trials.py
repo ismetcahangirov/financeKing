@@ -55,7 +55,7 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from fking.backtest import SharpeEvidence, SpecRegistration
+from fking.backtest import ExecutionReport, SharpeEvidence, SpecRegistration
 from fking.evolution._errors import TrialLedgerError, TrialSpecificationError
 
 __all__ = [
@@ -350,15 +350,20 @@ _REGISTER = sa.text(
 # BEFORE INSERT trigger, which is the same arrangement `trial_ledger` uses for its chain
 # hashes and for the same reason: a writer that computes its own index can compute a
 # convenient one, and the index is what decides whether the declared grid was overrun.
+#
+# `outcome` is not a placeholder. The trigger refuses a row without one (0021), because an
+# execution recorded with no outcome cannot be told apart from a run that never started,
+# and the charge is identical either way.
 _REPORT_EXECUTION = sa.text(
     """
     INSERT INTO trial_execution (
         executed_at_utc, correlation_id, spec_hash, execution_index, config_hash,
-        path_label, charged
+        path_label, charged, outcome, failure_detail, dispatched_event_count
     )
     VALUES (
         :executed_at_utc, :correlation_id, decode(:spec_hash, 'hex'), 1,
-        decode(:config_hash, 'hex'), :path_label, false
+        decode(:config_hash, 'hex'), :path_label, false, :outcome, :failure_detail,
+        :dispatched_event_count
     )
     RETURNING seq, execution_index, charged
     """
@@ -372,6 +377,11 @@ _REGISTRATION_FOR = sa.text(
        AND entry_kind = :entry_kind
     """
 )
+
+# The view, not a `max()` written out here. `0002_audit_substrate` defines it as
+# `COALESCE(max(cumulative_trials), 0)`, and one definition in one place is what stops a
+# reader of this module and a reader of the schema disagreeing about what "the count" is.
+_GLOBAL_TRIALS = sa.text("SELECT n FROM global_trial_count")
 
 _CONTEXT_TRIALS = sa.text(
     """
@@ -476,10 +486,8 @@ class TrialLedger:
 
     async def report_execution(
         self,
+        execution: ExecutionReport,
         *,
-        spec_hash: str,
-        config_hash: str,
-        path_label: str,
         correlation_id: UUID,
         executed_at_utc: datetime,
     ) -> ExecutionReceipt:
@@ -489,23 +497,30 @@ class TrialLedger:
         than batched at the end. Batching lets a crashed or abandoned run launder its
         failed paths: run 28, keep the good ones, report the count of what you kept.
 
+        The whole `ExecutionReport` is taken rather than its fields, because the engine
+        is the only thing that may construct one -- and a signature of loose strings is a
+        signature a caller can satisfy without having run anything.
+
+        A failed execution is recorded and charged on the same terms as a completed one,
+        carrying the traceback that killed it. Refunding a crash would price "kill the
+        process once the numbers look bad" at zero.
+
         `execution_index` and `charged` are assigned by the database and returned, never
         supplied. A caller that numbers its own executions can renumber them, and the
         index is what decides whether the grid was overrun.
         """
         _require_utc(executed_at_utc, "executed_at_utc")
-        _require_digest(spec_hash, "spec_hash")
-        _require_digest(config_hash, "config_hash")
-        _require_text(path_label, "path_label")
+        _require_digest(execution.spec_hash, "spec_hash")
+        _require_digest(execution.config_hash, "config_hash")
 
         async with self._engine.begin() as connection:
             await connection.execute(_TAKE_LEDGER_LOCK)
-            registration = await self._registration(connection, spec_hash)
+            registration = await self._registration(connection, execution.spec_hash)
             if not registration.is_registered:
                 raise TrialLedgerError(
-                    f"spec_hash {spec_hash} was never registered; an execution that "
-                    f"skips the ledger is an undeclared search, and the best of sixty "
-                    f"unregistered runs deflates as though it were the only one"
+                    f"spec_hash {execution.spec_hash} was never registered; an execution "
+                    f"that skips the ledger is an undeclared search, and the best of "
+                    f"sixty unregistered runs deflates as though it were the only one"
                 )
             row = (
                 await connection.execute(
@@ -513,24 +528,45 @@ class TrialLedger:
                     {
                         "executed_at_utc": executed_at_utc,
                         "correlation_id": correlation_id,
-                        "spec_hash": spec_hash,
-                        "config_hash": config_hash,
-                        "path_label": path_label,
+                        "spec_hash": execution.spec_hash,
+                        "config_hash": execution.config_hash,
+                        "path_label": execution.path_label,
+                        "outcome": execution.outcome.value,
+                        "failure_detail": execution.failure_detail,
+                        "dispatched_event_count": execution.dispatched_event_count,
                     },
                 )
             ).first()
             if row is None:  # pragma: no cover - RETURNING always yields on success
                 raise TrialLedgerError("trial_execution INSERT returned no execution index")
-            context_hash = await self._context_hash_for(connection, spec_hash)
+            context_hash = await self._context_hash_for(connection, execution.spec_hash)
             context_trials = await self._context_trials(connection, context_hash)
 
         return ExecutionReceipt(
             seq=int(row[0]),
-            spec_hash=spec_hash,
+            spec_hash=execution.spec_hash,
             execution_index=int(row[1]),
             charged=bool(row[2]),
             context_trial_count=context_trials,
         )
+
+    async def global_trial_count(self) -> int:
+        """Every trial this project has ever charged, across all searches.
+
+        Global and monotone, read from the view rather than summed here: `SELECT n FROM
+        global_trial_count` is `max(cumulative_trials)`, which the insert trigger
+        maintains under the ledger's advisory lock. A count assembled in Python from
+        rows this process happened to read would be a per-study count wearing a global
+        name, and a per-study count is the 200-against-50,000 undercount the whole module
+        exists to prevent -- there is no reset, not per study, not per lineage, not per
+        branch, not when the schema changes.
+
+        `context_trial_count` is the narrower figure that feeds `SR*`; this one is what
+        an operator asks when they want to know what the project has spent.
+        """
+        async with self._engine.connect() as connection:
+            total = (await connection.execute(_GLOBAL_TRIALS)).scalar_one_or_none()
+        return int(total or 0)
 
     async def registration_for(self, spec_hash: str) -> SpecRegistration:
         """What the engine checks before it dispatches a single event.

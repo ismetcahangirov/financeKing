@@ -46,7 +46,7 @@ This section is authoritative. Three components touch the ledger and their respo
 |---|---|---|
 | `quant` agent | Registers the specification **before any data access**, declaring the full grid it may explore. This is the anti-HARKing gate and the point at which the declared charge is fixed. | Does not own ledger storage, and cannot amend a declared grid downward. |
 | `optimizer` agent | Owns ledger **mechanics**: persistence, monotonicity, the `max(declared, executed)` reconciliation, per-lineage and global aggregates, and the deflated Sharpe computation. | Does not decide what gets registered, and cannot author a specification. |
-| `BacktestEngine.run()` | **Enforcement.** Rejects any run whose `spec_hash` has no prior registration, and reports each execution to the ledger. | Does not compute deflation and does not interpret results. |
+| `BacktestEngine.run()` — the class is `fking.backtest.EventLoop` | **Enforcement.** Rejects any run whose `spec_hash` has no prior registration, and reports each execution to the ledger, the crashed ones included. `reporter` and `path_label` are required constructor arguments for the same reason `registration` is: a default is a value somebody forgets to override, and what they would forget is the one that produces a result outside the ledger's view. | Does not compute deflation and does not interpret results. |
 
 Two distinct evasions are closed by two distinct mechanisms, which is why both a declaration and an execution report exist:
 

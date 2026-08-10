@@ -19,7 +19,11 @@ from datetime import UTC, datetime
 import pytest
 
 from fking.backtest import EventLoop, RunTrace, config_hash
-from tests.backtest.registration_support import REGISTERED
+from tests.backtest.registration_support import (
+    PATH_LABEL,
+    REGISTERED,
+    RecordingReporter,
+)
 from tests.support.backtest_events import DrawingHandler, RecordingHandler, bar_events
 from tests.support.run_config import config_for
 
@@ -32,7 +36,11 @@ BAR_COUNT = 12
 def _run(*, use_run_seed: bool) -> RunTrace:
     config = config_for(start_utc=START)
     return EventLoop(
-        config, DrawingHandler(use_run_seed=use_run_seed), registration=REGISTERED
+        config,
+        DrawingHandler(use_run_seed=use_run_seed),
+        registration=REGISTERED,
+        reporter=RecordingReporter(),
+        path_label=PATH_LABEL,
     ).run(bar_events(START, how_many=BAR_COUNT))
 
 
@@ -87,8 +95,12 @@ def test_the_seeded_draws_are_the_ones_the_run_seed_dictates() -> None:
     first = DrawingHandler(use_run_seed=True)
     second = DrawingHandler(use_run_seed=True)
 
-    EventLoop(config, first, registration=REGISTERED).run(bar_events(START, how_many=BAR_COUNT))
-    EventLoop(config, second, registration=REGISTERED).run(bar_events(START, how_many=BAR_COUNT))
+    EventLoop(
+        config, first, registration=REGISTERED, reporter=RecordingReporter(), path_label=PATH_LABEL
+    ).run(bar_events(START, how_many=BAR_COUNT))
+    EventLoop(
+        config, second, registration=REGISTERED, reporter=RecordingReporter(), path_label=PATH_LABEL
+    ).run(bar_events(START, how_many=BAR_COUNT))
 
     assert first.drawn == second.drawn
     assert len(set(first.drawn)) > 1, "a stream that repeats one value would hide a reseed"
@@ -100,11 +112,15 @@ def test_a_different_run_seed_changes_the_trace_and_the_identity_together() -> N
         config_for(start_utc=START, run_seed=1),
         DrawingHandler(use_run_seed=True),
         registration=REGISTERED,
+        reporter=RecordingReporter(),
+        path_label=PATH_LABEL,
     ).run(bar_events(START, how_many=BAR_COUNT))
     two = EventLoop(
         config_for(start_utc=START, run_seed=2),
         DrawingHandler(use_run_seed=True),
         registration=REGISTERED,
+        reporter=RecordingReporter(),
+        path_label=PATH_LABEL,
     ).run(bar_events(START, how_many=BAR_COUNT))
 
     assert one.config_hash != two.config_hash
@@ -114,12 +130,20 @@ def test_a_different_run_seed_changes_the_trace_and_the_identity_together() -> N
 def test_the_trace_digest_changes_when_the_events_change() -> None:
     """A digest insensitive to its input would make every comparison above vacuous."""
     config = config_for(start_utc=START)
-    shorter = EventLoop(config, RecordingHandler(), registration=REGISTERED).run(
-        bar_events(START, how_many=3)
-    )
-    longer = EventLoop(config, RecordingHandler(), registration=REGISTERED).run(
-        bar_events(START, how_many=4)
-    )
+    shorter = EventLoop(
+        config,
+        RecordingHandler(),
+        registration=REGISTERED,
+        reporter=RecordingReporter(),
+        path_label=PATH_LABEL,
+    ).run(bar_events(START, how_many=3))
+    longer = EventLoop(
+        config,
+        RecordingHandler(),
+        registration=REGISTERED,
+        reporter=RecordingReporter(),
+        path_label=PATH_LABEL,
+    ).run(bar_events(START, how_many=4))
 
     assert shorter.config_hash == longer.config_hash
     assert shorter.digest != longer.digest
@@ -128,12 +152,20 @@ def test_the_trace_digest_changes_when_the_events_change() -> None:
 def test_the_digest_is_stable_across_two_traces_built_from_equal_entries() -> None:
     """Equal entries, equal digest -- so a difference in the digest is a real difference."""
     config = config_for(start_utc=START)
-    first = EventLoop(config, RecordingHandler(), registration=REGISTERED).run(
-        bar_events(START, how_many=5)
-    )
-    second = EventLoop(config, RecordingHandler(), registration=REGISTERED).run(
-        bar_events(START, how_many=5)
-    )
+    first = EventLoop(
+        config,
+        RecordingHandler(),
+        registration=REGISTERED,
+        reporter=RecordingReporter(),
+        path_label=PATH_LABEL,
+    ).run(bar_events(START, how_many=5))
+    second = EventLoop(
+        config,
+        RecordingHandler(),
+        registration=REGISTERED,
+        reporter=RecordingReporter(),
+        path_label=PATH_LABEL,
+    ).run(bar_events(START, how_many=5))
 
     assert first.entries == second.entries
     assert first.digest == second.digest

@@ -68,6 +68,21 @@ class UnregisteredSpecificationError(BacktestError):
     """
 
 
+class ExecutionReportError(BacktestError):
+    """What the loop is about to tell the ledger does not describe a possible run.
+
+    A completed execution carrying a traceback, a failed one carrying none, a traceback
+    longer than the ledger will store. Raised at construction of the report rather than
+    at the insert, so the mismatch names the field instead of arriving as a constraint
+    violation after the run is over -- by which point the run cannot be repeated to find
+    out what it would have said.
+
+    Distinct from `UnregisteredSpecificationError` because the two failures point at
+    different people: that one says the search was never declared, this one says the
+    enforcement path itself is malformed, and the second is a defect in this module.
+    """
+
+
 class EventBudgetExhaustedError(BacktestError):
     """The run dispatched more events than its configuration declared it would.
 
