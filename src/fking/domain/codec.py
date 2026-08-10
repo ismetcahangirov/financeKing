@@ -53,51 +53,142 @@ _PARAMETERISED_PAIR: Final = 2
 # ---------------------------------------------------------------------------
 
 
-def encode(candidate: object) -> JsonValue:  # noqa: PLR0911 - see the docstring
-    """Render a domain object as JSON-serialisable data, losing nothing.
+type _Encoder = Callable[[object], JsonValue]
 
-    One return per supported shape, deliberately over the PLR0911 threshold. The
-    alternative is a predicate/converter dispatch table, which for a fixed and closed
-    set of eleven cases replaces a chain a reader can verify by eye with indirection
-    they have to trace -- and the ordering constraint below (Enum before str) is the
-    kind of thing that gets lost in a table.
+
+def _encode_enum(candidate: object) -> JsonValue:
+    return encode(cast("Enum", candidate).value)
+
+
+def _encode_decimal(candidate: object) -> JsonValue:
+    return str(candidate)
+
+
+def _encode_datetime(candidate: object) -> JsonValue:
+    return cast("datetime", candidate).isoformat()
+
+
+def _encode_timedelta(candidate: object) -> JsonValue:
+    return cast("timedelta", candidate) // _MICROSECOND
+
+
+def _encode_uuid(candidate: object) -> JsonValue:
+    return str(candidate)
+
+
+def _encode_scalar(candidate: object) -> JsonValue:
+    return cast("bool | int | str", candidate)
+
+
+def _encode_mapping(candidate: object) -> JsonValue:
+    mapping = cast("Mapping[object, object]", candidate)
+    return {str(key): encode(item) for key, item in mapping.items()}
+
+
+def _encode_set(candidate: object) -> JsonValue:
+    return sorted(
+        (encode(item) for item in cast("frozenset[object] | set[object]", candidate)),
+        key=lambda encoded: json.dumps(encoded, sort_keys=True),
+    )
+
+
+def _encode_sequence(candidate: object) -> JsonValue:
+    return [encode(item) for item in cast("tuple[object, ...] | list[object]", candidate)]
+
+
+def _dataclass_encoder(candidate_type: type[object]) -> _Encoder:
+    """An encoder that already knows the field names, so `fields()` runs once per type.
+
+    `dataclasses.fields()` rebuilds a tuple of `Field` objects on every call, and the
+    backtest engine encodes one dataclass per dispatched event plus one per trace entry --
+    at which point that tuple construction was 8% of a reference CPCV run
+    (`docs/perf/2026-08-10-cpcv-reference-profile.md`). The names cannot change after the
+    class is defined, so resolving them once is not a cache that can go stale.
+    """
+    declared_names = tuple(field.name for field in fields(candidate_type))  # type: ignore[arg-type]  # narrowed by is_dataclass at the call site, which mypy does not carry across the call
+
+    def encode_dataclass(candidate: object) -> JsonValue:
+        return {name: encode(getattr(candidate, name)) for name in declared_names}
+
+    return encode_dataclass
+
+
+def _resolve_encoder(candidate_type: type[object]) -> _Encoder:  # noqa: PLR0911 - one return per supported shape; this chain IS the specification
+    """Work out which encoder applies to `candidate_type`.
+
+    This chain is the specification and its order is load-bearing. `_ENCODER_BY_TYPE`
+    caches its *answer* per runtime type; nothing about a value is cached.
+    """
+    # Before the str branch: every enum here is a StrEnum, so a member IS a str and
+    # would otherwise encode as "Direction.LONG" or, worse, pass through unchanged and
+    # decode into something that is no longer an enum.
+    if issubclass(candidate_type, Enum):
+        return _encode_enum
+    if issubclass(candidate_type, Decimal):
+        return _encode_decimal
+    if issubclass(candidate_type, datetime):
+        return _encode_datetime
+    if issubclass(candidate_type, timedelta):
+        return _encode_timedelta
+    if issubclass(candidate_type, UUID):
+        return _encode_uuid
+    if issubclass(candidate_type, bool | int | str):
+        return _encode_scalar
+    # `not issubclass(..., type)` keeps a dataclass *class* passed as a value out: it is
+    # not an instance and encoding its fields would produce an object that never existed.
+    if is_dataclass(candidate_type) and not issubclass(candidate_type, type):
+        return _dataclass_encoder(candidate_type)
+    if issubclass(candidate_type, Mapping):
+        return _encode_mapping
+    if issubclass(candidate_type, frozenset | set):
+        return _encode_set
+    if issubclass(candidate_type, tuple | list):
+        return _encode_sequence
+    raise DomainError(f"no encoding for {candidate_type.__name__}")
+
+
+#: Memoised dispatch, populated on first sight of each runtime type. A plain dict rather
+#: than `functools.cache` because the key is a `type[object]`, which typeshed's
+#: `_lru_cache_wrapper` will not accept as `Hashable`; and unbounded because the key space
+#: is the set of types the process has encoded, which is fixed by the source.
+#:
+#: Racing threads resolve the same type to two equal encoders and one wins. That is the
+#: only interleaving available, because resolution reads nothing mutable.
+_ENCODER_BY_TYPE: Final[dict[type[object], _Encoder]] = {}
+
+
+def encode(candidate: object) -> JsonValue:
+    """Render a domain object as JSON-serialisable data, losing nothing.
 
     Accepts any domain type, including the nested ones -- an `Order` carries an
     `Instrument`, which carries a `Venue`, and all three are handled by the same
     recursion.
+
+    Dispatch is by exact runtime type through `_resolve_encoder`, whose chain of checks
+    is where the supported shapes and their ordering are actually stated. It is one dict
+    lookup per value rather than up to ten `isinstance` calls, which matters because this
+    function is the hottest thing in a CPCV run -- half its wall clock before the cache
+    existed (`docs/perf/README.md`). The behaviour is identical: the cache stores which
+    branch a type takes, never what a value encodes to.
     """
     if candidate is None:
         return None
-    # Before the str branch: every enum here is a StrEnum, so a member IS a str and
-    # would otherwise encode as "Direction.LONG" or, worse, pass through unchanged and
-    # decode into something that is no longer an enum.
-    if isinstance(candidate, Enum):
-        return encode(candidate.value)
-    if isinstance(candidate, Decimal):
-        return str(candidate)
-    if isinstance(candidate, datetime):
-        return candidate.isoformat()
-    if isinstance(candidate, timedelta):
-        return candidate // _MICROSECOND
-    if isinstance(candidate, UUID):
-        return str(candidate)
-    if isinstance(candidate, bool | int | str):
-        return candidate
-    if is_dataclass(candidate) and not isinstance(candidate, type):
-        return {
-            declared.name: encode(getattr(candidate, declared.name))
-            for declared in fields(candidate)
-        }
-    if isinstance(candidate, Mapping):
-        return {str(key): encode(item) for key, item in candidate.items()}
-    if isinstance(candidate, frozenset | set):
-        return sorted(
-            (encode(item) for item in candidate),
-            key=lambda encoded: json.dumps(encoded, sort_keys=True),
-        )
-    if isinstance(candidate, tuple | list):
-        return [encode(item) for item in candidate]
-    raise DomainError(f"no encoding for {type(candidate).__name__}: {candidate!r}")
+    candidate_type = type(candidate)
+    encoder = _ENCODER_BY_TYPE.get(candidate_type)
+    if encoder is None:
+        try:
+            encoder = _resolve_encoder(candidate_type)
+        except DomainError as unsupported:
+            # Re-raised with the value, which `_resolve_encoder` never sees: "no encoding
+            # for complex" is a puzzle, and "no encoding for complex: (1+2j)" is a
+            # location. Only the *resolution* is wrapped -- wrapping the call as well
+            # would relabel a nested failure with the outer container's repr and lose
+            # where it actually happened.
+            raise DomainError(
+                f"no encoding for {candidate_type.__name__}: {candidate!r}"
+            ) from unsupported
+        _ENCODER_BY_TYPE[candidate_type] = encoder
+    return encoder(candidate)
 
 
 # ---------------------------------------------------------------------------
