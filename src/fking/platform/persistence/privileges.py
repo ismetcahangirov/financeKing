@@ -210,9 +210,11 @@ CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
         # can interpret.
         "risk_drawdown_state": PrivilegeClass.APP_MUTABLE,
         "risk_drawdown_mark": PrivilegeClass.APP_MUTABLE,
-        # Append-only: the 12 tables in schema.APPEND_ONLY_TABLES, repeated here rather
-        # than derived, so that the two lists disagreeing is a test failure instead of
-        # one list silently defining the other.
+        # Append-only: the tables in schema.APPEND_ONLY_TABLES, repeated here rather than
+        # derived, so that the two lists disagreeing is a test failure instead of one list
+        # silently defining the other. Deliberately not stated as a count -- the count
+        # went stale the first time the set grew, and a wrong number in a comment is worse
+        # than no number because a reader trusts it.
         "audit_log": PrivilegeClass.APPEND_ONLY,
         "trial_ledger": PrivilegeClass.APPEND_ONLY,
         # The executed half of max(declared, executed). Append-only for the same reason
@@ -229,6 +231,14 @@ CLASSIFICATION: Final[Mapping[str, PrivilegeClass]] = MappingProxyType(
         "retirement": PrivilegeClass.APPEND_ONLY,
         "position_snapshot": PrivilegeClass.APPEND_ONLY,
         "account_snapshot": PrivilegeClass.APPEND_ONLY,
+        # Append-only rather than mutable state, unlike `risk_drawdown_state` directly
+        # above. The distinction is what the row claims: drawdown state is the *current*
+        # high-water mark and is meant to advance, while a calibration row is a claim
+        # about what was knowable at one instant. Rewriting it in place destroys the only
+        # evidence that the map used to size a past decision did not see the future --
+        # which is the entire point of persisting it (`fking.risk.calibration`).
+        "risk_conviction_map": PrivilegeClass.APPEND_ONLY,
+        "risk_conviction_map_bucket": PrivilegeClass.APPEND_ONLY,
     }
 )
 

@@ -1444,6 +1444,73 @@ risk_drawdown_mark = sa.Table(
     sa.CheckConstraint("equity_usd > 0", name="equity_is_positive"),
 )
 
+# The conviction calibration map, one row per fit, keyed by the instant it became
+# knowable. Append-only and historical rather than one mutable row per strategy: the map
+# used to size a decision at `t` is a claim about what was knowable at `t`, and an UPDATE
+# in place destroys the only evidence for that claim. `fking.risk.calibration` states why
+# a leaked fit is look-ahead inside the risk engine rather than in the feature store.
+#
+# Named `risk_conviction_map` rather than `risk_conviction_calibration` for a boring but
+# load-bearing reason: PostgreSQL truncates identifiers at 63 bytes, and the generated
+# foreign-key name from the longer pair overruns it -- silently, producing a constraint
+# whose name exists nowhere in this repository and cannot be grepped from an error.
+risk_conviction_map = sa.Table(
+    "risk_conviction_map",
+    METADATA,
+    sa.Column("map_id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("strategy_id", identifier(), nullable=False),
+    # `available_at_utc`, not `fitted_at_utc`, though they are the same instant by
+    # construction: docs/rules/no-lookahead.md clause 1 makes `available_at` the field
+    # that governs visibility, and the read path filters on it.
+    sa.Column("available_at_utc", utc_timestamp(), nullable=False),
+    sa.Column("observation_count", sa.Integer(), nullable=False),
+    _recorded_at_utc(),
+    # One fit per strategy per instant. A second row at the same instant would mean two
+    # maps were both "the" map at that moment, and the read path would return whichever
+    # the planner reached first.
+    sa.UniqueConstraint("strategy_id", "available_at_utc"),
+    sa.CheckConstraint("btrim(strategy_id) <> ''", name="strategy_id_is_not_blank"),
+    sa.CheckConstraint("observation_count >= 0", name="observations_are_countable"),
+)
+
+# The fitted buckets, as a child table rather than a jsonb column on the parent: a
+# fraction inside a blob is invisible to the information_schema scan that asserts no
+# numeric column is DOUBLE PRECISION, and NUMERIC(38, 18) per bucket is what lets that
+# scan see them at all (docs/rules/decimal-and-money.md).
+risk_conviction_map_bucket = sa.Table(
+    "risk_conviction_map_bucket",
+    METADATA,
+    sa.Column("map_id", postgresql.UUID(as_uuid=True), nullable=False),
+    sa.Column("bucket_index", sa.Integer(), nullable=False),
+    sa.Column("conviction_upper_bound", money(), nullable=False),
+    sa.Column("trade_count", sa.Integer(), nullable=False),
+    sa.Column("hit_rate_fraction", money(), nullable=False),
+    sa.Column("mean_return_fraction", money(), nullable=False),
+    sa.Column("fitted_return_fraction", money(), nullable=False),
+    sa.Column("calibrated_fraction", money(), nullable=False),
+    _recorded_at_utc(),
+    # Ordinal-keyed, and the order is the map: bucket `n`'s calibrated fraction is only
+    # meaningful as the step above bucket `n-1`'s.
+    sa.PrimaryKeyConstraint("map_id", "bucket_index"),
+    sa.ForeignKeyConstraint(["map_id"], ["risk_conviction_map.map_id"], ondelete="CASCADE"),
+    sa.CheckConstraint("bucket_index >= 0", name="bucket_index_is_ordinal"),
+    sa.CheckConstraint("trade_count > 0", name="trade_count_is_positive"),
+    # Deliberately redundant with `CalibrationBucket.__post_init__`. The type guards the
+    # process running now; the constraint guards the row against every writer this schema
+    # will ever have. Monotonicity across buckets is *not* expressible as a row check and
+    # is re-asserted by `from_calibration_row` on the way back in.
+    sa.CheckConstraint(
+        "conviction_upper_bound BETWEEN 0 AND 1 AND hit_rate_fraction BETWEEN 0 AND 1 "
+        "AND calibrated_fraction BETWEEN 0 AND 1",
+        name="fractions_are_in_range",
+    ),
+    # A trade cannot lose more than the whole position.
+    sa.CheckConstraint(
+        "mean_return_fraction >= -1 AND fitted_return_fraction >= -1",
+        name="returns_are_above_ruin",
+    ),
+)
+
 # ---------------------------------------------------------------------------
 # Append-only classification
 # ---------------------------------------------------------------------------
@@ -1467,6 +1534,8 @@ APPEND_ONLY_TABLES: Final[frozenset[str]] = frozenset(
         "retirement",
         "position_snapshot",
         "account_snapshot",
+        "risk_conviction_map",
+        "risk_conviction_map_bucket",
     }
 )
 
