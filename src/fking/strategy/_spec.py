@@ -33,39 +33,13 @@ from fking.strategy._guards import (
 )
 from fking.strategy._invalidation import InvalidationRule
 from fking.strategy._parameters import ParameterSpace
+from fking.strategy._requirements import FeatureRequirement
 
 __all__ = ["FeatureRequirement", "StrategySpec"]
 
 # A thesis shorter than this is not a sentence. The bound is deliberately low: the check
 # is against an empty or placeholder string, not an attempt to grade prose.
 _MINIMUM_THESIS_CHARACTERS: Final[int] = 30
-
-
-@dataclass(frozen=True, slots=True)
-class FeatureRequirement:
-    """One feature series a strategy needs, named the way the feature registry keys it.
-
-    `feature_version` travels with the name everywhere, for the reason
-    `fking.data.features.spec` gives: a reference carrying only a name resolves to
-    "whatever definition is current", and that is the read that makes a historical result
-    irreproducible. A strategy validated against v1 and run against v2 is a different
-    experiment with the same lineage id.
-    """
-
-    feature_name: str
-    feature_version: int
-
-    def __post_init__(self) -> None:
-        require_text(self.feature_name, "feature_name")
-        require_positive_int(self.feature_version, "feature_version")
-
-    @property
-    def key(self) -> tuple[str, int]:
-        """The `(name, version)` pair `fking.data.features.registry` keys `FEATURES` on."""
-        return (self.feature_name, self.feature_version)
-
-    def describe(self) -> str:
-        return f"{self.feature_name} v{self.feature_version}"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
