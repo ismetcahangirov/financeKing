@@ -26,7 +26,13 @@ from types import MappingProxyType
 from typing import Final
 
 from fking.data.features._definition_digests import DEFINITION_DIGESTS
-from fking.data.features.compute import trailing_realised_volatility, trailing_return_fraction
+from fking.data.features.compute import (
+    bollinger_band_width_fraction,
+    bollinger_z_score,
+    donchian_channel_breakout_state,
+    trailing_realised_volatility,
+    trailing_return_fraction,
+)
 from fking.data.features.spec import FeatureObservation, FeaturePoint, FeatureSpec
 from fking.platform.errors import FeatureContractError
 
@@ -36,6 +42,20 @@ __all__ = ["FEATURES", "evaluate", "registered", "registered_names"]
 # dataset identifiers rather than as free text so #30's availability contract can check
 # a declaration against what the corpus actually holds without parsing prose.
 _CLOSED_BARS: Final[frozenset[str]] = frozenset({"klines"})
+
+# Twenty periods of the fifteen-minute grain the baseline strategies decide on. Twenty is
+# the conventional Donchian channel and the conventional Bollinger band length -- Donchian's
+# own rule and Bollinger's original 1980s formulation both use it -- and it is written here
+# as a duration because a feature's window is a duration and never a bar count: the corpus
+# holds one-minute bars, so this same five hours is 300 closes in production and 20 closes
+# in a fifteen-minute test series. The extremes and the dispersion are those of the same
+# five hours either way, sampled more finely in production.
+#
+# Fixed a priori and deliberately never searched. These three features exist to serve the
+# control group (#57), and a swept baseline is not a control: it charges trials against the
+# global counter on behalf of a strategy nobody intends to promote, so every future
+# deflated Sharpe pays for a search that was never meant to produce anything.
+_TWENTY_PERIOD_WINDOW: Final[timedelta] = timedelta(hours=5)
 
 FEATURES: Final[Mapping[tuple[str, int], FeatureSpec]] = MappingProxyType(
     {
@@ -73,6 +93,54 @@ FEATURES: Final[Mapping[tuple[str, int], FeatureSpec]] = MappingProxyType(
                     "inside (t-1h, t]; the oldest return's base is the bar at or before "
                     "t-1h, which also already existed at t. Fewer than two returns emits "
                     "nothing rather than a zero."
+                ),
+                uses_trailing_statistics_only=True,
+            ),
+            FeatureSpec(
+                name="donchian_channel_breakout_state",
+                version=1,
+                compute=donchian_channel_breakout_state,
+                inputs=_CLOSED_BARS,
+                lookback=_TWENTY_PERIOD_WINDOW,
+                availability_lag=timedelta(0),
+                label_horizon=_TWENTY_PERIOD_WINDOW,
+                point_in_time_proof=(
+                    "The channel high and low are taken over the closes in (t-5h, t], the "
+                    "newest of which is the observation being stamped; every one of them "
+                    "had closed at t. The oldest observation used is the newest one at or "
+                    "before t-5h, which also already existed. A window without such an "
+                    "observation emits nothing rather than an extreme over a short window."
+                ),
+                uses_trailing_statistics_only=True,
+            ),
+            FeatureSpec(
+                name="bollinger_z_score",
+                version=1,
+                compute=bollinger_z_score,
+                inputs=_CLOSED_BARS,
+                lookback=_TWENTY_PERIOD_WINDOW,
+                availability_lag=timedelta(0),
+                label_horizon=_TWENTY_PERIOD_WINDOW,
+                point_in_time_proof=(
+                    "Mean and sample standard deviation over the closes in (t-5h, t], all "
+                    "of which had closed at t, with the stamped observation inside its own "
+                    "window -- which is what a Bollinger band is. Nothing after t enters "
+                    "either moment, and a window with zero dispersion emits no point."
+                ),
+                uses_trailing_statistics_only=True,
+            ),
+            FeatureSpec(
+                name="bollinger_band_width_fraction",
+                version=1,
+                compute=bollinger_band_width_fraction,
+                inputs=_CLOSED_BARS,
+                lookback=_TWENTY_PERIOD_WINDOW,
+                availability_lag=timedelta(0),
+                label_horizon=_TWENTY_PERIOD_WINDOW,
+                point_in_time_proof=(
+                    "The same trailing (t-5h, t] window and the same sample standard "
+                    "deviation bollinger_z_score divides by, over the mean of that window. "
+                    "Both moments are taken over closed bars at or before t."
                 ),
                 uses_trailing_statistics_only=True,
             ),

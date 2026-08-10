@@ -54,6 +54,28 @@ def _series(
     )
 
 
+def _probe_closes() -> list[str]:
+    """A series long enough that every registered feature emits over it.
+
+    Its length is derived from the deepest declared lookback rather than written down, so
+    a feature registered later with a longer window does not silently turn the probes
+    below into assertions over an empty tuple -- which is the failure mode that leaves the
+    look-ahead check passing while checking nothing.
+
+    Alternating up and down by uneven amounts, so no window is degenerate: a constant
+    stretch has no dispersion to standardise against and no channel to break out of, and
+    both features answer that case by emitting nothing.
+    """
+    step = timedelta(minutes=15)
+    deepest = max(spec.lookback for spec in FEATURES.values())
+    observations_needed = deepest // step + 8
+    swing = (Decimal("1.004"), Decimal("0.997"), Decimal("1.002"), Decimal("0.999"))
+    closes = [Decimal("100")]
+    while len(closes) < observations_needed:
+        closes.append(closes[-1] * swing[len(closes) % len(swing)])
+    return [format(close, "f") for close in closes]
+
+
 # ---------------------------------------------------------------------------
 # The lock
 # ---------------------------------------------------------------------------
@@ -191,12 +213,13 @@ def test_a_value_does_not_move_when_the_future_is_replaced(feature_key: tuple[st
     moves read the future.
     """
     spec = FEATURES[feature_key]
-    closes = ["100", "101", "99", "104", "97", "108", "94", "112"]
-    poisoned = [*closes[:5], "1000", "1", "5000"]
+    closes = _probe_closes()
+    cut_index = len(closes) - 4
+    poisoned = [*closes[:cut_index], "1000", "1", "5000", "2"]
 
     baseline = evaluate(spec, _series(closes))
     perturbed = evaluate(spec, _series(poisoned))
-    cut = _START + timedelta(minutes=15) * 4
+    cut = _START + timedelta(minutes=15) * (cut_index - 1)
 
     before_cut = tuple(point for point in baseline if point.event_time_utc <= cut)
     after_poison = tuple(point for point in perturbed if point.event_time_utc <= cut)
@@ -209,7 +232,7 @@ def test_available_at_is_the_event_time_plus_the_declared_lag(feature_key: tuple
     """The writer cannot claim a value was knowable earlier than the declaration says,
     because it does not supply `available_at_utc` at all -- `compute` derives it."""
     spec = FEATURES[feature_key]
-    points = evaluate(spec, _series(["100", "101", "99", "104", "97", "108"]))
+    points = evaluate(spec, _series(_probe_closes()))
     assert points
     for point in points:
         assert point.available_at_utc == point.event_time_utc + spec.availability_lag
@@ -249,3 +272,85 @@ def test_a_window_holding_one_return_emits_nothing_rather_than_a_zero() -> None:
     spec = registered("trailing_realised_volatility", 1)
     sparse = _series(["100", "140"], step=timedelta(hours=2))
     assert evaluate(spec, sparse) == ()
+
+
+def test_the_channel_state_marks_a_new_high_a_new_low_and_neither() -> None:
+    """The three states, pinned on one series rather than described.
+
+    Twenty 15-minute steps span the declared five-hour lookback, so the point stamped at
+    the twenty-first observation is the first one with a full window. The tail here walks
+    to a new high, then to a new low, then back inside the channel.
+    """
+    spec = registered("donchian_channel_breakout_state", 1)
+    closes = [*(["100"] * 20), "130", "70", "100"]
+    points = evaluate(spec, _series(closes))
+
+    assert [point.feature_value for point in points] == [
+        Decimal("1"),
+        Decimal("-1"),
+        Decimal("0"),
+    ]
+
+
+def test_a_channel_with_no_width_is_not_a_breakout_in_both_directions() -> None:
+    """A flat window's close is simultaneously the high and the low.
+
+    Reporting a breakout there -- in whichever direction the branch order happened to
+    test first -- would manufacture a directional signal out of an absence of movement,
+    and it would do it precisely on the illiquid symbols whose closes repeat.
+    """
+    spec = registered("donchian_channel_breakout_state", 1)
+    points = evaluate(spec, _series(["100"] * 22))
+    assert points
+    assert {point.feature_value for point in points} == {Decimal("0")}
+
+
+def test_the_z_score_is_the_close_standardised_against_its_own_window() -> None:
+    """A window whose moments are computable by hand.
+
+    The window is half-open, so the point stamped at the twenty-first close standardises
+    against the twenty closes inside `(t-5h, t]` and not against the observation sitting
+    exactly on the boundary: nineteen at 100 and the stamped one at 110. The sample mean
+    is 100.5, the sample standard deviation exactly 5**0.5, and the score 9.5/5**0.5.
+    The band asserted here fails on a *population* standard deviation, which would put
+    the score at 4.3589 -- the substitution that looks like a rounding choice and is a
+    different statistic.
+    """
+    spec = registered("bollinger_z_score", 1)
+    points = evaluate(spec, _series([*(["100"] * 20), "110"]))
+
+    assert len(points) == 1
+    assert points[0].feature_value > Decimal("4.248")
+    assert points[0].feature_value < Decimal("4.249")
+
+
+def test_a_window_with_no_dispersion_has_no_z_score_at_all() -> None:
+    """Zero would assert "exactly at the mean", which is a claim the data cannot support.
+
+    It is also the value that would divide a position size by nothing one layer down:
+    `InvalidationRule` scales its distance off a dispersion, and a fabricated zero there
+    is an unbounded quantity.
+    """
+    spec = registered("bollinger_z_score", 1)
+    assert evaluate(spec, _series(["100"] * 22)) == ()
+
+
+def test_the_band_width_is_the_dispersion_relative_to_the_price_level() -> None:
+    """Dimensionless, so it can be compared across instruments and used as a distance."""
+    spec = registered("bollinger_band_width_fraction", 1)
+    points = evaluate(spec, _series([*(["100"] * 20), "110"]))
+
+    assert len(points) == 1
+    # 5**0.5 / 100.5, one sample standard deviation of the window's closes over their
+    # mean, on the same twenty-close window the z-score test pins.
+    assert points[0].feature_value > Decimal("0.02224")
+    assert points[0].feature_value < Decimal("0.02226")
+
+
+def test_a_flat_band_has_zero_width_rather_than_no_value() -> None:
+    """Unlike the score, nothing divides by the width here, and "the price did not move"
+    is a true statement a consumer can act on -- by refusing to size against it."""
+    spec = registered("bollinger_band_width_fraction", 1)
+    points = evaluate(spec, _series(["100"] * 22))
+    assert points
+    assert {point.feature_value for point in points} == {Decimal("0")}
