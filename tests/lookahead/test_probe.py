@@ -39,6 +39,28 @@ _CLOSES = (
     "100", "104", "99", "108", "97", "112", "94", "118", "91", "124", "88", "131",
 )  # fmt: skip
 _HORIZON = timedelta(minutes=30)
+_STEP = timedelta(minutes=15)
+
+
+def _probe_closes() -> tuple[str, ...]:
+    """A series long enough that every registered feature emits on both sides of the cut.
+
+    Its length is derived from the deepest declared lookback rather than written down. The
+    probe cuts at the midpoint and asserts that the points before it do not move, so a
+    feature whose window does not fill until after the midpoint would turn that assertion
+    into a comparison of two empty tuples -- and the probe would go on passing while
+    checking nothing, which is the one failure mode this file cannot afford.
+
+    Irregular on purpose, like `_CLOSES`: a monotone series lets a leak that reads one bar
+    ahead produce a plausible value, and a constant one lets it produce an identical one.
+    """
+    deepest = max(spec.lookback for spec in FEATURES.values())
+    observations_needed = (deepest // _STEP) * 2 + 8
+    swing = (Decimal("1.031"), Decimal("0.972"), Decimal("1.013"), Decimal("0.949"))
+    closes = [Decimal("100")]
+    while len(closes) < observations_needed:
+        closes.append(closes[-1] * swing[len(closes) % len(swing)])
+    return tuple(format(close, "f") for close in closes)
 
 
 @pytest.mark.parametrize("feature_key", sorted(FEATURES), ids=str)
@@ -49,7 +71,7 @@ def test_no_registered_feature_reads_the_future(feature_key: tuple[str, int]) ->
     can be perfectly trailing and still be stamped as knowable before the venue published
     it, and the store filters on that stamp.
     """
-    probe_feature(FEATURES[feature_key], bars(_CLOSES))
+    probe_feature(FEATURES[feature_key], bars(_probe_closes()))
 
 
 def test_the_label_is_entered_at_a_price_the_decision_could_have_transacted_at() -> None:
