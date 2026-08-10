@@ -62,10 +62,11 @@ imports:  ## import-linter architecture contracts
 ## clock, that SafetyViolation is never caught, that ambiguous trading nouns never
 ## become identifiers, that nothing but fking.risk constructs an Order -- which
 ## import-linter cannot express, because the forbidden thing is the call and not the
-## import -- that every feature computation is in the registry the
-## look-ahead probe iterates, that no agent schema can express a position size or a
-## host, and that nothing branches on an LLM's free-text rationale. docs/rules/
-## carries the reasoning for each.
+## import -- that nothing anywhere asks which venue it is holding, which is what makes
+## backtest/live parity architectural rather than disciplinary -- that every feature
+## computation is in the registry the look-ahead probe iterates, that no agent schema
+## can express a position size or a host, and that nothing branches on an LLM's
+## free-text rationale. docs/rules/ carries the reasoning for each.
 ##
 ## property_coverage is the one that gates the tests rather than the source: risk and
 ## position math without a Hypothesis property test is a merge blocker (#170).
@@ -79,6 +80,7 @@ checks:  ## Project-specific AST and documentation checks
 	$(UV) run python tools/checks/no_catch_safety.py $(SRC) tests
 	$(UV) run python tools/checks/naming.py $(SRC)
 	$(UV) run python tools/checks/order_construction.py $(SRC)
+	$(UV) run python tools/checks/venue_isolation.py $(SRC)
 	$(UV) run python tools/checks/feature_registry.py $(SRC)
 	$(UV) run python tools/checks/agent_schema_fields.py $(SRC)/agents
 	$(UV) run python tools/checks/rationale_untouched.py $(SRC)
