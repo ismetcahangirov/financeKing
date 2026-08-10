@@ -95,3 +95,18 @@ class EventBudgetExhaustedError(BacktestError):
     The budget is declared per run rather than inferred, because "more events than
     expected" is only meaningful against a number somebody stated.
     """
+
+
+class OversubscribedWorkersError(BacktestError):
+    """More fold workers were asked for than the container's memory permits.
+
+    Refused rather than reduced. An oversubscribed pool does not fail: it swaps, and a
+    swapping run still produces every number a healthy one does -- with a wall clock that
+    is an artefact of the oversubscription. That number then lands in a performance budget
+    and gets defended, which is the failure this class exists to make impossible.
+
+    Also raised when the budget itself is impossible -- a zero per-worker footprint, a
+    parent reserve larger than the whole limit -- because those are the same mistake made
+    one step earlier, and giving them a separate class would only mean a caller catching
+    one of the two.
+    """

@@ -67,6 +67,7 @@ from fking.backtest._errors import (
     CausalityError,
     EventBudgetExhaustedError,
     ExecutionReportError,
+    OversubscribedWorkersError,
     RunConfigError,
     UnregisteredSpecificationError,
 )
@@ -82,6 +83,12 @@ from fking.backtest._events import (
     TimerEvent,
 )
 from fking.backtest._queue import EventQueue, QueuedEvent
+from fking.backtest._workers import (
+    DEFAULT_PARENT_RESERVE_BYTES,
+    WorkerMemoryBudget,
+    container_memory_limit_bytes,
+    resolve_worker_total,
+)
 from fking.backtest.costs import (
     MIN_EDGE_TO_COST_RATIO,
     CalibrationProvenanceError,
@@ -201,6 +208,7 @@ from fking.backtest.walkforward import (
 __all__ = [
     "ANNUALISATION_DAYS",
     "DEFAULT_EVENT_BUDGET",
+    "DEFAULT_PARENT_RESERVE_BYTES",
     "FAILURE_DETAIL_LIMIT_BYTES",
     "MAX_PROBABILITY_OF_BACKTEST_OVERFITTING",
     "MINIMUM_FOLDS",
@@ -261,6 +269,7 @@ __all__ = [
     "OrderAckEvent",
     "OutOfSampleObservation",
     "OverfittingProbability",
+    "OversubscribedWorkersError",
     "PartialFillProfile",
     "PathEconomics",
     "PathSplit",
@@ -311,6 +320,7 @@ __all__ = [
     "WalkForwardSchedule",
     "WalkForwardScheme",
     "WarmupGate",
+    "WorkerMemoryBudget",
     "assemble_report",
     "assess_run",
     "assess_validation",
@@ -321,6 +331,7 @@ __all__ = [
     "charge_leg",
     "charge_round_trip",
     "config_hash",
+    "container_memory_limit_bytes",
     "decay_report",
     "deflated_sharpe_ratio",
     "derive_seed",
@@ -333,6 +344,7 @@ __all__ = [
     "probability_of_backtest_overfitting",
     "regime_breakdown",
     "require_clean_result",
+    "resolve_worker_total",
     "risk_profile",
     "run_walk_forward",
     "schedule_table",

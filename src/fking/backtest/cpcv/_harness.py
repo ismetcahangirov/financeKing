@@ -27,10 +27,13 @@ the run.
 
 from __future__ import annotations
 
+import pickle
 from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
 
+from fking.backtest._workers import WorkerMemoryBudget, resolve_worker_total
 from fking.backtest.cpcv._distribution import (
     DistributionRefusedError,
     PathDistribution,
@@ -127,22 +130,31 @@ class CpcvReport:
         return self.partition.embargo
 
 
-def run_cpcv(
+def _attribute(performance: PathPerformance, split: CpcvSplit) -> PathPerformance:
+    """Check that a returned performance belongs to the path it was asked for.
+
+    Attribution, not pedantry. A performance recorded against the wrong path pairs a
+    Sharpe with somebody else's training set, and every later question about which groups
+    produced it is answered wrongly and confidently. It matters more under a worker pool
+    than in-process, because there the results arrive from another address space and
+    nothing else ties one to its request.
+    """
+    if performance.path_index != split.path_index:
+        raise CpcvConfigError(
+            f"evaluator returned a performance for path {performance.path_index} "
+            f"while evaluating path {split.path_index}"
+        )
+    return performance
+
+
+def _run_sequentially(
     partition: CpcvPartition,
     *,
     evaluate: PathEvaluator,
     charge: TrialCharge,
-) -> CpcvReport:
-    """Charge and evaluate every path in order, then summarise the distribution.
-
-    `charge` and `evaluate` are injected rather than constructed. The ledger write is a
-    database effect and the evaluation is a full backtest; neither belongs inside a
-    function whose job is the accounting between them, and injecting both is what lets the
-    accounting be tested without either.
-    """
+) -> tuple[list[PathPerformance], list[PathFailure]]:
     performances: list[PathPerformance] = []
     failures: list[PathFailure] = []
-
     for split in partition.splits:
         # Before the evaluator, unconditionally. A charge taken afterwards is a charge a
         # crash avoids, and a crash is the case this ordering exists for.
@@ -152,15 +164,98 @@ def run_cpcv(
         except CpcvPathEvaluationError as failure:
             failures.append(PathFailure(path_index=split.path_index, reason=str(failure)))
             continue
-        if performance.path_index != split.path_index:
-            # Attribution, not pedantry. A performance recorded against the wrong path
-            # pairs a Sharpe with somebody else's training set, and every later question
-            # about which groups produced it is answered wrongly and confidently.
-            raise CpcvConfigError(
-                f"evaluator returned a performance for path {performance.path_index} "
-                f"while evaluating path {split.path_index}"
-            )
-        performances.append(performance)
+        performances.append(_attribute(performance, split))
+    return performances, failures
+
+
+def _run_in_parallel(
+    partition: CpcvPartition,
+    *,
+    evaluate: PathEvaluator,
+    charge: TrialCharge,
+    worker_total: int,
+) -> tuple[list[PathPerformance], list[PathFailure]]:
+    """Evaluate the paths across a bounded process pool, collecting in path order.
+
+    Processes rather than threads. The event loop is CPython bytecode over `Decimal`, so
+    threads would serialise on the GIL and buy nothing but a second source of ordering.
+
+    Every path is charged before the first process starts, which is stricter than the
+    sequential path rather than weaker: a charge cannot be skipped by a crash that happens
+    while another path is still in flight. `charge` stays in the parent because it is a
+    database write against the one connection this run owns.
+
+    Results are collected in `partition.splits` order regardless of completion order, so
+    two runs of one partition produce byte-identical reports whatever the scheduler did.
+    """
+    try:
+        pickle.dumps(evaluate)
+    except (AttributeError, TypeError, pickle.PicklingError) as unpicklable:
+        # Checked here rather than left to the pool. `ProcessPoolExecutor` reports the
+        # same defect as a `BrokenProcessPool` several frames away from the closure that
+        # caused it, and the usual cause -- an evaluator defined inside the caller's
+        # function -- is invisible in that traceback.
+        raise CpcvConfigError(
+            f"the path evaluator cannot be sent to a worker process: {unpicklable}. A "
+            f"parallel CPCV run needs an evaluator defined at module level, holding only "
+            f"picklable state; run with worker_total=1 to evaluate in this process"
+        ) from unpicklable
+
+    for split in partition.splits:
+        charge(split)
+
+    performances: list[PathPerformance] = []
+    failures: list[PathFailure] = []
+    with ProcessPoolExecutor(max_workers=worker_total) as pool:
+        submitted = [(split, pool.submit(evaluate, split)) for split in partition.splits]
+        for split, pending in submitted:
+            try:
+                performance = pending.result()
+            except CpcvPathEvaluationError as failure:
+                failures.append(PathFailure(path_index=split.path_index, reason=str(failure)))
+                continue
+            performances.append(_attribute(performance, split))
+    return performances, failures
+
+
+def run_cpcv(
+    partition: CpcvPartition,
+    *,
+    evaluate: PathEvaluator,
+    charge: TrialCharge,
+    worker_total: int = 1,
+    memory_budget: WorkerMemoryBudget | None = None,
+) -> CpcvReport:
+    """Charge and evaluate every path, then summarise the distribution.
+
+    `charge` and `evaluate` are injected rather than constructed. The ledger write is a
+    database effect and the evaluation is a full backtest; neither belongs inside a
+    function whose job is the accounting between them, and injecting both is what lets the
+    accounting be tested without either.
+
+    `worker_total` defaults to 1 -- one process, this one -- because the parallel path
+    costs an evaluator that survives pickling, and a default that quietly required that
+    would break every existing caller at runtime rather than at the call site.
+
+    Above 1 it needs `memory_budget`, and the budget refuses an oversubscribed pool rather
+    than shrinking it (`fking.backtest._workers`). Passing a budget with `worker_total=1`
+    is meaningful too: it asserts that even one worker fits.
+    """
+    if memory_budget is not None:
+        resolve_worker_total(worker_total, memory_budget)
+    elif worker_total > 1:
+        raise CpcvConfigError(
+            f"worker_total={worker_total} was requested with no memory_budget. Fold "
+            f"parallelism is bounded by memory rather than by cores, and a pool sized "
+            f"against nothing is a pool that swaps on the container it was not measured on"
+        )
+
+    if worker_total == 1:
+        performances, failures = _run_sequentially(partition, evaluate=evaluate, charge=charge)
+    else:
+        performances, failures = _run_in_parallel(
+            partition, evaluate=evaluate, charge=charge, worker_total=worker_total
+        )
 
     distribution: PathDistribution | None = None
     refusal = ""
