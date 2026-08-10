@@ -22,15 +22,15 @@ from fking.strategy import SHIPPED_STRATEGIES, StrategyBuilder, replay
 from tests.strategy.harness import (
     BTCUSDT,
     bars_from_closes,
+    exercising_closes,
     feature_values_for,
-    rising_closes,
     signal_digest,
 )
 
 pytestmark = pytest.mark.unit
 
 _SEED = 20260801
-_BAR_COUNT = 48
+_BAR_COUNT = 128
 
 
 def _strategy_id(build: StrategyBuilder) -> str:
@@ -43,7 +43,7 @@ def test_replaying_the_same_bars_under_the_same_seed_is_byte_identical(
     build: StrategyBuilder,
 ) -> None:
     strategy = build((BTCUSDT,))
-    series = bars_from_closes(rising_closes(_BAR_COUNT))
+    series = bars_from_closes(exercising_closes(_BAR_COUNT))
     values = feature_values_for(strategy.spec, series)
 
     once = replay(strategy, series, seed=_SEED, feature_values_at=values)
@@ -60,7 +60,7 @@ def test_a_fresh_strategy_instance_replays_to_the_same_stream(build: StrategyBui
     The first test would pass on a strategy caching something on `self`, because it reuses
     one object. This one constructs a second instance from the same declared defaults.
     """
-    series = bars_from_closes(rising_closes(_BAR_COUNT))
+    series = bars_from_closes(exercising_closes(_BAR_COUNT))
     first = build((BTCUSDT,))
     second = build((BTCUSDT,))
     values = feature_values_for(first.spec, series)
@@ -77,7 +77,7 @@ def test_the_digest_rejects_a_one_femto_perturbation() -> None:
     different fold, and a comparison that tolerates the first will pass the second.
     """
     strategy = SHIPPED_STRATEGIES[0]((BTCUSDT,))
-    series = bars_from_closes(rising_closes(_BAR_COUNT))
+    series = bars_from_closes(exercising_closes(_BAR_COUNT))
     signals = replay(
         strategy,
         series,
@@ -101,7 +101,7 @@ def test_the_digest_distinguishes_values_that_compare_equal() -> None:
     with `__eq__`.
     """
     strategy = SHIPPED_STRATEGIES[0]((BTCUSDT,))
-    series = bars_from_closes(rising_closes(_BAR_COUNT))
+    series = bars_from_closes(exercising_closes(_BAR_COUNT))
     signals = replay(
         strategy,
         series,
