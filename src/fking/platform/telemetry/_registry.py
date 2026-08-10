@@ -627,6 +627,107 @@ RISK_CLUSTER_RISK_SHARE: Final = MetricSpec(
     ),
 )
 
+RISK_HISTORICAL_VAR: Final = MetricSpec(
+    name="fking_risk_historical_var_ratio",
+    kind="gauge",
+    labels=(),
+    description=(
+        "Empirical, historical-simulation VaR at the configured confidence level, as a "
+        "0-1 loss ratio -- never a parametric-normal estimate (issue #56). Read beside "
+        "fking_risk_historical_var_sample_observations_count: a VaR read off a short "
+        "sample is not a number a panel should render to three decimal places."
+    ),
+)
+
+RISK_HISTORICAL_VAR_SAMPLE_OBSERVATIONS: Final = MetricSpec(
+    name="fking_risk_historical_var_sample_observations_count",
+    kind="gauge",
+    labels=(),
+    description="Observations the VaR estimate beside this gauge was read off.",
+)
+
+RISK_HISTORICAL_CVAR: Final = MetricSpec(
+    name="fking_risk_historical_cvar_ratio",
+    kind="gauge",
+    labels=(),
+    description=(
+        "Empirical CVaR (expected shortfall) at the configured confidence level: the mean "
+        "loss conditional on being past the VaR threshold, as a 0-1 loss ratio. Coherent "
+        "and sub-additive where VaR is neither -- this is the term a limit binds on."
+    ),
+)
+
+RISK_HISTORICAL_CVAR_TAIL_OBSERVATIONS: Final = MetricSpec(
+    name="fking_risk_historical_cvar_tail_observations_count",
+    kind="gauge",
+    labels=(),
+    description=(
+        "Observations the CVaR average beside this gauge was actually taken over -- the "
+        "tail, not the whole sample. A CVaR averaged over one observation is the number "
+        "most likely to look precise and be noise."
+    ),
+)
+
+RISK_BETA_TO_BTC: Final = MetricSpec(
+    name="fking_risk_beta_to_btc_ratio",
+    kind="gauge",
+    labels=(),
+    description=(
+        "Beta of the book to BTC: whichever of the full-sample and stress-window "
+        "estimates carries the larger magnitude (issue #56) -- a beta measured calm and "
+        "relied on in stress overstates a hedge exactly when the hedge is needed."
+    ),
+)
+
+RISK_BETA_TO_BTC_SAMPLE_OBSERVATIONS: Final = MetricSpec(
+    name="fking_risk_beta_to_btc_sample_observations_count",
+    kind="gauge",
+    labels=(),
+    description=(
+        "Observations in whichever window (full sample or stress) produced the beta "
+        "beside this gauge."
+    ),
+)
+
+RISK_VOLATILITY_TO_TARGET: Final = MetricSpec(
+    name="fking_risk_volatility_to_target_ratio",
+    kind="gauge",
+    labels=(),
+    description=(
+        "Realised annualised volatility over the target the sizing engine aims at. Above "
+        "one means the book is running hotter than it was sized to; below one is capacity "
+        "left on the table, not merely a metric inside its band."
+    ),
+)
+
+RISK_VOLATILITY_SAMPLE_OBSERVATIONS: Final = MetricSpec(
+    name="fking_risk_volatility_sample_observations_count",
+    kind="gauge",
+    labels=(),
+    description="Observations the realised volatility estimate beside this gauge was read off.",
+)
+
+RISK_CONCENTRATION_HERFINDAHL: Final = MetricSpec(
+    name="fking_risk_concentration_herfindahl_ratio",
+    kind="gauge",
+    labels=(),
+    description=(
+        "Herfindahl index over the book's cluster risk shares, in [0, 1]. Rises as risk "
+        "concentrates into fewer clusters at constant notional; the per-symbol and "
+        "per-cluster share gauges above are the detail this one summarises."
+    ),
+)
+
+RISK_CONCENTRATION_CLUSTER_COUNT: Final = MetricSpec(
+    name="fking_risk_concentration_cluster_count",
+    kind="gauge",
+    labels=(),
+    description=(
+        "Correlation clusters actually carrying weight, which the Herfindahl gauge "
+        "beside this one was computed over."
+    ),
+)
+
 RISK_KILL_SWITCH_ENGAGED: Final = MetricSpec(
     name="fking_risk_kill_switch_engaged_count",
     kind="gauge",
@@ -778,14 +879,24 @@ REGISTERED_METRICS: Final[tuple[MetricSpec, ...]] = (
     LOG_FIELDS_DROPPED,
     LOG_ORPHAN_RECORDS,
     RISK_ASSET_RISK_SHARE,
+    RISK_BETA_TO_BTC,
+    RISK_BETA_TO_BTC_SAMPLE_OBSERVATIONS,
     RISK_CLUSTER_RISK_SHARE,
+    RISK_CONCENTRATION_CLUSTER_COUNT,
+    RISK_CONCENTRATION_HERFINDAHL,
     RISK_DECISIONS,
+    RISK_HISTORICAL_CVAR,
+    RISK_HISTORICAL_CVAR_TAIL_OBSERVATIONS,
+    RISK_HISTORICAL_VAR,
+    RISK_HISTORICAL_VAR_SAMPLE_OBSERVATIONS,
     RISK_KILL_SWITCH_ENGAGED,
     RISK_LIMIT_UTILISATION,
     RISK_PORTFOLIO_DRAWDOWN,
     RISK_PORTFOLIO_VOLATILITY,
     RISK_POSITION_NOTIONAL,
     RISK_VETOES,
+    RISK_VOLATILITY_SAMPLE_OBSERVATIONS,
+    RISK_VOLATILITY_TO_TARGET,
     SCHEDULER_JOB_RUNS,
     SCHEDULER_OVERLAPS_REFUSED,
     STRATEGY_SIGNALS_EMITTED,

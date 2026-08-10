@@ -9,8 +9,13 @@ from __future__ import annotations
 
 import pytest
 
-from fking.platform.telemetry import MetricLabelError, MetricSpec, counter
-from fking.platform.telemetry._registry import BUS_EVENTS_PUBLISHED, LOG_FIELDS_DROPPED
+from fking.platform.telemetry import MetricLabelError, MetricSpec, counter, gauge
+from fking.platform.telemetry._registry import (
+    BUS_EVENTS_PUBLISHED,
+    LOG_FIELDS_DROPPED,
+    RISK_BETA_TO_BTC,
+    RISK_PORTFOLIO_DRAWDOWN,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -41,11 +46,31 @@ def test_a_counter_cannot_decrease() -> None:
 
 
 def test_asking_for_a_counter_handle_on_a_gauge_is_refused() -> None:
-    gauge = MetricSpec(
+    spec = MetricSpec(
         name="fking_risk_portfolio_drawdown_ratio",
         kind="gauge",
         labels=(),
         description="Portfolio drawdown against peak equity.",
     )
     with pytest.raises(MetricLabelError, match="not a counter"):
-        counter(gauge)
+        counter(spec)
+
+
+def test_a_gauge_accepts_its_declared_label_set() -> None:
+    """Guards the rejection test below: a handle that refused everything would pass it."""
+    gauge(RISK_PORTFOLIO_DRAWDOWN).set(0.1)
+
+
+def test_a_gauge_may_be_set_to_a_negative_value() -> None:
+    """A signed beta or a hedge's risk share is a legitimate gauge reading, not an error."""
+    gauge(RISK_BETA_TO_BTC).set(-1.4)
+
+
+def test_a_gauge_with_a_mismatched_label_set_is_refused() -> None:
+    with pytest.raises(MetricLabelError, match="set with"):
+        gauge(RISK_PORTFOLIO_DRAWDOWN).set(0.1, symbol="BTCUSDT")
+
+
+def test_asking_for_a_gauge_handle_on_a_counter_is_refused() -> None:
+    with pytest.raises(MetricLabelError, match="not a gauge"):
+        gauge(BUS_EVENTS_PUBLISHED)
