@@ -38,7 +38,7 @@ _LINUX_MAXRSS_UNIT_BYTES: Final = 1024
 # type-checked on the platform that runs it.
 if sys.platform == "win32":
     import ctypes
-    from ctypes import wintypes
+    import ctypes.wintypes
 
     class _ProcessMemoryCounters(ctypes.Structure):
         """`PROCESS_MEMORY_COUNTERS`, as psapi.h declares it.
@@ -51,8 +51,8 @@ if sys.platform == "win32":
         # Not a mutable class attribute in the RUF012 sense: ctypes reads it once at
         # class creation and the descriptor set it produces is what the fields become.
         _fields_ = [
-            ("cb", wintypes.DWORD),
-            ("PageFaultCount", wintypes.DWORD),
+            ("cb", ctypes.wintypes.DWORD),
+            ("PageFaultCount", ctypes.wintypes.DWORD),
             ("PeakWorkingSetSize", ctypes.c_size_t),
             ("WorkingSetSize", ctypes.c_size_t),
             ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
@@ -70,13 +70,13 @@ if sys.platform == "win32":
     # fails by returning zero rather than by raising.
     _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     _psapi = ctypes.WinDLL("psapi", use_last_error=True)
-    _kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    _kernel32.GetCurrentProcess.restype = ctypes.wintypes.HANDLE
     _kernel32.GetCurrentProcess.argtypes = []
-    _psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+    _psapi.GetProcessMemoryInfo.restype = ctypes.wintypes.BOOL
     _psapi.GetProcessMemoryInfo.argtypes = [
-        wintypes.HANDLE,
+        ctypes.wintypes.HANDLE,
         ctypes.POINTER(_ProcessMemoryCounters),
-        wintypes.DWORD,
+        ctypes.wintypes.DWORD,
     ]
 
     def peak_rss_bytes() -> int:
