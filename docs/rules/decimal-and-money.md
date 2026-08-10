@@ -115,8 +115,14 @@ def configure_decimal_context() -> None:
     """Call exactly once, first thing in the process entrypoint.
 
     FloatOperation is the load-bearing trap: it turns `Decimal(0.1)` and
-    `Decimal("0.1") == 0.1` — the two failures that otherwise pass silently — into
+    `Decimal("0.1") < 0.1` — two failures that otherwise pass silently — into
     exceptions at the point of the mistake.
+
+    It does not turn `Decimal("0.1") == 0.1` into one. CPython leaves equality
+    comparisons and explicit conversions silent even when the signal is trapped,
+    so that one answers False and says nothing; the AST check below is what keeps
+    a float away from the comparison. Measured against CPython 3.12 while
+    implementing this function (#110) — the earlier text here claimed otherwise.
     """
     context = getcontext()
     context.prec = 38
