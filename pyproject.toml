@@ -197,6 +197,15 @@ ignore = [
 # than a function of wall-clock time and a module-level random. Bundling them into a
 # config object would hide exactly the injection points a reviewer needs to see.
 "src/fking/data/live/supervisor.py" = ["PLR0913"]
+# PLR0913: `decide()` composes seven independently-developed terms -- conviction, sizing,
+# exposure, concentration, drawdown, netting and the kill switch -- and its private helpers
+# thread the single decision instant, the assessments produced so far and the policy through
+# every one of them, because the audit row has to name every limit that was evaluated.
+# Collapsing them into a context object would hide exactly what a reviewer must be able to
+# see: that one instant and one policy reach every term rather than each term reading its
+# own. The helpers are private and keyword-only, so the argument count is documented by the
+# signature rather than carried positionally.
+"src/fking/risk/engine.py" = ["PLR0913"]
 # S608: the Parquet read path builds `read_parquet('<glob>')` by interpolation, because
 # DuckDB's table function takes a path pattern rather than a bind parameter -- there is
 # no parameterised spelling of it. The interpolated values are a filesystem glob derived
