@@ -19,8 +19,10 @@ from hypothesis import strategies as st
 
 from fking.platform.supervisor import (
     TRIPPING_MODES,
+    DegradedEntry,
     DegradedMode,
     KillSwitchReading,
+    SupervisorError,
     SupervisorState,
     apply_reading,
     boot_halted_state,
@@ -197,3 +199,42 @@ def test_a_state_cannot_be_mutated() -> None:
     state = boot_halted_state()
     with pytest.raises(dataclasses.FrozenInstanceError):
         state.halted_reason = None  # type: ignore[misc]  # the assignment is the test
+
+
+# --------------------------------------------------------------- the constructor's guards
+#
+# The transitions above cannot produce any of these three states, which is exactly why the
+# guards are worth testing directly: an untested guard reads as dead code to whoever next
+# tidies this file, and each of these is the representation invariant the properties above
+# assume rather than re-check.
+
+_STALE = DegradedEntry(
+    mode=DegradedMode.DATA_STALE,
+    entered_at_utc=datetime(2026, 8, 11, 3, 14, tzinfo=UTC),
+    detail="BTCUSDT last tick is 40 minutes old",
+)
+_QUOTA = DegradedEntry(
+    mode=DegradedMode.LLM_QUOTA_EXHAUSTED,
+    entered_at_utc=datetime(2026, 8, 11, 3, 15, tzinfo=UTC),
+    detail="gemini free tier",
+)
+
+
+def test_a_halt_with_a_blank_reason_is_refused() -> None:
+    """`None` is the only spelling of 'not halted'. A whitespace reason would be a halt
+    that renders as nothing in the log line an operator reads."""
+    with pytest.raises(SupervisorError, match="empty reason"):
+        SupervisorState(halted_reason="   ", degraded=())
+
+
+def test_the_same_mode_twice_is_refused() -> None:
+    """Two entries for one mode double-count an outage and give it two entry times."""
+    with pytest.raises(SupervisorError, match="present twice"):
+        SupervisorState(halted_reason=None, degraded=(_STALE, _STALE))
+
+
+def test_an_uncanonical_ordering_is_refused() -> None:
+    """Order is part of the value: without it two states describing the same world
+    compare unequal, and the idempotence properties above would be asserting nothing."""
+    with pytest.raises(SupervisorError, match="canonical order"):
+        SupervisorState(halted_reason=None, degraded=(_QUOTA, _STALE))
