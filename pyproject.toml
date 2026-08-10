@@ -226,6 +226,11 @@ ignore = [
 # build, so the argument count is the type's field count. Collapsing them into a params
 # object would mean constructing a second object in order to construct the first.
 "tests/backtest/portfolio_support.py" = ["S101", "PLR0913"]
+# PLR0913: `plan_for` takes one keyword per field of `CpcvPlan`, for the same reason. It
+# cannot be narrowed by bundling the window bounds into an interval object, because two of
+# the tests it serves pass a naive and a non-UTC boundary on purpose -- values `TimeInterval`
+# refuses at construction, which is exactly what those two tests assert about `CpcvPlan`.
+"tests/backtest/cpcv_support.py" = ["PLR0913"]
 # S311: the reconnect backoff is seeded here on purpose. Production uses SystemRandom --
 # jitter across replicas is the entire point of full jitter -- but a *test* of a
 # schedule must be reproducible, and a cryptographic generator is exactly what takes
