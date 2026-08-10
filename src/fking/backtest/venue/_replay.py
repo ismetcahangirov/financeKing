@@ -364,13 +364,12 @@ class VenueRecorder:
     order id and a per-order sequence number.
     """
 
-    __slots__ = ("_client_order_ids", "_fills", "_pending_ack", "_responses")
+    __slots__ = ("_client_order_ids", "_fills", "_responses")
 
     def __init__(self) -> None:
         self._responses: dict[str, RecordedResponse] = {}
         self._client_order_ids: dict[UUID, str] = {}
         self._fills: dict[str, list[RecordedFill]] = {}
-        self._pending_ack: set[str] = set()
 
     def record_submission(self, answer: OrderAckEvent | RejectEvent) -> None:
         """Record the venue's answer to one submission."""
@@ -384,7 +383,6 @@ class VenueRecorder:
         self._client_order_ids[order.order_id] = client_order_id
         self._fills[client_order_id] = []
         if isinstance(answer, OrderAckEvent):
-            self._pending_ack.add(client_order_id)
             self._responses[client_order_id] = RecordedResponse(
                 client_order_id=client_order_id,
                 acknowledged_at_utc=answer.occurs_at_utc,
@@ -405,11 +403,21 @@ class VenueRecorder:
 
     def record_ack_outcome(self, events: Iterable[FillEvent | RejectEvent]) -> None:
         """Record what resolving an ack produced: aggressive prints, or a late refusal."""
-        self._record(events, phase=ResponsePhase.ACK)
+        for event in events:
+            if isinstance(event, RejectEvent):
+                self._record_late_rejection(event)
+                continue
+            self._record_fill(event, phase=ResponsePhase.ACK)
 
     def record_observed(self, events: Iterable[FillEvent]) -> None:
-        """Record the passive prints a closing bar paid out."""
-        self._record(events, phase=ResponsePhase.BAR)
+        """Record the passive prints a closing bar paid out.
+
+        Fills only, by type. A refusal cannot arrive here -- the simulator refuses at
+        submission or when an ack resolves, never in the middle of paying the resting
+        queue -- and a parameter that admitted one would be a branch no session can reach.
+        """
+        for event in events:
+            self._record_fill(event, phase=ResponsePhase.BAR)
 
     def build(self, report: VenueReport) -> VenueRecording:
         """The recording, with adverse selection joined on from `report`."""
@@ -443,33 +451,23 @@ class VenueRecorder:
             )
         return VenueRecording(responses=tuple(responses))
 
-    def _record(self, events: Iterable[FillEvent | RejectEvent], *, phase: ResponsePhase) -> None:
-        for event in events:
-            if isinstance(event, RejectEvent):
-                self._record_late_rejection(event, phase=phase)
-                continue
-            client_order_id = self._client_order_id_for(event.fill.order_id)
-            self._fills[client_order_id].append(
-                RecordedFill(
-                    client_order_id=client_order_id,
-                    venue_trade_id=event.fill.venue_trade_id,
-                    phase=phase,
-                    event_time_utc=event.fill.event_time_utc,
-                    quote_price=event.fill.quote_price,
-                    base_quantity=event.fill.base_quantity,
-                    fee_quote=event.fill.fee_quote,
-                    # Replaced from the report in `build`; a fill event does not carry it.
-                    passive_markout_quote=_ZERO,
-                )
+    def _record_fill(self, event: FillEvent, *, phase: ResponsePhase) -> None:
+        client_order_id = self._client_order_id_for(event.fill.order_id)
+        self._fills[client_order_id].append(
+            RecordedFill(
+                client_order_id=client_order_id,
+                venue_trade_id=event.fill.venue_trade_id,
+                phase=phase,
+                event_time_utc=event.fill.event_time_utc,
+                quote_price=event.fill.quote_price,
+                base_quantity=event.fill.base_quantity,
+                fee_quote=event.fill.fee_quote,
+                # Replaced from the report in `build`; a fill event does not carry it.
+                passive_markout_quote=_ZERO,
             )
+        )
 
-    def _record_late_rejection(self, event: RejectEvent, *, phase: ResponsePhase) -> None:
-        if phase is not ResponsePhase.ACK:
-            raise VenueRecordingError(
-                f"{event.order.client_order_id} was refused while a bar was being "
-                f"observed; the simulator refuses at submission or when an ack resolves, "
-                f"never in the middle of paying the resting queue"
-            )
+    def _record_late_rejection(self, event: RejectEvent) -> None:
         client_order_id = event.order.client_order_id
         existing = self._responses[client_order_id]
         self._responses[client_order_id] = RecordedResponse(
