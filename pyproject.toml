@@ -327,6 +327,8 @@ module = [
     "fking.backtest.costs._latency",
     "fking.backtest.costs._model",
     "fking.backtest.costs._spread",
+    "fking.backtest.results._finding",
+    "fking.backtest.results._result",
     "fking.backtest.validation._deflated",
     "fking.data.live.frames",
     "fking.execution.models",
