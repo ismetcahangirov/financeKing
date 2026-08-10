@@ -61,6 +61,7 @@ from fking.backtest.costs._model import (
     FeeSchedule,
     PartialFillProfile,
 )
+from fking.backtest.costs._provenance import names_testnet
 from fking.backtest.costs._report import (
     MIN_EDGE_TO_COST_RATIO,
     CostVerdict,
@@ -110,5 +111,6 @@ __all__: tuple[str, ...] = (
     "calibrate_spread_profile",
     "charge_leg",
     "charge_round_trip",
+    "names_testnet",
     "walk_depth",
 )
