@@ -11,7 +11,7 @@ ARGS ?=
 COMPOSE ?= docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: help check lint format types imports checks corrupt-fixtures adr-index test cover secrets audit up down logs ps config migrate migrate-down migrate-sql seed ingest data-coverage backtest release release-tag rollback-drill restore-drill backup backup-list backup-prune
+.PHONY: help check lint format types imports checks corrupt-fixtures adr-index test cover secrets audit bench up down logs ps config migrate migrate-down migrate-sql seed ingest data-coverage backtest release release-tag rollback-drill restore-drill backup backup-list backup-prune
 
 help:  ## Show the available targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -218,6 +218,21 @@ BACKTEST_CONFIG ?= config/backtest.toml
 ## and the command says so in its own output rather than leaving a reader to assume.
 backtest:  ## Gate a backtest's data window on coverage; BACKTEST_CONFIG=... to choose the file
 	$(UV) run python -m fking.backtest.feed $(BACKTEST_CONFIG) $(ARGS)
+
+## The pinned reference workload -- one strategy, one symbol, a fixed window, a fixed seed,
+## a full 28-path CPCV -- reported as wall clock, peak RSS and events/second.
+##
+## Not part of `check`, and not asserted on a developer machine. The laptop this budget was
+## developed on produced 11.6 s and 43.4 s for the identical workload within one session,
+## so a local `--check` would be a coin flip. CI runs `--check` on a runner whose spread is
+## small enough to mean something; locally this target is for comparing a change against
+## the commit before it, back to back, in one sitting. PERFORMANCE_GUIDE.md section 10.
+##
+##   make bench                                    # measure and print
+##   make bench ARGS="--check"                     # gate against the committed budget
+##   make bench ARGS="--profile docs/perf/x.md"    # rewrite the profiling record
+bench:  ## Measure the pinned backtest reference workload; ARGS="--check" to gate
+	$(UV) run python -m tools.bench $(ARGS)
 
 # ---------------------------------------------------------------------------
 # Releases. RELEASE_PROCESS.md is the specification; tools/release/ is the part of

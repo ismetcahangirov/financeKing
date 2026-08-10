@@ -183,6 +183,38 @@ jobs:
           if-no-files-found: error
 
   # --------------------------------------------------------------------------
+  # Performance budget.
+  #
+  # Its own job rather than a step in `test`, and not part of `make check`, for two
+  # reasons. It takes about half a minute of pure CPU, which is dead weight on every
+  # local run of the gate; and its verdict is only meaningful on this runner class --
+  # the developer machine the budget was developed on produced 11.6 s and 43.4 s for
+  # the identical workload in one session, so a laptop assertion would be a coin
+  # flip. PERFORMANCE_GUIDE.md section 11 states the budget and the machine.
+  #
+  # Deliberately *not* `continue-on-error`. A budget that reports and does not block
+  # is a budget that is over by 40% within two months, because the number nobody has
+  # to act on is the number nobody reads. The failure message carries the previous
+  # and the current wall clock, so acting on it does not require re-running anything.
+  # --------------------------------------------------------------------------
+  bench:
+    name: Performance budget (pinned reference workload)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: fast
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen
+
+      - name: The pinned CPCV reference workload, against the committed budget
+        run: uv run python -m tools.bench --check
+
+  # --------------------------------------------------------------------------
   # Corruption corpus.
   #
   # Its own job rather than a step inside `test`, per issue #25, because "the data
