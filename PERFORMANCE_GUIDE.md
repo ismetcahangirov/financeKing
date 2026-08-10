@@ -276,16 +276,20 @@ The workload reports zero trades on every path by construction, so `path_distrib
 
 | | |
 |---|---|
-| **Budget** | **32.0 s wall clock**, single process |
-| **Tolerance** | 20% over — the build fails above 38.4 s |
+| **Measured** | **3.60 s**, 39,908 events/second, peak RSS 242 MB |
+| **Budget** | **5.0 s wall clock**, single process |
+| **Tolerance** | 20% over — the build fails above 6.0 s |
 | **Machine** | GitHub-hosted `ubuntu-latest` runner, 4 vCPU / 16 GiB, CPython 3.12 |
-| **Measured** | 2026-08-10, by the `bench` CI job (issue #109) |
-| **Peak RSS** | ~170 MB, recorded rather than gated |
+| **Taken** | 2026-08-10, by the `bench` CI job on PR #208 (issue #109) |
 | **Where it lives** | `tools/bench/_budget.py` |
 
 Wall clock, not CPU. A change that halves CPU time and triples I/O has not helped, and against a CPU budget it would read as a 50% win.
 
+The budget sits above the measurement on purpose. A shared runner's CPU allocation varies by tens of percent between builds, so 3.60 s + 20% would fail builds that changed nothing, and a gate that cries wolf gets marked `continue-on-error`. At 5.0 s the ceiling still fails any change costing more than 66% extra per event, and comfortably fails the doubling this exists to catch. It should be tightened once several builds' readings exist to bound the spread with.
+
 **The budget is a CI number, and there is deliberately no developer-machine budget.** The laptop this work was done on (i7-10870H, 16 GiB, Windows 11) produced 11.6 s and 43.4 s for the identical workload within a single session — a 3.7x spread from background load and thermal throttling, eighteen times the tolerance. A gate asserted there would fail on a busy afternoon and pass on a genuine 50% regression the next morning, and a gate that does that gets disabled within a month.
+
+Worth knowing before you conclude your machine is broken: that laptop is **three to twelve times slower than the CI runner** on this workload. A 3.60 s CI figure and a 30 s local one are the same code.
 
 So locally, `make bench` is for comparing a change against the commit before it, back to back, in one sitting — which is the comparison a noisy machine can support. `make bench ARGS="--check"` will run anywhere, and its verdict means nothing off the reference machine.
 
@@ -307,7 +311,7 @@ Fold parallelism (§6) is bounded by memory, never by cores. `os.cpu_count()` in
 ```python
 budget = WorkerMemoryBudget(
     memory_limit_bytes=container_memory_limit_bytes() or 4 * 1024**3,
-    per_worker_peak_rss_bytes=170_000_000,   # make bench prints this
+    per_worker_peak_rss_bytes=242_000_000,   # make bench prints this
 )
 report = run_cpcv(partition, evaluate=..., charge=..., worker_total=4, memory_budget=budget)
 ```

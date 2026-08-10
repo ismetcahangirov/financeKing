@@ -56,15 +56,25 @@ class ReferenceBudget:
         return self.wall_clock_seconds * (1.0 + TOLERANCE_FRACTION)
 
 
-#: PROVISIONAL. This value has not yet been measured on the runner it names; it is a
-#: first estimate so the `bench` CI job has something to compare against on its first
-#: execution, and the commit that records the measured number replaces it. If you are
-#: reading this comment on `main`, that replacement did not happen and the gate is
-#: asserting a number nobody took.
+#: Measured by the `bench` job on pull request #208: **3.60 s** over 143,651 events
+#: (39,908 events/second), peak RSS 242 MB, on a GitHub-hosted `ubuntu-latest` runner.
+#:
+#: Recorded at 5.0 s rather than at 3.60 s, and the gap is a deliberate trade rather than
+#: rounding. A shared runner's CPU allocation varies by tens of percent between builds, so
+#: a budget at the measurement plus 20% would fail builds that changed nothing -- and a
+#: gate that cries wolf is a gate that gets marked `continue-on-error` within a month. At
+#: 5.0 s the ceiling is 6.0 s, which still fails any regression that costs more than 66%
+#: of the current per-event cost, and comfortably fails the doubling this budget exists to
+#: catch. Tighten it once several builds' readings exist to bound the spread with.
+#:
+#: Peak RSS is the Linux reading, which is 44% above the same workload's 168 MB on Windows
+#: -- glibc's allocator returns less to the OS than Windows' heap does. The larger of the
+#: two is the right input to `WorkerMemoryBudget`, which is sizing a pool that will run on
+#: Linux.
 REFERENCE_BUDGET: Final = ReferenceBudget(
     machine="GitHub-hosted ubuntu-latest runner (4 vCPU, 16 GiB), CPython 3.12",
-    wall_clock_seconds=32.0,
-    peak_rss_bytes=170 * 1000 * 1000,
+    wall_clock_seconds=5.0,
+    peak_rss_bytes=242 * 1000 * 1000,
     measured_on=date(2026, 8, 10),
 )
 
