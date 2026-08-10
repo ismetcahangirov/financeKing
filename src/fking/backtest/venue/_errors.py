@@ -24,3 +24,13 @@ class VenueSimulationError(BacktestError):
     invented price, and an invented price is indistinguishable from a real one once it
     is in the equity curve.
     """
+
+
+class VenueRecordingError(VenueSimulationError):
+    """A replay was asked for a response the recording does not hold, or holds twice.
+
+    Separate from the base so a divergence between a run and its recording is legible in
+    a traceback without reading the message: it is the failure that says the run stopped
+    following the session it claims to reproduce, which is a finding about the run and
+    never a reason to substitute a plausible response.
+    """
