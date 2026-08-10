@@ -16,13 +16,21 @@ from __future__ import annotations
 from typing import Final
 
 from opentelemetry import metrics
+
+# The pinned opentelemetry-api build exports the synchronous gauge instrument as `_Gauge`
+# rather than `Gauge` -- `Meter.create_gauge`'s own return annotation names it `Gauge` and
+# the class's `__qualname__` agrees, but the module's `__all__` only lists the
+# underscore-prefixed name. Aliased on import so nothing downstream carries the upstream
+# quirk in its own name.
 from opentelemetry.metrics import Counter
+from opentelemetry.metrics import _Gauge as Gauge
 
 from fking.platform.telemetry._registry import MetricSpec
 
 _METER_NAME: Final[str] = "fking.platform.telemetry"
 
 _counters: Final[dict[str, Counter]] = {}
+_gauges: Final[dict[str, Gauge]] = {}
 
 
 class MetricLabelError(ValueError):
@@ -66,6 +74,38 @@ class CounterHandle:
         _counter(self._spec).add(by, dict(labels))
 
 
+class GaugeHandle:
+    """A gauge bound to its declared labels.
+
+    Deliberately not a subclass of the SDK's `Gauge`, for the same reason as
+    `CounterHandle`: `set()` with an arbitrary attribute mapping is unreachable from
+    application code. Unlike a counter a gauge may decrease and may carry a negative
+    reading -- a signed risk share or a beta is a legitimate gauge value -- so `set()`
+    imposes no sign constraint of its own.
+    """
+
+    __slots__ = ("_spec",)
+
+    def __init__(self, spec: MetricSpec) -> None:
+        self._spec = spec
+
+    @property
+    def spec(self) -> MetricSpec:
+        return self._spec
+
+    def set(self, reading: float, /, **labels: str) -> None:
+        """Record the current reading, refusing any label set other than the declared one."""
+        supplied = frozenset(labels)
+        declared = frozenset(self._spec.labels)
+        if supplied != declared:
+            raise MetricLabelError(
+                f"{self._spec.name} declares labels {sorted(declared)} but was set with "
+                f"{sorted(supplied)}; a mismatched label set creates a second series that "
+                f"no dashboard queries"
+            )
+        _gauge(self._spec).set(reading, dict(labels))
+
+
 def _counter(spec: MetricSpec) -> Counter:
     cached = _counters.get(spec.name)
     if cached is not None:
@@ -88,6 +128,27 @@ def counter(spec: MetricSpec) -> CounterHandle:
     return CounterHandle(spec)
 
 
+def _gauge(spec: MetricSpec) -> Gauge:
+    cached = _gauges.get(spec.name)
+    if cached is not None:
+        return cached
+    # Same deferred-creation reasoning as `_counter`: resolving against the meter at call
+    # time, not at import time, is what lets `configure_telemetry()` run after modules
+    # have already imported their instruments.
+    created = metrics.get_meter(_METER_NAME).create_gauge(
+        name=spec.name, description=spec.description
+    )
+    _gauges[spec.name] = created
+    return created
+
+
+def gauge(spec: MetricSpec) -> GaugeHandle:
+    """A handle for a declared gauge. Raises if the spec is not a gauge."""
+    if spec.kind != "gauge":
+        raise MetricLabelError(f"{spec.name} is a {spec.kind}, not a gauge")
+    return GaugeHandle(spec)
+
+
 def reset_instrument_cache() -> None:
     """Drop cached instruments so a test can install a fresh meter provider.
 
@@ -95,3 +156,4 @@ def reset_instrument_cache() -> None:
     the first one's instruments, and its assertions read zero.
     """
     _counters.clear()
+    _gauges.clear()

@@ -20,8 +20,10 @@ Everything not in `__all__` is private and may change without notice.
 
 from fking.platform.telemetry._instruments import (
     CounterHandle,
+    GaugeHandle,
     MetricLabelError,
     counter,
+    gauge,
     reset_instrument_cache,
 )
 from fking.platform.telemetry._registry import (
@@ -68,6 +70,7 @@ __all__ = [
     "REGISTERED_METRICS",
     "SERIES_PER_INSTRUMENT",
     "CounterHandle",
+    "GaugeHandle",
     "MetricLabelError",
     "MetricNameError",
     "MetricRename",
@@ -78,6 +81,7 @@ __all__ = [
     "build_resource",
     "configure_telemetry",
     "counter",
+    "gauge",
     "reconcile_with_pin",
     "reset_instrument_cache",
     "traced",
