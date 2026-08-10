@@ -32,6 +32,8 @@ Two consequences that people push back on and should not:
 
 Every trigger is evaluated continuously, not on a schedule. Each carries a default and a compiled ceiling in the pattern of `RISK_PHILOSOPHY.md` §9 — config can tighten, never loosen.
 
+The evaluators are `fking.risk.triggers`, and they are pure: the measurements and the instant arrive as fields on a `TriggerObservations` record built by the caller that owns the I/O, so a trip is replayable from the row it was written from. Triggers 1–3 read the same `DrawdownBudgets` the drawdown limits read rather than carrying a second copy of the numbers — the 4.5% below is `1.5 ×` the 3% daily budget, not a third configurable value.
+
 | # | Trigger | Default threshold |
 |---|---|---|
 | 1 | Portfolio drawdown from persisted high-water mark | ≥ 10% |
@@ -152,6 +154,8 @@ Resume restores trading globally. It does **not** un-suspend individual strategi
 ## 3. Degraded operating modes
 
 Each mode is an explicit named state, entered and exited with an audit event, visible on the dashboard, and exposed as a metric. There is no unnamed degraded state — if the system's behaviour differs from normal, it has a name and someone can see it.
+
+`fking.risk.degraded` holds the state machine and `MODE_RULES` holds what each mode does, as a table rather than as branches in whichever supervisor noticed. Two consequences worth knowing before reading the sections below: entering is idempotent under at-least-once delivery — an observation carries its own id and a redelivery produces no second audit row — and `ModeRule.affects_trading` is false for exactly one mode, which is §3.3's design assertion made mechanical rather than restated.
 
 ### 3.1 `DATA_STALE`
 

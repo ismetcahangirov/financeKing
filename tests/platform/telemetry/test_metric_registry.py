@@ -72,6 +72,8 @@ PINNED_METRIC_NAMES: frozenset[str] = frozenset(
         "fking_risk_concentration_cluster_count",
         "fking_risk_concentration_herfindahl_ratio",
         "fking_risk_decisions_total",
+        "fking_risk_degraded_mode_engaged_count",
+        "fking_risk_degraded_mode_transitions_total",
         "fking_risk_historical_cvar_ratio",
         "fking_risk_historical_cvar_tail_observations_count",
         "fking_risk_historical_var_ratio",
