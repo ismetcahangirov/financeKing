@@ -20,6 +20,16 @@ the future -- is the strategy's problem and is handled by `StrategyState.visible
 because that is the asymmetry between backtest and live that the shared code path exists
 to expose.
 
+**A feature the caller declares unavailable stops the evaluation instead of being
+substituted.** Under `DATA_STALE` or `FEATURE_STORE_PARTIAL` (`FAILSAFE.md` section 3)
+the engine withholds the value and names the requirement in `unavailable_features`; the
+strategy body is then never called for that bar. The alternative -- forward-filling, or
+passing a zero -- produces a flat series, which every volatility estimator reads as calm
+and every mean-reversion strategy reads as an opportunity. Both are exactly wrong, both
+look reasonable, and the resulting behaviour is unfalsifiable. Supplying a *value* for a
+requirement that is also declared unavailable is refused rather than resolved, because
+the two statements cannot both be true and the imputed one is the one that would win.
+
 **The emitted signal is checked against the spec that produced it.** Most sharply, the
 invalidation level: `RISK_PHILOSOPHY.md` section 3.1 makes that level the denominator of
 every position size, so a strategy free to name any level is a strategy free to size
@@ -32,7 +42,7 @@ an object, so a replay of a fold cannot observe state left over from the fold be
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -59,29 +69,54 @@ class StrategyStep:
 
     state: StrategyState
     signal: Signal | None
+    # The requirements withheld for this bar, if any. A caller that wants to know why a
+    # bar produced nothing can tell "the strategy declined" from "the strategy was never
+    # asked" without reading a log line.
+    unavailable_features: tuple[FeatureRequirement, ...] = ()
 
 
-def step(
+def step(  # noqa: PLR0913 - the two feature parameters are one concept in two halves,
+    # and collapsing them into an object would let a caller construct one that says a
+    # requirement is both supplied and unavailable without ever calling this function.
     strategy: Strategy,
     state: StrategyState,
     bar: Bar,
     clock: Clock,
     *,
     feature_values: Mapping[FeatureRequirement, Decimal] | None = None,
+    unavailable_features: Collection[FeatureRequirement] = (),
 ) -> StrategyStep:
-    """Consume `bar` and return the new state plus whatever belief it produced."""
+    """Consume `bar` and return the new state plus whatever belief it produced.
+
+    `unavailable_features` names requirements the engine could not compute point-in-time
+    -- a stale symbol, a failed nightly job, a schema mismatch. They are declared rather
+    than silently absent so that the refusal to evaluate is a stated decision with a
+    reason, and so that "the value is missing" and "the value is imputed" cannot be the
+    same code path.
+    """
     spec = strategy.spec
     as_of = require_utc(clock(), "clock()")
     supplied = _NO_FEATURES if feature_values is None else feature_values
+    withheld = tuple(unavailable_features)
 
     _require_declared_observation(spec, bar, as_of=as_of, state=state)
     _require_known_requirements(spec, supplied)
+    _require_declarable_unavailability(spec, supplied, withheld)
 
     advanced = state.advanced_with(bar, feature_values=supplied, window_bars=spec.warm_up_bars + 1)
     if advanced.bars_consumed < spec.warm_up_bars:
         # Suppressed by the engine, so the strategy body never has to know it is warming
         # up -- and so the number of suppressed bars is exactly the declared one.
         return StrategyStep(state=advanced, signal=None)
+
+    blocking = tuple(
+        requirement for requirement in spec.required_features if requirement in set(withheld)
+    )
+    if blocking:
+        # No signal, and `evaluate` is not called at all. `FAILSAFE.md` section 3.5: a
+        # strategy depending on an uncomputable feature emits nothing rather than
+        # deciding from a substituted number.
+        return StrategyStep(state=advanced, signal=None, unavailable_features=blocking)
 
     _require_every_declared_feature(spec, supplied)
     signal = strategy.evaluate(advanced, bar, clock)
@@ -181,6 +216,43 @@ def _require_known_requirements(
         raise ObservationRefusedError(
             f"{spec.describe()} was handed values for {undeclared}, which it does not "
             f"declare; an undeclared input is one no availability check gated"
+        )
+
+
+def _require_declarable_unavailability(
+    spec: StrategySpec,
+    feature_values: Mapping[FeatureRequirement, Decimal],
+    unavailable_features: tuple[FeatureRequirement, ...],
+) -> None:
+    """Refuse an unavailability the spec never declared, and refuse a contradicted one.
+
+    The second half is the one that matters. A requirement that arrives with a value
+    *and* a statement that it is unavailable is a caller doing both things at once, and
+    resolving it silently means resolving it in favour of the value -- which is the
+    imputation this parameter exists to prevent, arriving through the parameter meant to
+    prevent it.
+    """
+    undeclared = sorted(
+        requirement.describe()
+        for requirement in unavailable_features
+        if requirement not in spec.required_features
+    )
+    if undeclared:
+        raise ObservationRefusedError(
+            f"{spec.describe()} was told {undeclared} are unavailable, and it never "
+            f"declared them; an unavailability for a feature nobody asked for is a "
+            f"caller confusing two strategies' requirements"
+        )
+    contradicted = sorted(
+        requirement.describe()
+        for requirement in unavailable_features
+        if requirement in feature_values
+    )
+    if contradicted:
+        raise ObservationRefusedError(
+            f"{spec.describe()} was handed values for {contradicted} and told the same "
+            f"features are unavailable. Those cannot both hold, and the reading that "
+            f"wins by default is the substituted value"
         )
 
 
