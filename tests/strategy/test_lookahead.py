@@ -40,22 +40,25 @@ from fking.strategy import (
     StrategyBuilder,
     StrategySpec,
     StrategyState,
+    initial_state,
     replay,
+    step,
 )
 from fking.strategy.trailing_return import TrailingReturnContinuation
 from tests.strategy.harness import (
     BTCUSDT,
     bars_from_closes,
+    clock_at,
+    exercising_closes,
     feature_values_for,
     poison_after,
-    rising_closes,
     signal_digest,
 )
 
 pytestmark = pytest.mark.unit
 
 _SEED = 20260801
-_BAR_COUNT = 48
+_BAR_COUNT = 128
 
 
 def _strategy_id(build: StrategyBuilder) -> str:
@@ -79,7 +82,7 @@ def test_replacing_the_future_does_not_move_a_decision_taken_before_it(
     build: StrategyBuilder,
 ) -> None:
     strategy = build((BTCUSDT,))
-    series = bars_from_closes(rising_closes(_BAR_COUNT))
+    series = bars_from_closes(exercising_closes(_BAR_COUNT))
     cut_utc = series[len(series) // 2].close_time_utc
 
     baseline = replay(
@@ -165,14 +168,42 @@ class _PeekingStrategy:
         )
 
 
+def _first_signalling_index(strategy: Strategy, series: Sequence[Bar]) -> int:
+    """The first bar on which `strategy` actually decides something.
+
+    A fixed index -- the midpoint, say -- cannot serve every strategy at once: a breakout
+    baseline decides on the bar that makes a new extreme and a mean-reversion baseline
+    decides on one that explicitly does not, so no single bar produces a signal from both.
+    Comparing "no signal" against "no signal" would pass this probe forever.
+    """
+    spec = strategy.spec
+    values = feature_values_for(spec, series)
+    state = initial_state(seed=_SEED)
+    for index, observed in enumerate(series):
+        outcome = step(
+            strategy,
+            state,
+            observed,
+            clock_at(observed.close_time_utc),
+            feature_values=values[observed.close_time_utc],
+        )
+        state = outcome.state
+        if outcome.signal is not None:
+            return index
+    raise AssertionError(
+        f"{spec.describe()} decided nothing over {len(series)} bars, so the probe would "
+        f"compare an absence against an absence"
+    )
+
+
 def _decide_with_and_without_the_future(
     strategy: Strategy,
 ) -> tuple[Signal | None, Signal | None]:
     """One decision taken twice: once from a truthful state, once from a state holding
     bars that had not happened yet."""
     spec = strategy.spec
-    series = bars_from_closes(rising_closes(_BAR_COUNT))
-    decision_index = len(series) // 2
+    series = bars_from_closes(exercising_closes(_BAR_COUNT))
+    decision_index = _first_signalling_index(strategy, series)
     decision_bar = series[decision_index]
     values = feature_values_for(spec, series)[decision_bar.close_time_utc]
 

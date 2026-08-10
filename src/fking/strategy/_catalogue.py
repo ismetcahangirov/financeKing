@@ -24,6 +24,8 @@ from typing import Final
 
 from fking.domain import Instrument
 from fking.strategy._contract import Strategy
+from fking.strategy.bollinger_reversion import BollingerBandReversion
+from fking.strategy.donchian_breakout import DonchianChannelBreakout
 from fking.strategy.trailing_return import TrailingReturnContinuation
 
 __all__ = ["SHIPPED_STRATEGIES", "StrategyBuilder"]
@@ -33,4 +35,13 @@ __all__ = ["SHIPPED_STRATEGIES", "StrategyBuilder"]
 # constructor of every entry.
 StrategyBuilder = Callable[[tuple[Instrument, ...]], Strategy]
 
-SHIPPED_STRATEGIES: Final[tuple[StrategyBuilder, ...]] = (TrailingReturnContinuation,)
+SHIPPED_STRATEGIES: Final[tuple[StrategyBuilder, ...]] = (
+    TrailingReturnContinuation,
+    # The baseline control group (#57). They are here rather than in a separate tuple
+    # because a control that is exempt from the determinism replay, the warm-up property
+    # and the look-ahead probe is a control nobody can rely on -- and because "is this a
+    # baseline?" is a question about intent, which belongs in the strategy's own docstring
+    # and not in a partition of the catalogue that some later caller will filter on.
+    DonchianChannelBreakout,
+    BollingerBandReversion,
+)

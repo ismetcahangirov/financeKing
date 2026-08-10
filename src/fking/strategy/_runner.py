@@ -86,7 +86,7 @@ def step(
     _require_every_declared_feature(spec, supplied)
     signal = strategy.evaluate(advanced, bar, clock)
     if signal is not None:
-        _require_signal_matches_spec(spec, signal, bar, as_of=as_of)
+        _require_signal_matches_spec(spec, signal, bar, as_of=as_of, feature_values=supplied)
     return StrategyStep(state=advanced, signal=signal)
 
 
@@ -202,7 +202,12 @@ def _require_every_declared_feature(
 
 
 def _require_signal_matches_spec(
-    spec: StrategySpec, signal: Signal, bar: Bar, *, as_of: datetime
+    spec: StrategySpec,
+    signal: Signal,
+    bar: Bar,
+    *,
+    as_of: datetime,
+    feature_values: Mapping[FeatureRequirement, Decimal],
 ) -> None:
     if signal.strategy_id != spec.strategy_id:
         raise SignalRefusedError(
@@ -225,16 +230,28 @@ def _require_signal_matches_spec(
             f"{spec.describe()} declares a horizon of {spec.signal_horizon} and emitted "
             f"{signal.horizon}; the horizon sizes the walk-forward embargo and the label"
         )
-    _require_declared_invalidation(spec, signal, bar)
+    _require_declared_invalidation(spec, signal, bar, feature_values=feature_values)
 
 
-def _require_declared_invalidation(spec: StrategySpec, signal: Signal, bar: Bar) -> None:
+def _require_declared_invalidation(
+    spec: StrategySpec,
+    signal: Signal,
+    bar: Bar,
+    *,
+    feature_values: Mapping[FeatureRequirement, Decimal],
+) -> None:
     """The emitted level must be the one the declared rule produces.
 
     This is the check that makes the invalidation declaration load-bearing. The level is
     the denominator of `q = (r_used * E) / |P_entry - P_invalidation|`, so a strategy free
     to widen it at will is a strategy free to enlarge its own position -- which is the
     authority the risk engine holds alone.
+
+    The recomputation is fed the same feature values the strategy was handed, which is
+    what keeps a volatility-scaled distance checkable: the rule names the feature, the
+    engine supplies the value, and the strategy contributes nothing to the arithmetic. A
+    rule that read the value from the *signal* would be checking the strategy's homework
+    against the strategy's own answer.
     """
     if signal.direction is Direction.FLAT:
         return
@@ -242,6 +259,7 @@ def _require_declared_invalidation(spec: StrategySpec, signal: Signal, bar: Bar)
         direction=signal.direction,
         reference_quote_price=bar.close_quote_price,
         instrument=bar.instrument,
+        feature_values=feature_values,
     )
     if signal.invalidation_quote_price != expected:
         raise SignalRefusedError(

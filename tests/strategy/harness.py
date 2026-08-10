@@ -1,12 +1,16 @@
-"""Bars, stand-in feature values, and a digest sharp enough to mean "byte-identical".
+"""Bars, real feature values, and a digest sharp enough to mean "byte-identical".
 
-Three pieces, each with an obvious wrong version.
+Four pieces, each with an obvious wrong version.
 
-**`feature_values_for` derives its window from the feature catalogue**, not from a
-constant written here. The registry refuses a strategy whose warm-up does not cover its
-deepest declared lookback, so a hard-coded window in the harness would eventually disagree
-with the declaration the test is supposed to be exercising -- and the disagreement would
-read as a strategy bug.
+**`feature_values_for` computes the registered features**, rather than substituting a
+plausible-looking series of its own. A substitute is a second definition of every feature,
+written by whoever is testing the strategy that reads it, and it drifts from the registered
+one in the direction that makes the strategy look right -- while the look-ahead probe goes
+on reporting that a computation nobody runs has no leak.
+
+**`exercising_closes` contains both regimes.** A monotone ramp is a permanent breakout: it
+exercises a trend strategy and silences a mean-reversion one, and a fixture that silences
+the strategy under test makes every assertion about it vacuous.
 
 **`poison_after` is gross, not subtle.** Closes after the cut are tripled and thirded in
 alternation, which multiplies every return's magnitude by nine and inverts its sign. A
@@ -29,7 +33,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Final
 
-from fking.data.features.registry import FEATURES
+from fking.data.features.registry import FEATURES, evaluate
+from fking.data.features.spec import FeatureObservation
 from fking.domain import Bar, Instrument, Signal, Venue
 from fking.strategy import Clock, FeatureRequirement, StrategySpec
 
@@ -39,6 +44,7 @@ __all__ = [
     "SERIES_START_UTC",
     "bars_from_closes",
     "clock_at",
+    "exercising_closes",
     "feature_values_for",
     "poison_after",
     "rising_closes",
@@ -70,6 +76,15 @@ ETHUSDT: Final = Instrument(
 SERIES_START_UTC: Final = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
 
 _POISON_FACTOR: Final[Decimal] = Decimal("3")
+
+# Long enough that every shipped strategy's warm-up is behind it: six hours of 15-minute
+# bars is 24, and the deepest declared warm-up is 24.
+_RAMP_BARS: Final[int] = 26
+# A shock is only readable as an excursion once the ramp has left the window behind it --
+# twenty 15-minute bars, the deepest declared feature lookback. Mixed in with a ramp, a
+# dip is just one more value in a wide window and standardises to well under two sigma.
+_BARS_BEFORE_FIRST_SHOCK: Final[int] = 26
+_MINIMUM_EXERCISING_BARS: Final[int] = 128
 
 
 def clock_at(as_of: datetime) -> Clock:
@@ -133,28 +148,82 @@ def rising_closes(
     return tuple(closes[:bar_count])
 
 
+def exercising_closes(
+    bar_count: int, *, base: str = "64000", step: str = "0.006"
+) -> tuple[Decimal, ...]:
+    """A series that puts every shipped strategy through a decision, in three acts.
+
+    `rising_closes` cannot do that job any more. A monotone ramp is a permanent breakout,
+    so it exercises a trend baseline and silences a mean-reversion one -- and a test whose
+    setup silences the strategy under test passes for the wrong reason and keeps passing
+    after the strategy stops working.
+
+    The acts are: a ramp, which makes every close the highest of its window; a quiet
+    alternating plateau, which makes none of them an extreme; and a shock -- a deep dip, a
+    bounce, and a second shallower dip. The second dip is the one that matters. It is a
+    two-sigma excursion that is *not* the low of its window, because the first dip went
+    further, which is the only shape a "fade an excursion that has stopped making new
+    extremes" rule can act on at all. Constructing it by hand rather than sampling for it
+    is deliberate: a fixture searched for until a strategy fired would be a fixture fitted
+    to the strategy.
+    """
+    if bar_count < _MINIMUM_EXERCISING_BARS:
+        raise ValueError(
+            f"exercising_closes needs at least {_MINIMUM_EXERCISING_BARS} bars to hold a "
+            f"ramp, a plateau and two shocks; got {bar_count}"
+        )
+    growth = Decimal("1") + Decimal(step)
+    quiet = (Decimal("0.990"), Decimal("0.991"))
+    shock = (Decimal("0.930"), Decimal("0.985"), Decimal("0.950"))
+    # One shock in each half. The look-ahead probe cuts the series at its midpoint and
+    # asserts that decisions taken before the cut are unmoved, so a strategy whose only
+    # entry lands after the midpoint would be compared against nothing at all.
+    shock_starts = (_RAMP_BARS + _BARS_BEFORE_FIRST_SHOCK, bar_count - len(shock) - 3)
+
+    closes = [Decimal(base)]
+    while len(closes) < _RAMP_BARS:
+        closes.append(closes[-1] * growth)
+    peak = closes[-1]
+    while len(closes) < bar_count:
+        offsets = [len(closes) - start for start in shock_starts]
+        inside = next((offset for offset in offsets if 0 <= offset < len(shock)), None)
+        if inside is None:
+            closes.append(peak * quiet[len(closes) % len(quiet)])
+        else:
+            closes.append(peak * shock[inside])
+    return tuple(closes)
+
+
 def feature_values_for(
     spec: StrategySpec, bars: Sequence[Bar]
 ) -> Mapping[datetime, Mapping[FeatureRequirement, Decimal]]:
-    """A stand-in feature store: trailing return over each requirement's declared lookback.
+    """The real feature values, computed through the registry the strategy declared against.
 
-    Trailing by construction -- the value at bar *i* reads `close[i]` and
-    `close[i - window]` and nothing after either -- so a future perturbation cannot reach
-    a pre-cut value through the harness. If it could, the look-ahead probe would fail for
-    a reason that has nothing to do with the strategy, and the probe would get deleted.
+    Not a stand-in. A hand-rolled substitute is a second definition of every feature,
+    written by the person whose strategy is being tested, and it drifts from the registered
+    one in exactly the direction that makes the strategy look correct -- while the probes
+    below go on reporting that a strategy nobody is running has no look-ahead.
+
+    Values are keyed by `available_at_utc` rather than by event time, and a value whose
+    availability instant is not itself a bar close is dropped rather than carried forward.
+    That is the conservative direction: a decision can only ever be handed a value that was
+    already publishable at the instant it was taken, never one stamped a moment later.
     """
+    observations = tuple(
+        FeatureObservation(
+            event_time_utc=observed.close_time_utc,
+            open_quote_price=observed.open_quote_price,
+            close_quote_price=observed.close_quote_price,
+        )
+        for observed in bars
+    )
     by_instant: dict[datetime, dict[FeatureRequirement, Decimal]] = {
         observed.close_time_utc: {} for observed in bars
     }
     for requirement in spec.required_features:
-        window = FEATURES[requirement.key].lookback // spec.shortest_bar_interval
-        for index, observed in enumerate(bars):
-            if index < window:
-                continue
-            base_quote_price = bars[index - window].close_quote_price
-            by_instant[observed.close_time_utc][requirement] = (
-                observed.close_quote_price / base_quote_price - Decimal("1")
-            )
+        for point in evaluate(FEATURES[requirement.key], observations):
+            if point.available_at_utc in by_instant:
+                by_instant[point.available_at_utc][requirement] = point.feature_value
     return by_instant
 
 

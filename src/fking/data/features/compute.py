@@ -36,7 +36,13 @@ from decimal import Decimal
 
 from fking.data.features.spec import FeatureObservation, FeaturePoint, FeatureWindow
 
-__all__ = ["trailing_realised_volatility", "trailing_return_fraction"]
+__all__ = [
+    "bollinger_band_width_fraction",
+    "bollinger_z_score",
+    "donchian_channel_breakout_state",
+    "trailing_realised_volatility",
+    "trailing_return_fraction",
+]
 
 
 def trailing_return_fraction(
@@ -115,6 +121,149 @@ def trailing_realised_volatility(
                 event_time_utc=observation.event_time_utc,
                 available_at_utc=observation.event_time_utc + window.availability_lag,
                 feature_value=Decimal(str(statistics.stdev(returns))),
+            )
+        )
+    return tuple(points)
+
+
+def donchian_channel_breakout_state(
+    observations: Sequence[FeatureObservation], window: FeatureWindow
+) -> tuple[FeaturePoint, ...]:
+    """`1` at a new window high close, `-1` at a new window low close, `0` between them.
+
+    The window is `(t - lookback, t]` and the extremes are taken over the closes inside
+    it, the newest of which is the observation being stamped -- so the comparison is
+    "is this close the highest one that has happened", never "the highest one that will".
+    An observation with no predecessor at or before the window start yields no point.
+
+    Ties resolve to a breakout: a close equal to the window high *is* the high, and the
+    Donchian rule is an inclusive one. A window whose high and low are the same price is
+    the one case where both tests pass at once, and it emits `0` -- a market that has not
+    moved has no channel to break out of, and calling it a breakout in both directions at
+    once would produce a signal from an absence of information.
+
+    Exact throughout: an extreme is a comparison between two `Decimal` closes and a state
+    is one of three exact values, so nothing here has an estimate's error to hide behind.
+    """
+    points: list[FeaturePoint] = []
+    for index, observation in enumerate(observations):
+        window_start = observation.event_time_utc - window.lookback
+        first_inside = index
+        while first_inside > 0 and observations[first_inside - 1].event_time_utc > window_start:
+            first_inside -= 1
+        if first_inside == 0:
+            # No observation at or before the window start, so the window is not full and
+            # the extremes would be taken over however much history the caller loaded.
+            continue
+        closes = [
+            observations[position].close_quote_price for position in range(first_inside, index + 1)
+        ]
+        highest = max(closes)
+        lowest = min(closes)
+        if highest == lowest:
+            state = Decimal("0")
+        elif observation.close_quote_price == highest:
+            state = Decimal("1")
+        elif observation.close_quote_price == lowest:
+            state = Decimal("-1")
+        else:
+            state = Decimal("0")
+        points.append(
+            FeaturePoint(
+                event_time_utc=observation.event_time_utc,
+                available_at_utc=observation.event_time_utc + window.availability_lag,
+                feature_value=state,
+            )
+        )
+    return tuple(points)
+
+
+def bollinger_z_score(
+    observations: Sequence[FeatureObservation], window: FeatureWindow
+) -> tuple[FeaturePoint, ...]:
+    """How many sample standard deviations the close sits from the window's mean close.
+
+    The mean and the standard deviation are taken over the closes inside `(t - lookback,
+    t]`, all of which had already happened at `t`, and the point being stamped is inside
+    its own window -- which is what a Bollinger band is. A centred window, or one that
+    standardised against the mean of the whole sample, is the same arithmetic reading the
+    future, and it is the version that produces a beautiful equity curve.
+
+    A window whose closes are all one price emits nothing rather than a zero: the
+    dispersion the score divides by is zero there, and `0` would assert "exactly at the
+    mean" on evidence that cannot distinguish that from any other position.
+    """
+    points: list[FeaturePoint] = []
+    for index, observation in enumerate(observations):
+        window_start = observation.event_time_utc - window.lookback
+        first_inside = index
+        while first_inside > 0 and observations[first_inside - 1].event_time_utc > window_start:
+            first_inside -= 1
+        if first_inside == 0:
+            continue
+        closes = [
+            float(observations[position].close_quote_price)
+            for position in range(first_inside, index + 1)
+        ]
+        # Bound inside the body rather than at module scope, so `definition_digest` moves
+        # if it ever changes: a constant a feature depends on but does not contain is one
+        # that can be edited without any version number noticing.
+        minimum_closes_for_stdev = 2
+        if len(closes) < minimum_closes_for_stdev:
+            continue
+        dispersion = statistics.stdev(closes)
+        if dispersion == 0.0:
+            continue
+        points.append(
+            FeaturePoint(
+                event_time_utc=observation.event_time_utc,
+                available_at_utc=observation.event_time_utc + window.availability_lag,
+                feature_value=Decimal(
+                    str(
+                        (float(observation.close_quote_price) - statistics.fmean(closes))
+                        / dispersion
+                    )
+                ),
+            )
+        )
+    return tuple(points)
+
+
+def bollinger_band_width_fraction(
+    observations: Sequence[FeatureObservation], window: FeatureWindow
+) -> tuple[FeaturePoint, ...]:
+    """One Bollinger standard deviation, as a dimensionless fraction of the mean close.
+
+    The same window and the same statistic `bollinger_z_score` divides by, expressed
+    relative to the price level so that it can be compared across instruments and used as
+    a distance. It is a separate feature rather than a second return value because a
+    feature is one series with one lookback and one lag, and the two are read by different
+    parts of a strategy: the score decides *whether*, the width decides *how far wrong*.
+
+    A window with no dispersion emits `0` rather than nothing. Unlike the score there is
+    no division by it here, and "the price did not move over the window" is a true
+    statement about width that a consumer can act on -- by refusing to size against it.
+    """
+    points: list[FeaturePoint] = []
+    for index, observation in enumerate(observations):
+        window_start = observation.event_time_utc - window.lookback
+        first_inside = index
+        while first_inside > 0 and observations[first_inside - 1].event_time_utc > window_start:
+            first_inside -= 1
+        if first_inside == 0:
+            continue
+        closes = [
+            float(observations[position].close_quote_price)
+            for position in range(first_inside, index + 1)
+        ]
+        minimum_closes_for_stdev = 2
+        if len(closes) < minimum_closes_for_stdev:
+            continue
+        points.append(
+            FeaturePoint(
+                event_time_utc=observation.event_time_utc,
+                available_at_utc=observation.event_time_utc + window.availability_lag,
+                feature_value=Decimal(str(statistics.stdev(closes) / statistics.fmean(closes))),
             )
         )
     return tuple(points)

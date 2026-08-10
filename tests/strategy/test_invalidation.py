@@ -13,7 +13,7 @@ from decimal import Decimal
 import pytest
 
 from fking.domain import Direction
-from fking.strategy import InvalidationRule, StrategyContractError
+from fking.strategy import FeatureRequirement, InvalidationRule, StrategyContractError
 from tests.strategy.harness import BTCUSDT
 
 pytestmark = pytest.mark.unit
@@ -115,3 +115,100 @@ def test_an_adverse_move_declared_as_a_float_is_refused() -> None:
     here runs."""
     with pytest.raises(StrategyContractError, match="must be a Decimal"):
         InvalidationRule(adverse_move_fraction=0.01)  # type: ignore[arg-type]  # the point
+
+
+# ---------------------------------------------------------------------------
+# The volatility-scaled rule
+# ---------------------------------------------------------------------------
+
+_VOLATILITY = FeatureRequirement(feature_name="trailing_realised_volatility", feature_version=1)
+_SCALED = InvalidationRule(
+    adverse_move_fraction=Decimal("0.002"),
+    volatility_feature=_VOLATILITY,
+    volatility_multiple=Decimal("10"),
+    maximum_adverse_move_fraction=Decimal("0.10"),
+)
+
+
+def test_a_scaled_distance_is_the_multiple_of_the_supplied_value() -> None:
+    """Between the floor and the cap, the declared arithmetic and nothing else."""
+    assert _SCALED.adverse_move_fraction_for({_VOLATILITY: Decimal("0.004")}) == Decimal("0.04")
+
+
+def test_a_collapsed_volatility_estimate_is_floored_rather_than_believed() -> None:
+    """A stalled market drives the estimate towards zero, and the distance is the
+    denominator of `q = (r_used * E) / |P_entry - P_invalidation|`. Believing it there is
+    an unbounded position arrived at through arithmetic nobody sees."""
+    assert _SCALED.adverse_move_fraction_for({_VOLATILITY: Decimal("0")}) == Decimal("0.002")
+
+
+def test_a_volatility_spike_is_capped_rather_than_followed() -> None:
+    """The other end: a stop wide enough to swallow the account is not a falsification
+    level, it is an absence of one."""
+    assert _SCALED.adverse_move_fraction_for({_VOLATILITY: Decimal("0.5")}) == Decimal("0.10")
+
+
+def test_a_missing_feature_value_refuses_rather_than_falling_back_to_the_floor() -> None:
+    """Substituting the floor would size a position against a distance nobody declared,
+    and it would do it silently on exactly the bars where the feature store failed."""
+    with pytest.raises(StrategyContractError, match="no value for it was supplied"):
+        _SCALED.adverse_move_fraction_for({})
+
+
+def test_a_negative_dispersion_is_refused() -> None:
+    """A negative distance puts the stop on the winning side of the entry, where it is
+    breached at the instant the position opens."""
+    with pytest.raises(StrategyContractError, match="cannot be negative"):
+        _SCALED.adverse_move_fraction_for({_VOLATILITY: Decimal("-0.01")})
+
+
+def test_a_scaled_rule_without_a_cap_is_refused_at_construction() -> None:
+    """At construction rather than at the first position it sizes: the unbounded case is
+    a declaration error, and discovering it from a fill is discovering it too late."""
+    with pytest.raises(StrategyContractError, match="unbounded one is an unbounded quantity"):
+        InvalidationRule(
+            adverse_move_fraction=Decimal("0.002"),
+            volatility_feature=_VOLATILITY,
+            volatility_multiple=Decimal("10"),
+        )
+
+
+def test_a_scaled_rule_with_a_non_positive_multiple_is_refused() -> None:
+    with pytest.raises(StrategyContractError, match="volatility_multiple must be positive"):
+        InvalidationRule(
+            adverse_move_fraction=Decimal("0.002"),
+            volatility_feature=_VOLATILITY,
+            volatility_multiple=Decimal("0"),
+            maximum_adverse_move_fraction=Decimal("0.10"),
+        )
+
+
+def test_a_cap_below_the_floor_is_refused() -> None:
+    """Crossed bounds satisfy no distance, and the clamp would silently pick one."""
+    with pytest.raises(StrategyContractError, match="the bounds cross"):
+        InvalidationRule(
+            adverse_move_fraction=Decimal("0.05"),
+            volatility_feature=_VOLATILITY,
+            volatility_multiple=Decimal("10"),
+            maximum_adverse_move_fraction=Decimal("0.01"),
+        )
+
+
+def test_a_multiple_without_a_feature_to_scale_is_refused() -> None:
+    """It reads as a scaled stop and behaves as a fixed one, which is the worst available
+    combination: the reviewer believes the first and the position sizer gets the second."""
+    with pytest.raises(StrategyContractError, match="a multiple of nothing"):
+        InvalidationRule(adverse_move_fraction=Decimal("0.01"), volatility_multiple=Decimal("10"))
+
+
+def test_a_cap_without_a_feature_to_scale_is_refused() -> None:
+    with pytest.raises(StrategyContractError, match="a fixed fraction is already its own cap"):
+        InvalidationRule(
+            adverse_move_fraction=Decimal("0.01"),
+            maximum_adverse_move_fraction=Decimal("0.10"),
+        )
+
+
+def test_a_fixed_rule_ignores_whatever_feature_values_arrive() -> None:
+    """The distance is the declared fraction, and no supplied value can move it."""
+    assert _ONE_PERCENT.adverse_move_fraction_for({_VOLATILITY: Decimal("0.9")}) == Decimal("0.01")
