@@ -21,6 +21,7 @@ from tools.checks import (
     naming,
     no_catch_safety,
     property_coverage,
+    venue_isolation,
 )
 
 pytestmark = pytest.mark.unit
@@ -423,6 +424,55 @@ class TestPropertyCoverage:
         assert property_coverage.main(["src/fking", "tests/property"]) == 0
 
 
+class TestVenueIsolation:
+    """Branching on which venue is held is what makes parity disciplinary again."""
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "if isinstance(venue, BacktestVenue): pass\n",
+            "if isinstance(venue, PaperVenue): pass\n",
+            "if isinstance(venue, (ReplayVenue, DemoVenue)): pass\n",
+            "if isinstance(venue, venues.BacktestVenue): pass\n",
+            "if issubclass(held, PaperVenue): pass\n",
+            "if type(venue) is ReplayVenue: pass\n",
+            "if venue.__class__ is BacktestVenue: pass\n",
+        ],
+    )
+    def test_a_venue_conditional_branch_is_rejected(self, source: str) -> None:
+        assert venue_isolation.check_source(source, label="x.py")
+
+    def test_a_tuple_reports_every_venue_it_names(self) -> None:
+        """One failure per branch would understate a two-venue special case."""
+        source = "if isinstance(venue, (BacktestVenue, PaperVenue)): pass\n"
+        named = ("BacktestVenue", "PaperVenue")
+        failures = venue_isolation.check_source(source, label="x.py")
+
+        assert len(failures) == len(named)
+        assert all(any(name in failure for failure in failures) for name in named)
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            # Naming a venue is how one gets built; only branching on it is refused.
+            "venue = BacktestVenue(cost_model=model)\n",
+            "def run(venue: SimulatedVenue) -> None: ...\n",
+            "from fking.backtest.venue import ReplayVenue\n",
+            # The domain enum names an exchange, not a fill model.
+            "if isinstance(named, Venue): pass\n",
+            "if venue.profile.venue is Venue.BINANCE_SPOT_TESTNET: pass\n",
+            # A shadowed isinstance with the wrong arity is not the builtin.
+            "if isinstance(venue, PaperVenue, extra): pass\n",
+        ],
+    )
+    def test_naming_a_venue_without_branching_on_it_is_accepted(self, source: str) -> None:
+        assert venue_isolation.check_source(source, label="x.py") == []
+
+    def test_the_real_tree_passes(self) -> None:
+        """The committed tree must be clean, or `make check` is green on a lie."""
+        assert venue_isolation.main(["src/fking"]) == 0
+
+
 CHECK_ENTRY_POINTS: Mapping[str, Callable[[Sequence[str]], int]] = {
     "clock_isolation": clock_isolation.main,
     "feature_registry": feature_registry.main,
@@ -430,6 +480,7 @@ CHECK_ENTRY_POINTS: Mapping[str, Callable[[Sequence[str]], int]] = {
     "money_types": money_types.main,
     "naming": naming.main,
     "no_catch_safety": no_catch_safety.main,
+    "venue_isolation": venue_isolation.main,
 }
 
 

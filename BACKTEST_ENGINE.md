@@ -127,8 +127,9 @@ What this buys: when a backtest and a paper run disagree, the disagreement is ne
 Enforcement:
 
 - `import-linter` forbids `strategy` from importing `execution` at all, so a strategy cannot detect which venue it is running against.
-- No `if isinstance(venue, BacktestVenue)` anywhere in the codebase. A CI grep asserts it.
-- No `is_backtest` flag on any config object reachable from `strategy` or `risk`.
+- No `if isinstance(venue, BacktestVenue)` anywhere in the codebase. `tools/checks/venue_isolation.py` asserts it as part of `make check`, over the AST rather than over the text: it also catches `type(venue) is PaperVenue` and `venue.__class__ is ReplayVenue`, which a grep for `isinstance` does not, and which is what the second author writes after the first one is rejected.
+- No `is_backtest` flag on any config object reachable from `strategy` or `risk`. `tests/backtest/test_no_backtest_flag.py` scans `strategy`, `risk`, `domain` and `platform/config` for the whole family of names — `dry_run`, `paper_mode`, `simulated` — because banning one spelling teaches the next.
+- `BacktestVenue` and `PaperVenue` hold one `FillSimulation` between them rather than a fill model each, so their agreement is not something anybody has to maintain. `tests/backtest/test_parity.py` measures which lines of that module each venue executed and asserts the two sets are equal.
 - A **parity test** runs the same strategy over the same window through `BacktestVenue` and `ReplayVenue` with recorded fills injected, and asserts the emitted `Signal` sequence is identical. Signals, not fills — fills legitimately differ; signals must not.
 
 `CLAUDE.md` §11 names the corresponding anti-pattern: writing a backtest-only code path for a strategy. If a strategy needs different code to run in backtest, fix the venue abstraction. Do not fix the strategy.
