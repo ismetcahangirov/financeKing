@@ -142,6 +142,10 @@ LABEL_DOMAINS: Final[Mapping[str, int]] = {
     "liquidity": 2,  # maker, taker
     "logger": 64,  # module count
     "market": 2,  # spot, futures
+    # The named degraded modes in FAILSAFE.md section 3. Five today; bounded at eight so
+    # that adding one is a rule-table edit rather than a cardinality argument, and no
+    # higher because "there is no unnamed degraded state" caps this set by construction.
+    "mode": 8,
     "order_type": 4,  # market, limit, stop_market, stop_limit
     "outcome": 6,  # a closed enum per metric, never free text
     "provider": 3,  # gemini, groq, and one spare
@@ -739,6 +743,28 @@ RISK_KILL_SWITCH_ENGAGED: Final = MetricSpec(
     ),
 )
 
+RISK_DEGRADED_MODE_ENGAGED: Final = MetricSpec(
+    name="fking_risk_degraded_mode_engaged_count",
+    kind="gauge",
+    labels=("mode",),
+    description=(
+        "1 while a named degraded mode is entered, 0 otherwise, per mode. Labelled "
+        "rather than a single unlabelled gauge because two modes can be entered at "
+        "once and a scalar would report whichever transitioned last."
+    ),
+)
+
+RISK_DEGRADED_MODE_TRANSITIONS: Final = MetricSpec(
+    name="fking_risk_degraded_mode_transitions_total",
+    kind="counter",
+    labels=("mode", "outcome"),
+    description=(
+        "Crossings into and out of a named degraded mode. `outcome` is entered or "
+        "exited. Counts incidents, not heartbeats: a mode entered once and observed "
+        "faulted for an hour increments this once."
+    ),
+)
+
 EXECUTION_ORDERS_SUBMITTED: Final = MetricSpec(
     name="fking_execution_orders_submitted_total",
     kind="counter",
@@ -885,6 +911,8 @@ REGISTERED_METRICS: Final[tuple[MetricSpec, ...]] = (
     RISK_CONCENTRATION_CLUSTER_COUNT,
     RISK_CONCENTRATION_HERFINDAHL,
     RISK_DECISIONS,
+    RISK_DEGRADED_MODE_ENGAGED,
+    RISK_DEGRADED_MODE_TRANSITIONS,
     RISK_HISTORICAL_CVAR,
     RISK_HISTORICAL_CVAR_TAIL_OBSERVATIONS,
     RISK_HISTORICAL_VAR,
