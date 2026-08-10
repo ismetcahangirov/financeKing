@@ -28,7 +28,11 @@ from fking.backtest import (
     TimerEvent,
 )
 from fking.domain import Venue
-from tests.backtest.registration_support import REGISTERED
+from tests.backtest.registration_support import (
+    PATH_LABEL,
+    REGISTERED,
+    RecordingReporter,
+)
 from tests.support.backtest_events import (
     BAR_INTERVAL,
     RecordingHandler,
@@ -185,7 +189,13 @@ def test_an_event_scheduled_mid_drain_lands_in_the_total_order() -> None:
     )
     handler = SchedulingHandler(follow_ups=follow_ups)
 
-    EventLoop(config_for(start_utc=START), handler, registration=REGISTERED).run(initial)
+    EventLoop(
+        config_for(start_utc=START),
+        handler,
+        registration=REGISTERED,
+        reporter=RecordingReporter(),
+        path_label=PATH_LABEL,
+    ).run(initial)
 
     # Each fill is scheduled while its own bar is being dispatched, at that same instant,
     # and is dispatched immediately after it -- never before, and never deferred past the
@@ -226,7 +236,13 @@ def test_peek_does_not_consume_and_an_empty_pop_refuses() -> None:
 def test_the_recording_handler_sees_every_event_the_loop_dispatched() -> None:
     handler = RecordingHandler()
     initial = bar_events(START, how_many=3)
-    trace = EventLoop(config_for(start_utc=START), handler, registration=REGISTERED).run(initial)
+    trace = EventLoop(
+        config_for(start_utc=START),
+        handler,
+        registration=REGISTERED,
+        reporter=RecordingReporter(),
+        path_label=PATH_LABEL,
+    ).run(initial)
 
     assert handler.dispatched == list(initial)
     assert trace.event_count == len(initial)

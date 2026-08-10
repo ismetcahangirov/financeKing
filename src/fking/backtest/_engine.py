@@ -9,6 +9,9 @@ The loop is deliberately thin. It owns three things and delegates everything els
 - **When** each event is dispatched, which is the queue's total order and nothing else.
 - **What simulated time is** while a handler runs, which is the popped event's instant.
 - **What happened**, as a trace whose digest is comparable byte for byte between runs.
+- **That the run was paid for**, which is the trial ledger's enforcement point: a
+  `spec_hash` with no prior charge does not execute, and every run that does execute is
+  reported to the ledger -- the crashed ones included.
 
 It owns no opinion about strategies, venues, portfolios or costs. Those arrive as an
 `EventHandler`, and the whole point of the arrangement is that the same loop drives the
@@ -25,9 +28,11 @@ strategy author will frequently be an LLM.
 
 from __future__ import annotations
 
+import traceback
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import Final, Protocol
 
 from fking.backtest._clock import SimulationClock
@@ -35,14 +40,23 @@ from fking.backtest._config import RunConfig, canonical_digest, config_hash
 from fking.backtest._errors import (
     CausalityError,
     EventBudgetExhaustedError,
+    ExecutionReportError,
     RunConfigError,
     UnregisteredSpecificationError,
 )
 from fking.backtest._events import Event, EventPriority
+from fking.backtest._guards import require_text
 from fking.backtest._queue import EventQueue
 from fking.domain import encode
 
 _SPEC_HASH_HEX_LENGTH: Final = 64
+
+#: Bytes of traceback kept on a failed execution, matching the `CHECK` in migration
+#: `0021_trial_execution_outcome`. Truncating here rather than at the database means the
+#: row is refused only when the two disagree, which is a defect worth an error.
+FAILURE_DETAIL_LIMIT_BYTES: Final = 16384
+
+_TRUNCATION_MARKER: Final = "[traceback truncated; showing the final frames]\n"
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +98,100 @@ class SpecRegistration:
     def is_registered(self) -> bool:
         """Whether the ledger holds a charge for this specification."""
         return self.trials_charged > 0
+
+
+class ExecutionOutcome(StrEnum):
+    """How a run ended, from the trial ledger's point of view.
+
+    Two members and no third. There is no `ABANDONED`, no `PARTIAL` and no `SKIPPED`,
+    because every one of those would be a self-declared label applied by the party who
+    benefits from applying it, and a ledger with a free-form escape hatch converges to a
+    ledger with nothing in it (`docs/rules/overfitting-defences.md`, "The one exception").
+    A run either finished or it raised, and both are charged on the same terms.
+    """
+
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionReport:
+    """One executed configuration, as the ledger needs to hear about it.
+
+    Emitted by the loop for every run it performs, including the runs that crash. A
+    reporter that only heard about successful runs would let a search keep the paths it
+    liked and report the count of what it kept -- run 28 CPCV paths, keep 6, charge 6 --
+    which is the evasion the execution half of `max(declared, executed)` exists to close.
+
+    `dispatched_event_count` is on the report rather than left to the trace because a
+    failed run has no trace, and "it crashed on the third event" and "it crashed after
+    four hundred thousand" are different incidents.
+    """
+
+    spec_hash: str
+    config_hash: str
+    path_label: str
+    outcome: ExecutionOutcome
+    failure_detail: str | None
+    dispatched_event_count: int
+
+    def __post_init__(self) -> None:
+        require_text(self.path_label, "path_label")
+        if self.dispatched_event_count < 0:
+            raise ExecutionReportError(
+                f"dispatched_event_count must not be negative; got {self.dispatched_event_count}"
+            )
+        # The same biconditional the database enforces, asserted here so that the
+        # mismatch is a Python error naming the field rather than a constraint violation
+        # arriving after the run is over.
+        has_detail = self.failure_detail is not None
+        if has_detail != (self.outcome is ExecutionOutcome.FAILED):
+            raise ExecutionReportError(
+                f"outcome {self.outcome.value!r} and failure_detail must agree: a failed "
+                f"execution carries the traceback that killed it, and a completed one "
+                f"carries none"
+            )
+        if self.failure_detail is not None:
+            require_text(self.failure_detail, "failure_detail")
+            detail_bytes = len(self.failure_detail.encode("utf-8"))
+            if detail_bytes > FAILURE_DETAIL_LIMIT_BYTES:
+                raise ExecutionReportError(
+                    f"failure_detail is {detail_bytes} bytes, above the "
+                    f"{FAILURE_DETAIL_LIMIT_BYTES}-byte limit the ledger accepts"
+                )
+
+
+class ExecutionReporter(Protocol):
+    """Where the loop tells the trial ledger what it just executed.
+
+    A required collaborator of `EventLoop`, not an optional one, and synchronous
+    deliberately: the loop is single-threaded and the report must have committed before
+    `run()` returns, or a caller could read a result the ledger has not yet counted.
+    Adapting it to the async `TrialLedger` is the caller's job, as it already is for the
+    walk-forward harness's `charge`.
+    """
+
+    def report_execution(self, execution: ExecutionReport) -> None:
+        """Record one execution. Never called through this Protocol at runtime."""
+
+
+def failure_detail_for(failure: BaseException) -> str:
+    """The traceback that killed a run, bounded to what the ledger will store.
+
+    Keeps the *tail* when it truncates. Python renders the exception type and message
+    last and the innermost frames immediately above them, so the head of a runaway
+    recursion traceback is the part that carries no information -- ten thousand
+    repetitions of one frame -- and the tail is the part an incident is read from.
+    """
+    rendered = "".join(traceback.format_exception(failure))
+    encoded = rendered.encode("utf-8")
+    if len(encoded) <= FAILURE_DETAIL_LIMIT_BYTES:
+        return rendered
+    marker_bytes = len(_TRUNCATION_MARKER.encode("utf-8"))
+    tail = encoded[-(FAILURE_DETAIL_LIMIT_BYTES - marker_bytes) :]
+    # `errors="ignore"` drops at most the leading bytes of a character the slice cut in
+    # half; the alternative inserts a replacement character into an audit record.
+    return _TRUNCATION_MARKER + tail.decode("utf-8", errors="ignore")
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,9 +310,20 @@ class EventHandler(Protocol):
 
 
 class EventLoop:
-    """Drains a queue in total order, advancing simulated time as it goes."""
+    """Drains a queue in total order, advancing simulated time as it goes.
 
-    __slots__ = ("_config", "_handler", "_registration")
+    It is also the trial ledger's enforcement point, and both halves are constructor
+    arguments without defaults for the same reason. `registration` decides whether the
+    run may happen at all; `reporter` and `path_label` decide whether it is counted once
+    it has. A default on either is a value somebody forgets to override, and what they
+    would forget is the one that produces a result outside the ledger's view.
+
+    Enforcement lives here rather than in a wrapper class because a wrapper leaves this
+    loop reachable, and a reachable loop that does not report is a second path to a
+    number -- which is precisely the thing issue #39 says must not exist.
+    """
+
+    __slots__ = ("_config", "_handler", "_path_label", "_registration", "_reporter")
 
     def __init__(
         self,
@@ -212,10 +331,14 @@ class EventLoop:
         handler: EventHandler,
         *,
         registration: SpecRegistration,
+        reporter: ExecutionReporter,
+        path_label: str,
     ) -> None:
         self._config = config
         self._handler = handler
         self._registration = registration
+        self._reporter = reporter
+        self._path_label = require_text(path_label, "path_label")
 
     def run(self, initial_events: Iterable[Event]) -> RunTrace:
         """Dispatch every event until the queue empties, and return the trace.
@@ -223,7 +346,15 @@ class EventLoop:
         Refuses before anything is dispatched when the specification was never charged
         to the trial ledger. The check is first, and it raises rather than returning an
         empty trace, because a `RunTrace` with no entries is still an object somebody can
-        report a number from.
+        report a number from. A refused run reports nothing: it executed nothing, and a
+        charge for it would price registering a specification at the cost of not
+        registering one.
+
+        Every run that does start is reported exactly once, including the runs that
+        raise. The report is made before the exception continues on its way, so a crash
+        half way through a CPCV path leaves the same charge a completed path would --
+        without that, a search can run 28 paths, keep the six that looked good, and
+        report six.
 
         `initial_events` is scheduled with the clock still at `start_utc`, so an event
         before the window opens raises rather than being quietly accepted -- the caller
@@ -238,13 +369,50 @@ class EventLoop:
                 f"deflated against a selection pool that omits it"
             )
 
+        entries: list[TraceEntry] = []
+        try:
+            events_beyond_window = self._dispatch(initial_events, entries)
+        # Not `BaseException`: `SafetyViolation` inherits it precisely so that no handler
+        # in this codebase absorbs it, and turning one into a charged ledger row is
+        # absorbing it for as long as the insert takes. A `KeyboardInterrupt` is left
+        # uncounted for the same reason -- an operator stopping a run is not a trial the
+        # project spent, and the declared grid was charged at registration regardless.
+        except Exception as failure:
+            self._report(
+                ExecutionOutcome.FAILED,
+                failure_detail=failure_detail_for(failure),
+                dispatched_event_count=len(entries),
+            )
+            raise
+
+        self._report(
+            ExecutionOutcome.COMPLETED,
+            failure_detail=None,
+            dispatched_event_count=len(entries),
+        )
+
+        recorded = tuple(entries)
+        return RunTrace(
+            config_hash=config_hash(self._config),
+            spec_hash=self._registration.spec_hash,
+            entries=recorded,
+            digest=canonical_digest(encode(recorded)),
+            events_beyond_window=events_beyond_window,
+        )
+
+    def _dispatch(self, initial_events: Iterable[Event], entries: list[TraceEntry]) -> int:
+        """Drain the queue, appending to `entries` as it goes; return dropped-event count.
+
+        `entries` is an argument rather than a return value because the caller needs it
+        when this raises: how far a run got before it died is the first thing asked of a
+        charged failure, and a list built inside and lost on the way out cannot answer.
+        """
         queue = EventQueue()
         clock = SimulationClock(self._config.start_utc)
         context = RunContext(config=self._config, clock=clock, queue=queue)
         for event in initial_events:
             context.schedule(event)
 
-        entries: list[TraceEntry] = []
         while queue:
             if len(entries) >= self._config.event_budget:
                 raise EventBudgetExhaustedError(
@@ -266,11 +434,22 @@ class EventLoop:
             )
             self._handler.on_event(queued.event, context)
 
-        recorded = tuple(entries)
-        return RunTrace(
-            config_hash=config_hash(self._config),
-            spec_hash=self._registration.spec_hash,
-            entries=recorded,
-            digest=canonical_digest(encode(recorded)),
-            events_beyond_window=context.events_beyond_window,
+        return context.events_beyond_window
+
+    def _report(
+        self,
+        outcome: ExecutionOutcome,
+        *,
+        failure_detail: str | None,
+        dispatched_event_count: int,
+    ) -> None:
+        self._reporter.report_execution(
+            ExecutionReport(
+                spec_hash=self._registration.spec_hash,
+                config_hash=config_hash(self._config),
+                path_label=self._path_label,
+                outcome=outcome,
+                failure_detail=failure_detail,
+                dispatched_event_count=dispatched_event_count,
+            )
         )

@@ -39,17 +39,23 @@ from fking.backtest._config import (
     derive_seed,
 )
 from fking.backtest._engine import (
+    FAILURE_DETAIL_LIMIT_BYTES,
     EventHandler,
     EventLoop,
+    ExecutionOutcome,
+    ExecutionReport,
+    ExecutionReporter,
     RunContext,
     RunTrace,
     SpecRegistration,
     TraceEntry,
+    failure_detail_for,
 )
 from fking.backtest._errors import (
     BacktestError,
     CausalityError,
     EventBudgetExhaustedError,
+    ExecutionReportError,
     RunConfigError,
     UnregisteredSpecificationError,
 )
@@ -184,6 +190,7 @@ from fking.backtest.walkforward import (
 __all__ = [
     "ANNUALISATION_DAYS",
     "DEFAULT_EVENT_BUDGET",
+    "FAILURE_DETAIL_LIMIT_BYTES",
     "MAX_PROBABILITY_OF_BACKTEST_OVERFITTING",
     "MINIMUM_FOLDS",
     "MIN_DEFLATED_SHARPE",
@@ -221,6 +228,10 @@ __all__ = [
     "EventPriority",
     "EventQueue",
     "ExecutionLeg",
+    "ExecutionOutcome",
+    "ExecutionReport",
+    "ExecutionReportError",
+    "ExecutionReporter",
     "FeeSchedule",
     "FeedRequest",
     "FeedSlice",
@@ -305,6 +316,7 @@ __all__ = [
     "effective_sample_or_none",
     "effective_sample_size",
     "expected_max_sharpe",
+    "failure_detail_for",
     "path_economics",
     "path_statistics",
     "probability_of_backtest_overfitting",

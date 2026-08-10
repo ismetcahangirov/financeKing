@@ -32,6 +32,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from fking.backtest import (
     Event,
     EventLoop,
+    ExecutionOutcome,
+    ExecutionReport,
     RunConfig,
     RunContext,
     SpecRegistration,
@@ -46,6 +48,7 @@ from fking.evolution import (
     TrialSpecification,
     TrialSpecificationError,
 )
+from tests.backtest.registration_support import PATH_LABEL, RecordingReporter
 from tests.conftest import alembic_config
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
@@ -132,9 +135,14 @@ async def ledger(app_engine: AsyncEngine) -> TrialLedger:
 
 async def _execute(ledger_under_test: TrialLedger, spec_hash: str, *, path_label: str) -> bool:
     receipt = await ledger_under_test.report_execution(
-        spec_hash=spec_hash,
-        config_hash=CONFIG_HASH,
-        path_label=path_label,
+        ExecutionReport(
+            spec_hash=spec_hash,
+            config_hash=CONFIG_HASH,
+            path_label=path_label,
+            outcome=ExecutionOutcome.COMPLETED,
+            failure_detail=None,
+            dispatched_event_count=0,
+        ),
         correlation_id=uuid4(),
         executed_at_utc=CHARGED_AT,
     )
@@ -470,11 +478,21 @@ async def test_the_engine_refuses_a_specification_the_ledger_never_saw(
     unregistered = await ledger.registration_for("cd" * 32)
     assert unregistered.trials_charged == 0
 
-    loop = EventLoop(_run_config(), _NullHandler(), registration=unregistered)
+    reporter = RecordingReporter()
+    loop = EventLoop(
+        _run_config(),
+        _NullHandler(),
+        registration=unregistered,
+        reporter=reporter,
+        path_label=PATH_LABEL,
+    )
     with pytest.raises(UnregisteredSpecificationError, match="no trial-ledger charge"):
         loop.run([])
 
     assert await ledger.context_trial_count(CONTEXT.context_hash) == 0
+    # A refused run executed nothing, so it reports nothing. Charging the refusal would
+    # price registering a specification at the cost of not registering one.
+    assert reporter.reports == []
 
 
 @pytest.mark.asyncio
@@ -487,10 +505,18 @@ async def test_a_registered_specification_runs_and_carries_its_spec_hash(
         spec_hash=receipt.spec_hash, trials_charged=DECLARED_EIGHT
     )
 
-    trace = EventLoop(_run_config(), _NullHandler(), registration=registration).run([])
+    reporter = RecordingReporter()
+    trace = EventLoop(
+        _run_config(),
+        _NullHandler(),
+        registration=registration,
+        reporter=reporter,
+        path_label=PATH_LABEL,
+    ).run([])
 
     assert trace.spec_hash == receipt.spec_hash
     assert trace.event_count == 0
+    assert [report.outcome for report in reporter.reports] == [ExecutionOutcome.COMPLETED]
 
 
 # ---------------------------------------------------------------------------
