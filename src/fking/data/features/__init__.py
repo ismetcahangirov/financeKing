@@ -22,7 +22,13 @@ a caller can write it.
 `docs/rules/no-lookahead.md`, `DATA_PIPELINE.md` sections 7 and 8.
 """
 
-from fking.data.features.registry import FEATURES, evaluate, registered, registered_names
+from fking.data.features.registry import (
+    FEATURES,
+    evaluate,
+    evaluate_settlement_rates,
+    registered,
+    registered_names,
+)
 from fking.data.features.spec import (
     FeatureCompute,
     FeatureObservation,
@@ -30,6 +36,8 @@ from fking.data.features.spec import (
     FeatureRef,
     FeatureSpec,
     FeatureWindow,
+    SettlementRateCompute,
+    SettlementRateObservation,
     definition_digest,
 )
 from fking.data.features.store import (
@@ -53,8 +61,11 @@ __all__: tuple[str, ...] = (
     "FeatureValueWriter",
     "FeatureWindow",
     "PostgresFeatureStore",
+    "SettlementRateCompute",
+    "SettlementRateObservation",
     "definition_digest",
     "evaluate",
+    "evaluate_settlement_rates",
     "registered",
     "registered_names",
 )
