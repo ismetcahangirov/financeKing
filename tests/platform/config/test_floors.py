@@ -40,7 +40,13 @@ class _BoundValidator(Protocol):
 
     def __call__(
         self, model: BaseModel, bounds: Mapping[str, Decimal | int], /, *, scope: str
-    ) -> None: ...
+    ) -> None:
+        """Refuse every submitted limit outside its bound, in this validator's direction.
+
+        The docstring is the whole body. A trailing `...` after it is a statement with
+        no effect, which CodeQL flags -- the same convention as the protocols in
+        `fking.data.features.store`.
+        """
 
 
 FLOOR_NAMES: Final[tuple[str, ...]] = tuple(sorted(HARD_FLOORS))
