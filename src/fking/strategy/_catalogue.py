@@ -26,6 +26,7 @@ from fking.domain import Instrument
 from fking.strategy._contract import Strategy
 from fking.strategy.bollinger_reversion import BollingerBandReversion
 from fking.strategy.donchian_breakout import DonchianChannelBreakout
+from fking.strategy.funding_carry import PerpetualFundingCarry
 from fking.strategy.trailing_return import TrailingReturnContinuation
 
 __all__ = ["SHIPPED_STRATEGIES", "StrategyBuilder"]
@@ -44,4 +45,5 @@ SHIPPED_STRATEGIES: Final[tuple[StrategyBuilder, ...]] = (
     # and not in a partition of the catalogue that some later caller will filter on.
     DonchianChannelBreakout,
     BollingerBandReversion,
+    PerpetualFundingCarry,
 )

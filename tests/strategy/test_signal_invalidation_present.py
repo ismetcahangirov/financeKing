@@ -24,7 +24,7 @@ from fking.domain import Direction
 from fking.strategy import SHIPPED_STRATEGIES, StrategyBuilder, initial_state, step
 from tests.strategy.harness import (
     BTCUSDT,
-    bars_from_closes,
+    bars_for,
     clock_at,
     exercising_closes,
     feature_values_for,
@@ -43,7 +43,7 @@ def _strategy_id(build: StrategyBuilder) -> str:
 @pytest.mark.parametrize("build", SHIPPED_STRATEGIES, ids=_strategy_id)
 def test_every_non_flat_signal_carries_an_invalidation_price(build: StrategyBuilder) -> None:
     strategy = build((BTCUSDT,))
-    series = bars_from_closes(exercising_closes(_BAR_COUNT))
+    series = bars_for(strategy.spec, exercising_closes(_BAR_COUNT))
     values = feature_values_for(strategy.spec, series)
 
     state = initial_state(seed=_SEED)
@@ -86,7 +86,7 @@ def test_the_emitted_level_sits_on_the_losing_side_of_the_decision_close(
     already breached at entry, which the risk engine sizes as a near-zero denominator.
     """
     strategy = build((BTCUSDT,))
-    series = bars_from_closes(exercising_closes(_BAR_COUNT))
+    series = bars_for(strategy.spec, exercising_closes(_BAR_COUNT))
     values = feature_values_for(strategy.spec, series)
 
     state = initial_state(seed=_SEED)
