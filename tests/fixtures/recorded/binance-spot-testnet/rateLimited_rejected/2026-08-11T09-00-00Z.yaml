@@ -1,0 +1,26 @@
+# SYNTHETIC: a 429 cannot be captured on demand without deliberately exceeding the
+# venue's request-weight budget, and repeated 429s escalate to an HTTP 418 IP ban whose
+# duration escalates from 2 minutes to 3 days. Provoking one to record it would risk a
+# three-day outage on the only venue this system trades, which is the exact failure the
+# throttle exists to prevent -- so the envelope is the real `order_rejected` capture
+# named in `derived_from_sha256`, with the code, message and headers replaced by the ones
+# Binance documents for a rate-limit refusal (spot API "Limits" and error-code reference,
+# checked 2026-08-11). Re-record it for real only if Binance ever offers a sandbox that
+# returns 429 on request.
+_recording:
+  body_sha256: 440a565dfab78f553157c8647cf721ff5f1f8ed9f5a363ee61086ef7db1302e1
+  captured_at_utc: 2026-08-11T09-00-00Z
+  derivation:
+    derived_from: binance-spot-testnet/order_rejected/2026-08-06T07-25-18Z.yaml
+    derived_from_sha256: 440a565dfab78f553157c8647cf721ff5f1f8ed9f5a363ee61086ef7db1302e1
+    kind: synthetic_rate_limit_status
+    reason: provoking a real 429 risks an escalating IP ban on the only venue
+  endpoint: POST /api/v3/order
+  headers:
+    content-type: application/json;charset=UTF-8
+    retry-after: '300'
+    x-mbx-used-weight-1m: '6000'
+  http_status: 429
+  request_url: https://testnet.binance.vision/api/v3/order
+  venue: binance-spot-testnet
+body: '{"code":-1003,"msg":"Too many requests; current limit is 6000 request weight per 1 MINUTE. Please use WebSocket Streams for live updates to avoid polling the API."}'

@@ -28,6 +28,8 @@ import pytest
 from fking.platform.safety import (
     SafetyViolation,
     UnknownVenueEndpointError,
+    VenueResponseMetadata,
+    VenueResponseRecorder,
     VenueTransportError,
     assert_sandbox_urls_permitted,
     guarded_aiohttp_session,
@@ -36,6 +38,7 @@ from fking.platform.safety import (
 from fking.platform.safety.exchange import (
     GuardedCcxtExchange,
     GuardedExchange,
+    _record_response_metadata,
     _reject_redirect,
 )
 
@@ -43,6 +46,9 @@ pytestmark = pytest.mark.unit
 
 PERMITTED_URL: Final[str] = "https://testnet.binance.vision/api/v3/time"
 PRODUCTION_URL: Final[str] = "https://api.binance.com/api/v3/order"
+
+OK_STATUS: Final[int] = 200
+TOO_MANY_REQUESTS_STATUS: Final[int] = 429
 
 
 class _FakeCcxtExchange:
@@ -79,7 +85,7 @@ class _FakeCcxtExchange:
 
 
 def _guarded(exchange: _FakeCcxtExchange, session: aiohttp.ClientSession) -> GuardedCcxtExchange:
-    return GuardedCcxtExchange(exchange, session, "binance-spot-testnet")
+    return GuardedCcxtExchange(exchange, session, "binance-spot-testnet", VenueResponseRecorder())
 
 
 class TestTheInjectedSession:
@@ -328,3 +334,75 @@ class TestCall:
 
         assert fake.closed is True
         assert session.closed is True
+
+
+class TestTheResponseRecorder:
+    """The transport facts a rate-limit throttle cannot work without.
+
+    Recorded on the session's own trace config rather than read off ccxt afterwards:
+    ccxt keeps response headers only while `enableLastResponseHeaders` is left on, and
+    keeps no status code at all -- so a `418` IP ban would be indistinguishable from a
+    `429`, because Binance sends the identical `{"code":-1003,...}` body for both.
+    """
+
+    def test_a_fresh_recorder_reports_nothing_rather_than_a_zero_status(self) -> None:
+        assert VenueResponseRecorder().latest is None
+
+    @pytest.mark.asyncio
+    async def test_the_hook_files_the_status_and_lower_cases_the_header_names(self) -> None:
+        class _Response:
+            status = TOO_MANY_REQUESTS_STATUS
+            headers: Final[Mapping[str, str]] = {
+                "Retry-After": "300",
+                "X-MBX-USED-WEIGHT-1M": "6000",
+            }
+
+        class _Params:
+            response = _Response()
+
+        recorder = VenueResponseRecorder()
+        await _record_response_metadata(recorder)(None, None, _Params())  # type: ignore[arg-type]
+
+        latest = recorder.latest
+        assert latest is not None
+        assert latest.http_status == TOO_MANY_REQUESTS_STATUS
+        # Binance's spot and futures fleets disagree on the casing, so a case-sensitive
+        # lookup would read "no weight header" on one of them and run the throttle blind.
+        assert latest.headers["x-mbx-used-weight-1m"] == "6000"
+        assert latest.headers["retry-after"] == "300"
+
+    @pytest.mark.asyncio
+    async def test_a_session_built_without_a_recorder_installs_no_end_hook(self) -> None:
+        """The parameter is optional, and an absent recorder must cost nothing."""
+        session = guarded_aiohttp_session()
+        try:
+            assert session.trace_configs[0].on_request_end == []
+        finally:
+            await session.close()
+
+    @pytest.mark.asyncio
+    async def test_a_session_built_with_a_recorder_installs_one(self) -> None:
+        session = guarded_aiohttp_session(recorder=VenueResponseRecorder())
+        try:
+            assert len(session.trace_configs[0].on_request_end) == 1
+        finally:
+            await session.close()
+
+    @pytest.mark.asyncio
+    async def test_the_guarded_exchange_exposes_what_the_recorder_holds(self) -> None:
+        session = guarded_aiohttp_session()
+        recorder = VenueResponseRecorder()
+        try:
+            exchange = GuardedCcxtExchange(
+                _FakeCcxtExchange(), session, "binance-spot-testnet", recorder
+            )
+            # Before the first response the exchange has nothing to report, and must say
+            # so rather than inventing a status a governor would then act on.
+            assert recorder.latest is None
+
+            recorder.record(VenueResponseMetadata.of(http_status=OK_STATUS, headers={}))
+            latest = exchange.last_response_metadata
+            assert latest is not None
+            assert latest.http_status == OK_STATUS
+        finally:
+            await session.close()

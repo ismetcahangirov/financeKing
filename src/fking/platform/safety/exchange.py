@@ -34,7 +34,8 @@ convenience supplied by a dependency; the safety mechanism is (1) and (2).
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterator, Mapping
-from types import SimpleNamespace
+from dataclasses import dataclass
+from types import MappingProxyType, SimpleNamespace
 from typing import Final, Protocol, cast, runtime_checkable
 
 import aiohttp
@@ -52,6 +53,8 @@ __all__ = [
     "GuardedCcxtExchange",
     "GuardedExchange",
     "UnknownVenueEndpointError",
+    "VenueResponseMetadata",
+    "VenueResponseRecorder",
     "VenueTransportError",
     "assert_sandbox_urls_permitted",
     "guarded_aiohttp_session",
@@ -140,6 +143,89 @@ class VenueTransportError(Exception):
         self.cause_type = cause_type
 
 
+@dataclass(frozen=True, slots=True)
+class VenueResponseMetadata:
+    """What the transport saw, as distinct from what the venue said.
+
+    The status code and the response headers are the two facts a rate-limit throttle
+    cannot work without and that `call()` structurally cannot carry: it returns the
+    response *body*, and Binance sends the identical body -- `{"code":-1003,...}` --
+    for a `429` rate-limit refusal and for a `418` IP ban. Those demand opposite
+    responses (honour `Retry-After` versus hard stop), so a component that can only see
+    the body cannot tell a throttling incident from an outage.
+
+    Header names are lower-cased at construction because HTTP header names are
+    case-insensitive and Binance is not consistent about `X-MBX-USED-WEIGHT-1M` versus
+    `x-mbx-used-weight-1m` across its spot and futures fleets. A lookup that matched on
+    the wrong case would read "no weight header" and the throttle would run blind.
+
+    Mechanism, not policy: this module states what came back and has no opinion about
+    what it means. `fking.execution` owns the interpretation.
+    """
+
+    http_status: int
+    headers: Mapping[str, str]
+
+    @classmethod
+    def of(cls, *, http_status: int, headers: Mapping[str, str]) -> VenueResponseMetadata:
+        """Build one with header names normalised and the mapping made read-only."""
+        return cls(
+            http_status=http_status,
+            headers=MappingProxyType({name.lower(): value for name, value in headers.items()}),
+        )
+
+
+class VenueResponseRecorder:
+    """Holds the transport facts about the most recent response on one session.
+
+    A single slot rather than a history: the throttle reads it immediately after the
+    call it issued, and a buffer would invite a consumer to correlate entries with
+    requests, which this class has no way to do correctly under concurrency. One slot
+    makes the narrow contract obvious -- "the last response this session saw" -- and a
+    caller that needs more has to say so.
+    """
+
+    __slots__ = ("_latest",)
+
+    def __init__(self) -> None:
+        self._latest: VenueResponseMetadata | None = None
+
+    @property
+    def latest(self) -> VenueResponseMetadata | None:
+        """The most recent response's status and headers, or `None` before the first."""
+        return self._latest
+
+    def record(self, metadata: VenueResponseMetadata) -> None:
+        self._latest = metadata
+
+
+def _record_response_metadata(
+    recorder: VenueResponseRecorder,
+) -> Callable[
+    [aiohttp.ClientSession, SimpleNamespace, aiohttp.TraceRequestEndParams], Awaitable[None]
+]:
+    """An `on_request_end` hook that files the status and headers with `recorder`.
+
+    Bound to the session rather than read off the ccxt exchange afterwards, because
+    ccxt only records headers when `enableLastResponseHeaders` is left on and records no
+    status code at all -- so the fact a ban detector depends on would be a library
+    default somebody could flip in a config bump.
+    """
+
+    async def hook(
+        _session: aiohttp.ClientSession,
+        _context: SimpleNamespace,
+        params: aiohttp.TraceRequestEndParams,
+    ) -> None:
+        recorder.record(
+            VenueResponseMetadata.of(
+                http_status=params.response.status, headers=params.response.headers
+            )
+        )
+
+    return hook
+
+
 async def _reject_redirect(
     _session: aiohttp.ClientSession,
     _context: SimpleNamespace,
@@ -172,16 +258,24 @@ async def _guard_aiohttp_request(
     assert_host_permitted(str(params.url))
 
 
-def guarded_aiohttp_session(*, timeout_seconds: float = 10.0) -> aiohttp.ClientSession:
+def guarded_aiohttp_session(
+    *, timeout_seconds: float = 10.0, recorder: VenueResponseRecorder | None = None
+) -> aiohttp.ClientSession:
     """The only sanctioned way to construct an `aiohttp` session in this process.
 
     Must be called from inside a running event loop: `aiohttp` binds the session to the
     loop at construction, and a session built on a loop that later closes fails at the
     first request with an error that names neither the loop nor the session.
+
+    `recorder`, when supplied, receives the status and headers of every response the
+    session sees -- including responses to requests ccxt issues internally, which is the
+    same reason the host check lives on the trace config rather than at the call site.
     """
     trace = aiohttp.TraceConfig()
     trace.on_request_start.append(_guard_aiohttp_request)
     trace.on_request_redirect.append(_reject_redirect)
+    if recorder is not None:
+        trace.on_request_end.append(_record_response_metadata(recorder))
     return aiohttp.ClientSession(
         # Proxy environment variables must not be able to reroute a validated host.
         # With trust_env=True the URL still reads testnet.binance.vision and the bytes
@@ -246,6 +340,16 @@ class GuardedExchange(Protocol):
         replayed fixture and a live call return identical text.
         """
 
+    @property
+    def last_response_metadata(self) -> VenueResponseMetadata | None:
+        """Status and headers of the most recent response, or `None` before the first.
+
+        Part of the interface rather than an implementation detail of the ccxt variant,
+        because the rate-limit throttle reads it after every call and a transport that
+        could not answer would leave the throttle running on its own estimate with no
+        correction from the venue.
+        """
+
     async def call(self, endpoint: str, params: Mapping[str, str]) -> str:
         """Invoke a venue endpoint and return the raw response body.
 
@@ -262,11 +366,16 @@ class GuardedCcxtExchange:
     """`GuardedExchange` over a `ccxt` exchange whose transport this module injected."""
 
     def __init__(
-        self, exchange: _CcxtExchange, session: aiohttp.ClientSession, venue_id: str
+        self,
+        exchange: _CcxtExchange,
+        session: aiohttp.ClientSession,
+        venue_id: str,
+        recorder: VenueResponseRecorder,
     ) -> None:
         self._exchange = exchange
         self._session = session
         self._venue_id = venue_id
+        self._recorder = recorder
         self._request_count = 0
 
     @property
@@ -276,6 +385,10 @@ class GuardedCcxtExchange:
     @property
     def request_count(self) -> int:
         return self._request_count
+
+    @property
+    def last_response_metadata(self) -> VenueResponseMetadata | None:
+        return self._recorder.latest
 
     async def call(self, endpoint: str, params: Mapping[str, str]) -> str:
         method = getattr(self._exchange, endpoint, None)
@@ -352,7 +465,8 @@ async def guarded_ccxt(  # noqa: PLR0913
             f"client whose endpoints cannot be resolved and therefore cannot be checked"
         )
 
-    session = guarded_aiohttp_session(timeout_seconds=timeout_seconds)
+    recorder = VenueResponseRecorder()
+    session = guarded_aiohttp_session(timeout_seconds=timeout_seconds, recorder=recorder)
     config: dict[str, object] = {
         "apiKey": api_key,
         "secret": secret,
@@ -375,4 +489,4 @@ async def guarded_ccxt(  # noqa: PLR0913
         endpoint_count=len(endpoints),
         hosts=sorted({assert_host_permitted(url) for url in endpoints}),
     )
-    return GuardedCcxtExchange(exchange, session, venue_id)
+    return GuardedCcxtExchange(exchange, session, venue_id, recorder)

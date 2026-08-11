@@ -24,6 +24,8 @@ from fking.platform.safety.client import (
 from fking.platform.safety.exchange import (
     GuardedExchange,
     UnknownVenueEndpointError,
+    VenueResponseMetadata,
+    VenueResponseRecorder,
     VenueTransportError,
     assert_sandbox_urls_permitted,
     guarded_aiohttp_session,
@@ -45,6 +47,8 @@ __all__ = [
     "GuardedExchange",
     "SafetyViolation",
     "UnknownVenueEndpointError",
+    "VenueResponseMetadata",
+    "VenueResponseRecorder",
     "VenueTransportError",
     "assert_host_permitted",
     "assert_sandbox_urls_permitted",

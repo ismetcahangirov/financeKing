@@ -700,6 +700,16 @@ class TelemetrySettings(BaseModel):
         "is_catch_up",
         "job_id",
         "misfire_policy",
+        # Venue admission control. `request_class` is what separates "a backfill was shed,
+        # the design working" from "an order was refused, a risk decision went unplaced" --
+        # without it both records read as one rate-limit event and the alert threshold
+        # cannot be set on the one that matters. `http_status` distinguishes a 429 from
+        # the 418 it escalates into.
+        "budget_free_in_seconds",
+        "http_status",
+        "request_class",
+        "retry_after_seconds",
+        "used_request_weight",
     )
 
     trace_sample_ratio: Decimal = Field(default=Decimal("0.10"), ge=0, le=1)
