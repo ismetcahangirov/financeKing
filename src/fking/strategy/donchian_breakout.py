@@ -95,7 +95,7 @@ _WARM_UP_BARS: Final[int] = 24
 # is not a preference.
 _SIGNAL_HORIZON: Final[timedelta] = timedelta(hours=5)
 
-_INVALIDATION_VOLATILITY_MULTIPLE: Final[str] = "invalidation_volatility_multiple"
+_INVALIDATION_VOLATILITY_MULTIPLE: Final[str] = "invalidation_scaling_multiple"
 _INVALIDATION_FLOOR_FRACTION: Final[str] = "invalidation_floor_fraction"
 _INVALIDATION_CAP_FRACTION: Final[str] = "invalidation_cap_fraction"
 
@@ -157,8 +157,8 @@ class DonchianChannelBreakout:
             parameters=PARAMETERS,
             invalidation=InvalidationRule(
                 adverse_move_fraction=decimal_parameter(bound, _INVALIDATION_FLOOR_FRACTION),
-                volatility_feature=_REALISED_VOLATILITY,
-                volatility_multiple=decimal_parameter(bound, _INVALIDATION_VOLATILITY_MULTIPLE),
+                scaling_feature=_REALISED_VOLATILITY,
+                scaling_multiple=decimal_parameter(bound, _INVALIDATION_VOLATILITY_MULTIPLE),
                 maximum_adverse_move_fraction=decimal_parameter(bound, _INVALIDATION_CAP_FRACTION),
             ),
             signal_horizon=_SIGNAL_HORIZON,

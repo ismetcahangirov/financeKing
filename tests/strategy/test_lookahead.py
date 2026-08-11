@@ -47,7 +47,7 @@ from fking.strategy import (
 from fking.strategy.trailing_return import TrailingReturnContinuation
 from tests.strategy.harness import (
     BTCUSDT,
-    bars_from_closes,
+    bars_for,
     clock_at,
     exercising_closes,
     feature_values_for,
@@ -82,7 +82,7 @@ def test_replacing_the_future_does_not_move_a_decision_taken_before_it(
     build: StrategyBuilder,
 ) -> None:
     strategy = build((BTCUSDT,))
-    series = bars_from_closes(exercising_closes(_BAR_COUNT))
+    series = bars_for(strategy.spec, exercising_closes(_BAR_COUNT))
     cut_utc = series[len(series) // 2].close_time_utc
 
     baseline = replay(
@@ -202,7 +202,7 @@ def _decide_with_and_without_the_future(
     """One decision taken twice: once from a truthful state, once from a state holding
     bars that had not happened yet."""
     spec = strategy.spec
-    series = bars_from_closes(exercising_closes(_BAR_COUNT))
+    series = bars_for(strategy.spec, exercising_closes(_BAR_COUNT))
     decision_index = _first_signalling_index(strategy, series)
     decision_bar = series[decision_index]
     values = feature_values_for(spec, series)[decision_bar.close_time_utc]

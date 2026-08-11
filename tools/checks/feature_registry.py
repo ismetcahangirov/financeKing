@@ -41,6 +41,10 @@ REGISTRY_MODULE: Final[Path] = FEATURES_PACKAGE / "registry.py"
 # The annotation that identifies the second parameter of a `FeatureCompute`.
 WINDOW_ANNOTATION: Final[str] = "FeatureWindow"
 
+# The keywords `FeatureSpec` accepts a computation under, one per observation kind. A
+# feature declares exactly one; this check does not care which.
+COMPUTE_KEYWORDS: Final[frozenset[str]] = frozenset({"compute", "settlement_rate_compute"})
+
 # Packages that may reach a compute function directly. `fking.data` owns them; everything
 # else goes through the registry and the store.
 COMPUTE_IMPORTERS: Final[frozenset[str]] = frozenset({"data"})
@@ -83,19 +87,23 @@ def compute_functions(tree: ast.AST) -> list[tuple[str, int]]:
 
 
 def registered_compute_names(tree: ast.AST) -> set[str]:
-    """Names passed as `compute=` anywhere in the registry module.
+    """Names passed to either computation keyword anywhere in the registry module.
 
-    A keyword rather than a position, because `FeatureSpec` is keyword-only. A `compute=`
-    that is not a plain name -- a lambda, a partial, an attribute -- is not collected, and
-    the function it wraps is then reported as unregistered. That is the correct outcome:
+    Keywords rather than positions, because `FeatureSpec` is keyword-only. A value that is
+    not a plain name -- a lambda, a partial, an attribute -- is not collected, and the
+    function it wraps is then reported as unregistered. That is the correct outcome:
     `definition_digest` refuses anything but a plain function for the same reason.
+
+    Both keywords are collected because a feature declares exactly one of them, and
+    checking only `compute=` would report every settlement-rate feature as unregistered --
+    which trains the reflex of adding names to an exemption list.
     """
     names: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         for keyword in node.keywords:
-            if keyword.arg == "compute" and isinstance(keyword.value, ast.Name):
+            if keyword.arg in COMPUTE_KEYWORDS and isinstance(keyword.value, ast.Name):
                 names.add(keyword.value.id)
     return names
 

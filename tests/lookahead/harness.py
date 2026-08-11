@@ -29,8 +29,13 @@ from decimal import Decimal
 from typing import Final, Protocol
 
 from fking.data.features.labels import LabelPoint
-from fking.data.features.registry import evaluate
-from fking.data.features.spec import FeatureObservation, FeaturePoint, FeatureSpec
+from fking.data.features.registry import evaluate, evaluate_settlement_rates
+from fking.data.features.spec import (
+    FeatureObservation,
+    FeaturePoint,
+    FeatureSpec,
+    SettlementRateObservation,
+)
 
 __all__ = [
     "LabelCompute",
@@ -39,8 +44,10 @@ __all__ = [
     "label_digest",
     "poison_after",
     "poison_one_close",
+    "poison_settlements_after",
     "probe_feature",
     "probe_label",
+    "settlements",
 ]
 
 
@@ -66,6 +73,9 @@ _POISON_FACTOR: Final[Decimal] = Decimal("3")
 
 _START: Final[datetime] = datetime.fromisoformat("2026-03-01T12:00:00+00:00")
 _STEP: Final[timedelta] = timedelta(minutes=15)
+# Binance's perpetual funding cadence, and the grain every settlement-rate feature declares
+# its lookback over.
+_SETTLEMENT_STEP: Final[timedelta] = timedelta(hours=8)
 
 
 def bars(closes: Sequence[str], *, step: timedelta = _STEP) -> tuple[FeatureObservation, ...]:
@@ -102,6 +112,43 @@ def poison_after(
                 event_time_utc=observation.event_time_utc,
                 open_quote_price=observation.open_quote_price * factor,
                 close_quote_price=observation.close_quote_price * factor,
+            )
+        )
+    return tuple(poisoned)
+
+
+def settlements(
+    rates: Sequence[str], *, step: timedelta = _SETTLEMENT_STEP
+) -> tuple[SettlementRateObservation, ...]:
+    """A funding series on the venue's eight-hourly grid."""
+    return tuple(
+        SettlementRateObservation(
+            event_time_utc=_START + step * index, settlement_rate=Decimal(rate)
+        )
+        for index, rate in enumerate(rates)
+    )
+
+
+def poison_settlements_after(
+    observations: Sequence[SettlementRateObservation], *, cut: datetime
+) -> tuple[SettlementRateObservation, ...]:
+    """Replace every settlement strictly after `cut` with something unrecognisable.
+
+    The poison inverts the sign as well as multiplying the magnitude, because a funding
+    feature that discards sign would absorb a pure magnitude change and a feature that
+    averages a signed series would absorb a pure sign flip. Both are registered, so the
+    perturbation has to be gross in both dimensions at once.
+    """
+    poisoned: list[SettlementRateObservation] = []
+    for index, observation in enumerate(observations):
+        if observation.event_time_utc <= cut:
+            poisoned.append(observation)
+            continue
+        factor = -_POISON_FACTOR if index % 2 == 0 else Decimal("1") / _POISON_FACTOR
+        poisoned.append(
+            SettlementRateObservation(
+                event_time_utc=observation.event_time_utc,
+                settlement_rate=observation.settlement_rate * factor,
             )
         )
     return tuple(poisoned)
@@ -167,7 +214,10 @@ def label_digest(points: Sequence[LabelPoint]) -> str:
     return hashlib.blake2b(material.encode("utf-8"), digest_size=32).hexdigest()
 
 
-def probe_feature(spec: FeatureSpec, observations: Sequence[FeatureObservation]) -> None:
+def probe_feature(
+    spec: FeatureSpec,
+    observations: Sequence[FeatureObservation] | Sequence[SettlementRateObservation],
+) -> None:
     """Two clauses. Raises `AssertionError` on a leak; returns `None` otherwise.
 
     1. **Nothing at or before the cut moves when everything after it is replaced.** This
@@ -178,11 +228,37 @@ def probe_feature(spec: FeatureSpec, observations: Sequence[FeatureObservation])
        claims to have been knowable before the venue published it. The store filters on
        `available_at_utc`, so a value that understates it is visible to a decision that
        could not have seen it -- and no amount of future-poisoning would reveal that.
+
+    Both observation kinds go through this one function rather than through a second probe
+    written alongside it. A parallel probe is a second definition of what "leak" means,
+    and the copy that gets the weaker perturbation is the copy nobody notices is weaker.
     """
     cut = observations[len(observations) // 2].event_time_utc
 
-    baseline = evaluate(spec, observations)
-    poisoned = evaluate(spec, poison_after(observations, cut=cut))
+    if spec.settlement_rate_compute is not None:
+        rates = [
+            observation
+            for observation in observations
+            if isinstance(observation, SettlementRateObservation)
+        ]
+        assert len(rates) == len(observations), (
+            f"{spec.name} v{spec.version} is declared over settlement rates and was probed "
+            f"with a series that is not one; the probe would refuse rather than compare"
+        )
+        baseline = evaluate_settlement_rates(spec, rates)
+        poisoned = evaluate_settlement_rates(spec, poison_settlements_after(rates, cut=cut))
+    else:
+        closed = [
+            observation
+            for observation in observations
+            if isinstance(observation, FeatureObservation)
+        ]
+        assert len(closed) == len(observations), (
+            f"{spec.name} v{spec.version} is declared over closed bars and was probed with "
+            f"a series that is not one; the probe would refuse rather than compare"
+        )
+        baseline = evaluate(spec, closed)
+        poisoned = evaluate(spec, poison_after(closed, cut=cut))
 
     before = tuple(point for point in baseline if point.event_time_utc <= cut)
     after = tuple(point for point in poisoned if point.event_time_utc <= cut)

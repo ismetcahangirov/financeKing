@@ -19,7 +19,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from fking.strategy import SHIPPED_STRATEGIES, StrategyBuilder, initial_state, step
-from tests.strategy.harness import BTCUSDT, bars_from_closes, clock_at, feature_values_for
+from tests.strategy.harness import BTCUSDT, bars_for, clock_at, feature_values_for
 
 pytestmark = [pytest.mark.property, pytest.mark.unit]
 
@@ -46,7 +46,7 @@ def test_no_signal_is_emitted_before_the_warm_up_is_consumed(
 ) -> None:
     strategy = build((BTCUSDT,))
     warm_up_bars = strategy.spec.warm_up_bars
-    series = bars_from_closes(tuple(closes))
+    series = bars_for(strategy.spec, tuple(closes))
     values = feature_values_for(strategy.spec, series)
 
     state = initial_state(seed=20260801)
@@ -79,7 +79,7 @@ def test_every_emitted_signal_satisfies_the_domain_invariants(
     conviction formula divides by something it assumed was positive.
     """
     strategy = build((BTCUSDT,))
-    series = bars_from_closes(tuple(closes))
+    series = bars_for(strategy.spec, tuple(closes))
     values = feature_values_for(strategy.spec, series)
 
     state = initial_state(seed=20260801)
