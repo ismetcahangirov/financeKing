@@ -151,7 +151,7 @@ So the boundary is drawn in code, not in the objective function:
 
 The concrete mechanisms:
 
-- **Risk limits are configuration bounded by compiled-in hard ceilings.** Config can only make the system *more* conservative. Raising a ceiling requires a source edit and a `safety:critical` pull request (`CONFIGURATION.md` §8).
+- **Risk limits are configuration bounded by compiled-in hard ceilings above and hard floors below.** Config can only make the system *more* conservative — which for `conviction_floor` and the `min_*` limits means larger, not smaller. Moving a compiled-in bound requires a source edit and a `safety:critical` pull request (`CONFIGURATION.md` §8).
 - **The survival score treats risk-limit violations as a hard negative.** A strategy that made money by breaching limits scores **worse** than one that made less within them. That is encoded in the objective function, not in documentation, because the system optimizes what it measures (`SCORING_ENGINE.md`).
 - **Memory is append-only.** An agent cannot rewrite its own history to look better — not through the ORM, not through a migration, not through a cleanup script (`MEMORY_SYSTEM.md` §4).
 - **Trial counts include failures.** A search cannot be laundered by discarding the runs that went badly; every trial deflates the Sharpe of whatever the search eventually reports (`BACKTEST_ENGINE.md` §6.5).
