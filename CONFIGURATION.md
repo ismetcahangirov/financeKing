@@ -12,7 +12,7 @@ The `pydantic-settings` tree, how it layers, when it is validated, and the one r
 | 2 | **The process refuses to start on invalid config.** | No degraded start, no defaults papering over a typo |
 | 3 | **Config is read once, at startup, and never at call time.** | A running process's behaviour cannot change under it |
 | 4 | **The full effective config is logged at boot, with secrets redacted.** | "What was this process configured to do on the day of that incident" is answerable from the log |
-| 5 | **Risk limits are configuration bounded by compiled-in hard ceilings.** | Config can only make the system *more* conservative |
+| 5 | **Risk limits are configuration bounded by compiled-in hard ceilings and hard floors.** | Config can only make the system *more* conservative, in whichever direction that runs for the limit |
 | 6 | **The safety kernel is not configuration at all.** | `SECURITY.md` §3 — the allowlist is a compiled-in `frozenset` |
 
 ### On principle 3
@@ -113,10 +113,11 @@ A trading system that continues after an unexpected state is more dangerous than
 | Class | Example |
 |---|---|
 | **Type** | `max_notional_usd` must parse as `Decimal` |
-| **Range** | `conviction_floor` ∈ `[0, 1]`; every timeout > 0 |
+| **Range** | `conviction_floor` ∈ `[HARD_FLOORS["conviction_floor"], 1]`; every timeout > 0 |
 | **Enum** | `venue` ∈ `{binance_spot_testnet, binance_futures_testnet, bybit_testnet}` |
 | **Cross-field** | `warmup_bars * bar_interval` must not exceed the configured data window |
 | **Ceiling** | Every risk limit ≤ its compiled-in hard ceiling (§8) |
+| **Floor** | Every risk limit where smaller is riskier ≥ its compiled-in hard floor (§8) |
 | **Host** | Every endpoint host ∈ `ALLOWED_HOSTS` |
 | **Filesystem** | `parquet_root` exists and is writable; Ed25519 key mode ≤ `0600` |
 | **Referential** | Every symbol in `universe` has an availability declaration in the feature store |
@@ -325,11 +326,11 @@ class BacktestSettings(BaseSettings):
 
 ---
 
-## 8. `risk` — configuration bounded by compiled-in hard ceilings
+## 8. `risk` — configuration bounded by compiled-in hard bounds
 
 This is the section with the rule that matters.
 
-> **Risk limits are configuration, bounded by compiled-in hard ceilings. Configuration can only make the system more conservative. It can never make it more permissive than the ceiling.**
+> **Risk limits are configuration, bounded by compiled-in hard ceilings above and hard floors below. Configuration can only make the system more conservative. It can never make it more permissive than the bound, in whichever direction "permissive" runs for that limit.**
 
 ```python
 # fking/platform/config/_ceilings.py — compiled in. Not config, not env, not database.
@@ -350,6 +351,14 @@ HARD_CEILINGS: Final[Mapping[str, Decimal]] = MappingProxyType({
     "max_single_order_notional_usd":  Decimal("10000"),
     "max_correlated_exposure_ratio":  Decimal("0.40"),
 })
+
+# The other direction, in the same module for the same reason. Lowering any of these
+# requires a source edit and a PR labelled safety:critical.
+HARD_FLOORS: Final[Mapping[str, Decimal]] = MappingProxyType({
+    "min_free_margin_ratio":          Decimal("0.25"),
+    "min_trades_for_kelly":           Decimal("100"),
+    "conviction_floor":               Decimal("0.10"),
+})
 ```
 
 ```python
@@ -364,6 +373,9 @@ class RiskSettings(BaseSettings):
     max_single_order_notional_usd: Decimal = Decimal("2000")
     max_correlated_exposure_ratio: Decimal = Decimal("0.25")
 
+    min_free_margin_ratio: Decimal = Decimal("0.40")
+    min_trades_for_kelly: int = 100
+
     kill_switch_enabled: Literal[True] = True
     kill_switch_daily_loss_ratio: Decimal = Decimal("0.03")
     conviction_floor: Decimal = Decimal("0.15")
@@ -376,11 +388,25 @@ class RiskSettings(BaseSettings):
             if value > ceiling:
                 raise ValueError(
                     f"{name}={value} exceeds compiled-in hard ceiling {ceiling}. "
-                    f"Raising a ceiling requires a source edit and a "
+                    f"Moving a compiled-in bound requires a source edit and a "
+                    f"safety:critical pull request."
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _above_floors(self) -> "RiskSettings":
+        for name, floor in HARD_FLOORS.items():
+            value = Decimal(str(getattr(self, name)))
+            if value < floor:
+                raise ValueError(
+                    f"{name}={value} is below compiled-in hard floor {floor}. "
+                    f"Moving a compiled-in bound requires a source edit and a "
                     f"safety:critical pull request."
                 )
         return self
 ```
+
+Two loops, not one loop with a direction flag. A flag is a value and a value can be wrong at one call site out of nine; and the lower bound on a floor-governed field is stated in `HARD_FLOORS` alone, never repeated as a `Field(ge=...)`. It was repeated once — `conviction_floor` carried `ge=0` against a floor of 0.10 — and the two disagreed for as long as both existed (issue #171).
 
 ### Why this asymmetry
 
@@ -394,11 +420,11 @@ The same pattern applies wherever a numeric limit protects something: agent toke
 
 ### The floors, which are where the bug lives
 
-The loop above is correct for every limit in `HARD_CEILINGS` and **backwards for every limit where smaller is riskier** — `min_free_margin_ratio`, `min_trades_for_kelly`, `conviction_floor`. `0 > 0.25` is `False`, so `if value > bound` accepts `min_free_margin_ratio = 0`, authorises trading with no margin buffer at all, and reports a passing configuration check.
+A single loop over one mapping is correct for every limit in `HARD_CEILINGS` and **backwards for every limit where smaller is riskier** — `min_free_margin_ratio`, `min_trades_for_kelly`, `conviction_floor`. `0 > 0.25` is `False`, so `if value > bound` accepts `min_free_margin_ratio = 0`, authorises trading with no margin buffer at all, and reports a passing configuration check.
 
 So the bounds are two mappings, checked by two validators, holding values of two **distinct types** — `Ceiling` and `Floor`, in `fking.risk.ceilings`, each offering exactly one comparison in its own direction. `mypy --strict` then rejects `HARD_FLOORS[name] > requested` and rejects handing `HARD_FLOORS` to the ceiling validator; the type system does the reviewing, rather than a human scanning a `>` inside a loop over a dictionary. Both are frozen single-field classes rather than `typing.NewType` over `Decimal`: a `NewType` is assignable to `Decimal`, inherits its comparison operators, and the backwards expression compiles.
 
-`fking.risk.ceilings` imports the ceiling *values* from `fking.platform.config` rather than restating them — two compiled-in copies of a safety constant are two numbers that can disagree, and the one that disagrees silently is whichever the reader is not looking at. `platform` still owns them because it may import no other `fking` module.
+`fking.risk.ceilings` imports both sets of *values* from `fking.platform.config` rather than restating them — two compiled-in copies of a safety constant are two numbers that can disagree, and the one that disagrees silently is whichever the reader is not looking at. `platform` still owns them because it may import no other `fking` module, and it needs them itself: `RiskSettings` is where a misconfigured floor is caught, at boot, naming both the submitted value and the bound.
 
 Floors obey the same direction-of-friction rule read the other way: **raising a floor is free, lowering one past its compiled-in value requires a source edit and a `safety:critical` pull request.** The bound values and their provenance are in `RISK_PHILOSOPHY.md` §4 and §9; `tests/risk/test_limits_property.py` is the guarantee, asserting over arbitrary generated configurations that a configuration is accepted **if and only if** it is within every ceiling and above every floor.
 
