@@ -156,8 +156,8 @@ class BollingerBandReversion:
             parameters=PARAMETERS,
             invalidation=InvalidationRule(
                 adverse_move_fraction=decimal_parameter(bound, _INVALIDATION_FLOOR_FRACTION),
-                volatility_feature=_BAND_WIDTH,
-                volatility_multiple=decimal_parameter(bound, _INVALIDATION_BAND_MULTIPLE),
+                scaling_feature=_BAND_WIDTH,
+                scaling_multiple=decimal_parameter(bound, _INVALIDATION_BAND_MULTIPLE),
                 maximum_adverse_move_fraction=decimal_parameter(bound, _INVALIDATION_CAP_FRACTION),
             ),
             signal_horizon=_SIGNAL_HORIZON,
