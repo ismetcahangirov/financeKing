@@ -124,8 +124,8 @@ def test_an_adverse_move_declared_as_a_float_is_refused() -> None:
 _VOLATILITY = FeatureRequirement(feature_name="trailing_realised_volatility", feature_version=1)
 _SCALED = InvalidationRule(
     adverse_move_fraction=Decimal("0.002"),
-    volatility_feature=_VOLATILITY,
-    volatility_multiple=Decimal("10"),
+    scaling_feature=_VOLATILITY,
+    scaling_multiple=Decimal("10"),
     maximum_adverse_move_fraction=Decimal("0.10"),
 )
 
@@ -168,17 +168,17 @@ def test_a_scaled_rule_without_a_cap_is_refused_at_construction() -> None:
     with pytest.raises(StrategyContractError, match="unbounded one is an unbounded quantity"):
         InvalidationRule(
             adverse_move_fraction=Decimal("0.002"),
-            volatility_feature=_VOLATILITY,
-            volatility_multiple=Decimal("10"),
+            scaling_feature=_VOLATILITY,
+            scaling_multiple=Decimal("10"),
         )
 
 
 def test_a_scaled_rule_with_a_non_positive_multiple_is_refused() -> None:
-    with pytest.raises(StrategyContractError, match="volatility_multiple must be positive"):
+    with pytest.raises(StrategyContractError, match="scaling_multiple must be positive"):
         InvalidationRule(
             adverse_move_fraction=Decimal("0.002"),
-            volatility_feature=_VOLATILITY,
-            volatility_multiple=Decimal("0"),
+            scaling_feature=_VOLATILITY,
+            scaling_multiple=Decimal("0"),
             maximum_adverse_move_fraction=Decimal("0.10"),
         )
 
@@ -188,8 +188,8 @@ def test_a_cap_below_the_floor_is_refused() -> None:
     with pytest.raises(StrategyContractError, match="the bounds cross"):
         InvalidationRule(
             adverse_move_fraction=Decimal("0.05"),
-            volatility_feature=_VOLATILITY,
-            volatility_multiple=Decimal("10"),
+            scaling_feature=_VOLATILITY,
+            scaling_multiple=Decimal("10"),
             maximum_adverse_move_fraction=Decimal("0.01"),
         )
 
@@ -198,7 +198,7 @@ def test_a_multiple_without_a_feature_to_scale_is_refused() -> None:
     """It reads as a scaled stop and behaves as a fixed one, which is the worst available
     combination: the reviewer believes the first and the position sizer gets the second."""
     with pytest.raises(StrategyContractError, match="a multiple of nothing"):
-        InvalidationRule(adverse_move_fraction=Decimal("0.01"), volatility_multiple=Decimal("10"))
+        InvalidationRule(adverse_move_fraction=Decimal("0.01"), scaling_multiple=Decimal("10"))
 
 
 def test_a_cap_without_a_feature_to_scale_is_refused() -> None:

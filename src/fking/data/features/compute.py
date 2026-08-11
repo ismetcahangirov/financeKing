@@ -34,12 +34,19 @@ import statistics
 from collections.abc import Sequence
 from decimal import Decimal
 
-from fking.data.features.spec import FeatureObservation, FeaturePoint, FeatureWindow
+from fking.data.features.spec import (
+    FeatureObservation,
+    FeaturePoint,
+    FeatureWindow,
+    SettlementRateObservation,
+)
 
 __all__ = [
     "bollinger_band_width_fraction",
     "bollinger_z_score",
     "donchian_channel_breakout_state",
+    "settled_funding_rate",
+    "trailing_mean_absolute_funding_rate",
     "trailing_realised_volatility",
     "trailing_return_fraction",
 ]
@@ -264,6 +271,88 @@ def bollinger_band_width_fraction(
                 event_time_utc=observation.event_time_utc,
                 available_at_utc=observation.event_time_utc + window.availability_lag,
                 feature_value=Decimal(str(statistics.stdev(closes) / statistics.fmean(closes))),
+            )
+        )
+    return tuple(points)
+
+
+def settled_funding_rate(
+    observations: Sequence[SettlementRateObservation], window: FeatureWindow
+) -> tuple[FeaturePoint, ...]:
+    """The signed rate exchanged at one settlement, republished under the store's lag.
+
+    The identity on the value, and that is the point rather than an oversight. A
+    venue-published number only becomes usable to a strategy once it carries an
+    `available_at_utc`, and stamping that is what this feature does: the rate is *settled*
+    at `event_time_utc` and readable one `availability_lag` later, so a decision taken at
+    the settlement instant itself cannot see it. Letting a strategy read the raw series
+    instead would put that lag in the strategy's hands, and the permissive answer -- zero
+    -- is the one that makes a carry backtest look like it front-ran every settlement.
+
+    `window.lookback` does not enter the value and is still honoured: a settlement without
+    a full lookback of history behind it emits nothing, so this series starts where the
+    trailing statistic declared over the same window starts. Two features over one input
+    beginning on different dates would otherwise make the first decisions of every run
+    read one of them against nothing.
+    """
+    points: list[FeaturePoint] = []
+    for index, observation in enumerate(observations):
+        window_start = observation.event_time_utc - window.lookback
+        first_inside = index
+        while first_inside > 0 and observations[first_inside - 1].event_time_utc > window_start:
+            first_inside -= 1
+        if first_inside == 0:
+            continue
+        points.append(
+            FeaturePoint(
+                event_time_utc=observation.event_time_utc,
+                available_at_utc=observation.event_time_utc + window.availability_lag,
+                feature_value=observation.settlement_rate,
+            )
+        )
+    return tuple(points)
+
+
+def trailing_mean_absolute_funding_rate(
+    observations: Sequence[SettlementRateObservation], window: FeatureWindow
+) -> tuple[FeaturePoint, ...]:
+    """Mean magnitude of the settlements in `(t - lookback, t]`, sign discarded.
+
+    Magnitude rather than the signed mean, because this series answers "how much is
+    exchanged per settlement", which is a distance and feeds an invalidation denominator.
+    A signed mean over a window that changed sign reports a near-zero rate for a market
+    that exchanged a great deal in both directions, and a near-zero denominator is an
+    unbounded position (`fking.strategy._invalidation`). The sign of the current regime is
+    a separate question answered by `settled_funding_rate`, kept a separate feature for the
+    reason `bollinger_band_width_fraction` is: one series, one lookback, one lag, and the
+    two are read by different parts of one decision.
+
+    A window holding no settlement older than its start emits nothing rather than a mean
+    over whatever happened to be loaded, which at eight-hourly settlements is the
+    difference between an estimate over twenty-one prints and one over two.
+    """
+    points: list[FeaturePoint] = []
+    for index, observation in enumerate(observations):
+        window_start = observation.event_time_utc - window.lookback
+        first_inside = index
+        while first_inside > 0 and observations[first_inside - 1].event_time_utc > window_start:
+            first_inside -= 1
+        if first_inside == 0:
+            continue
+        magnitudes = [
+            abs(observations[position].settlement_rate)
+            for position in range(first_inside, index + 1)
+        ]
+        points.append(
+            FeaturePoint(
+                event_time_utc=observation.event_time_utc,
+                available_at_utc=observation.event_time_utc + window.availability_lag,
+                # Summed and divided as `Decimal` rather than through `statistics.fmean`.
+                # Unlike a standard deviation of returns, this value is multiplied by a
+                # settlement count and then by a notional to produce the carry a position
+                # is sized against, so it is money in every sense that matters and the
+                # float exception in docs/rules/decimal-and-money.md does not reach it.
+                feature_value=sum(magnitudes, Decimal("0")) / Decimal(len(magnitudes)),
             )
         )
     return tuple(points)

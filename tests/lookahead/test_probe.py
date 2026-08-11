@@ -28,6 +28,7 @@ from tests.lookahead.harness import (
     poison_one_close,
     probe_feature,
     probe_label,
+    settlements,
 )
 
 pytestmark = pytest.mark.unit
@@ -40,6 +41,8 @@ _CLOSES = (
 )  # fmt: skip
 _HORIZON = timedelta(minutes=30)
 _STEP = timedelta(minutes=15)
+# Binance's perpetual funding cadence, the grain every settlement-rate feature declares over.
+_SETTLEMENT_STEP = timedelta(hours=8)
 
 
 def _probe_closes() -> tuple[str, ...]:
@@ -54,13 +57,31 @@ def _probe_closes() -> tuple[str, ...]:
     Irregular on purpose, like `_CLOSES`: a monotone series lets a leak that reads one bar
     ahead produce a plausible value, and a constant one lets it produce an identical one.
     """
-    deepest = max(spec.lookback for spec in FEATURES.values())
+    deepest = max(
+        spec.lookback for spec in FEATURES.values() if spec.settlement_rate_compute is None
+    )
     observations_needed = (deepest // _STEP) * 2 + 8
     swing = (Decimal("1.031"), Decimal("0.972"), Decimal("1.013"), Decimal("0.949"))
     closes = [Decimal("100")]
     while len(closes) < observations_needed:
         closes.append(closes[-1] * swing[len(closes) % len(swing)])
     return tuple(format(close, "f") for close in closes)
+
+
+def _probe_rates() -> tuple[str, ...]:
+    """Settlements long enough that every rate feature emits on both sides of the cut.
+
+    Signed and unequal, for the reason `_probe_closes` is irregular and for one more: a
+    series of a single repeated rate makes the trailing mean equal to every element of it,
+    so a mean taken over the whole sample would agree with a trailing one and the probe
+    would pass on a leak it exists to find.
+    """
+    deepest = max(
+        spec.lookback for spec in FEATURES.values() if spec.settlement_rate_compute is not None
+    )
+    settlements_needed = (deepest // _SETTLEMENT_STEP) * 2 + 8
+    swing = ("0.00031", "-0.00072", "0.00013", "-0.00049")
+    return tuple(swing[index % len(swing)] for index in range(settlements_needed))
 
 
 @pytest.mark.parametrize("feature_key", sorted(FEATURES), ids=str)
@@ -71,7 +92,11 @@ def test_no_registered_feature_reads_the_future(feature_key: tuple[str, int]) ->
     can be perfectly trailing and still be stamped as knowable before the venue published
     it, and the store filters on that stamp.
     """
-    probe_feature(FEATURES[feature_key], bars(_probe_closes()))
+    spec = FEATURES[feature_key]
+    if spec.settlement_rate_compute is not None:
+        probe_feature(spec, settlements(_probe_rates()))
+        return
+    probe_feature(spec, bars(_probe_closes()))
 
 
 def test_the_label_is_entered_at_a_price_the_decision_could_have_transacted_at() -> None:

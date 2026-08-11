@@ -15,15 +15,20 @@ Four properties carry everything else:
   the boot log wrong for part of the run.
 - **The full effective config is logged at boot, redacted by type.** Every credential is
   `SecretStr`, so a credential added tomorrow is redacted tomorrow.
-- **Risk limits are configuration bounded by compiled-in ceilings.** Configuration can
-  only make this system more conservative.
+- **Risk limits are configuration bounded in both directions by compiled-in constants.**
+  Ceilings above, floors below. Configuration can only make this system more
+  conservative.
 
 Everything not listed in `__all__` is private and may change without notice.
 
 CONFIGURATION.md, SECURITY.md section 4.
 """
 
-from fking.platform.config._ceilings import AGENT_HARD_CEILINGS, HARD_CEILINGS
+from fking.platform.config._ceilings import (
+    AGENT_HARD_CEILINGS,
+    HARD_CEILINGS,
+    HARD_FLOORS,
+)
 from fking.platform.config._errors import EX_CONFIG, ConfigError
 from fking.platform.config.boot import (
     DEFAULT_ENV_FILE,
@@ -63,6 +68,7 @@ __all__ = [
     "DEFAULT_ENV_FILE",
     "EX_CONFIG",
     "HARD_CEILINGS",
+    "HARD_FLOORS",
     "AgentBudget",
     "AgentSettings",
     "ApiSettings",

@@ -55,6 +55,8 @@ __all__ = [
     "FeatureRef",
     "FeatureSpec",
     "FeatureWindow",
+    "SettlementRateCompute",
+    "SettlementRateObservation",
     "definition_digest",
 ]
 
@@ -112,7 +114,34 @@ class FeatureWindow:
     availability_lag: timedelta
 
 
+@dataclass(frozen=True, slots=True)
+class SettlementRateObservation:
+    """One funding settlement a perpetual venue has already published.
+
+    A second observation kind rather than three more fields on `FeatureObservation`,
+    because the two series do not share a clock and merging them would hide that. Closed
+    bars arrive on a regular grid and are known at the instant they close; a funding
+    settlement arrives every eight hours on Binance perpetuals and is *stamped* at the
+    settlement instant while being readable only afterwards, which is why every spec built
+    over this type carries a positive `availability_lag`. A single type carrying both would
+    have to declare one lag for two publication behaviours, and the permissive answer --
+    zero -- is the one a reader would assume.
+
+    `settlement_rate` is signed and is the fraction of notional exchanged at one
+    settlement, not an annualised rate and not a percentage. Positive means longs pay
+    shorts. It is a fraction rather than a price, so it is not quantised to any tick, and
+    it is still a `Decimal`: it multiplies a notional, and a float here reintroduces the
+    accumulation error that `docs/rules/decimal-and-money.md` exists to stop.
+    """
+
+    event_time_utc: datetime
+    settlement_rate: Decimal
+
+
 FeatureCompute = Callable[[Sequence[FeatureObservation], FeatureWindow], tuple[FeaturePoint, ...]]
+SettlementRateCompute = Callable[
+    [Sequence[SettlementRateObservation], FeatureWindow], tuple[FeaturePoint, ...]
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,11 +165,19 @@ class FeatureSpec:
 
     Keyword-only and fully required: omitting a field is a `TypeError` that names it,
     which is a better failure than a default that silently declares no lag.
+
+    The two computation fields are the exception, and they default to `None` for the
+    opposite reason to the rule above rather than in spite of it. Exactly one must be
+    supplied, and `__post_init__` refuses both zero and two by name -- so the failure for
+    the mistake this pair actually invites ("I set the wrong one", "I set neither") states
+    which kinds exist and which this feature consumes, where a `TypeError` about a missing
+    positional would only name the field the author already knew about.
     """
 
     name: str
     version: int
-    compute: FeatureCompute
+    compute: FeatureCompute | None = None
+    settlement_rate_compute: SettlementRateCompute | None = None
     inputs: frozenset[str]
     lookback: timedelta
     availability_lag: timedelta
@@ -150,6 +187,7 @@ class FeatureSpec:
 
     def __post_init__(self) -> None:
         _require_text(self.name, "name")
+        self._require_exactly_one_computation()
         if self.version < 1:
             raise FeatureContractError(f"version must be at least 1; got {self.version}")
         _require_positive_duration(self.lookback, "lookback")
@@ -176,6 +214,41 @@ class FeatureSpec:
                 f"statistic cannot be point-in-time (docs/rules/no-lookahead.md)"
             )
 
+    def _require_exactly_one_computation(self) -> None:
+        supplied = [
+            field_name
+            for field_name, candidate in (
+                ("compute", self.compute),
+                ("settlement_rate_compute", self.settlement_rate_compute),
+            )
+            if candidate is not None
+        ]
+        if len(supplied) == 1:
+            return
+        if not supplied:
+            raise FeatureContractError(
+                f"{self.name} declares neither compute nor settlement_rate_compute; a "
+                f"feature is a computation over one observation kind, and which kind it "
+                f"reads is what the availability contract checks its inputs against"
+            )
+        raise FeatureContractError(
+            f"{self.name} declares both compute and settlement_rate_compute; a feature is "
+            f"one series with one lookback and one lag, so two computations under one name "
+            f"means two features whose values would share a primary key"
+        )
+
+    @property
+    def computation(self) -> FeatureCompute | SettlementRateCompute:
+        """Whichever computation was declared, for callers that only need to digest it."""
+        if self.compute is not None:
+            return self.compute
+        if self.settlement_rate_compute is not None:
+            return self.settlement_rate_compute
+        raise FeatureContractError(
+            f"{self.name} has no computation; __post_init__ refuses that, so reaching here "
+            f"means the instance was assembled without it"
+        )
+
     def window(self) -> FeatureWindow:
         """The durations handed to `compute`, so the declaration is the computation."""
         return FeatureWindow(lookback=self.lookback, availability_lag=self.availability_lag)
@@ -185,7 +258,7 @@ class FeatureSpec:
         return (self.name, self.version)
 
 
-def definition_digest(compute: FeatureCompute) -> str:
+def definition_digest(compute: FeatureCompute | SettlementRateCompute) -> str:
     """A digest of what `compute` *does*, over its parsed syntax rather than its text.
 
     Parsed rather than hashed as source, so reformatting, re-indenting or adding a

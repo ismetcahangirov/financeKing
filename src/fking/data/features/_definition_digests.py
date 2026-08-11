@@ -31,5 +31,7 @@ DEFINITION_DIGESTS: Final[Mapping[tuple[str, int], str]] = MappingProxyType(
         ("donchian_channel_breakout_state", 1): "56ed26c9974da2290a02b84e9a720a6a",
         ("bollinger_z_score", 1): "42c5cdb0ecb1262aecddcd78aabf9035",
         ("bollinger_band_width_fraction", 1): "bdeec4f3867db5437f695c0b6756f839",
+        ("settled_funding_rate", 1): "552b270d67193892875cf12e94e03843",
+        ("trailing_mean_absolute_funding_rate", 1): "1fbeef48016765b66eac9029917481d0",
     }
 )

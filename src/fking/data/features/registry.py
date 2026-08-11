@@ -25,18 +25,32 @@ from decimal import Decimal
 from types import MappingProxyType
 from typing import Final
 
+from fking.data.alt.registry import BINANCE_FUNDING_RATE
 from fking.data.features._definition_digests import DEFINITION_DIGESTS
 from fking.data.features.compute import (
     bollinger_band_width_fraction,
     bollinger_z_score,
     donchian_channel_breakout_state,
+    settled_funding_rate,
+    trailing_mean_absolute_funding_rate,
     trailing_realised_volatility,
     trailing_return_fraction,
 )
-from fking.data.features.spec import FeatureObservation, FeaturePoint, FeatureSpec
+from fking.data.features.spec import (
+    FeatureObservation,
+    FeaturePoint,
+    FeatureSpec,
+    SettlementRateObservation,
+)
 from fking.platform.errors import FeatureContractError
 
-__all__ = ["FEATURES", "evaluate", "registered", "registered_names"]
+__all__ = [
+    "FEATURES",
+    "evaluate",
+    "evaluate_settlement_rates",
+    "registered",
+    "registered_names",
+]
 
 # Both features consume closed 1-minute bars and nothing else. Named as a set of
 # dataset identifiers rather than as free text so #30's availability contract can check
@@ -56,6 +70,26 @@ _CLOSED_BARS: Final[frozenset[str]] = frozenset({"klines"})
 # global counter on behalf of a strategy nobody intends to promote, so every future
 # deflated Sharpe pays for a search that was never meant to produce anything.
 _TWENTY_PERIOD_WINDOW: Final[timedelta] = timedelta(hours=5)
+
+# The perpetual funding series and nothing else. Spelled as the dataset identifier for the
+# same reason `_CLOSED_BARS` is: `fking.data.features.availability` resolves it against
+# `fking.data.format_resolver.Dataset` and refuses a feature whose input names a series the
+# corpus does not hold, without parsing prose.
+_FUNDING_SETTLEMENTS: Final[frozenset[str]] = frozenset({"fundingRate"})
+
+# Twenty-one settlements at Binance's eight-hourly cadence -- one week. It is the shortest
+# window over which a funding *regime* rather than a single settlement is observable, and
+# the carry baseline (#57) holds for exactly this long, so the window that estimates the
+# rate and the window the rate is earned over are the same seven days by construction
+# rather than by two independent choices. Fixed a priori and never searched, for the reason
+# `_TWENTY_PERIOD_WINDOW` states.
+_FUNDING_REGIME_WINDOW: Final[timedelta] = timedelta(days=7)
+
+# The same lag `fking.data.alt.registry` measured for this source, read from the
+# declaration rather than restated. Two numbers for one publication behaviour drift, and
+# the direction they drift in -- a feature claiming to know a rate earlier than the ingest
+# path could deliver it -- is look-ahead that no test of either module alone would catch.
+_FUNDING_PUBLICATION_LAG: Final[timedelta] = BINANCE_FUNDING_RATE.availability_lag
 
 FEATURES: Final[Mapping[tuple[str, int], FeatureSpec]] = MappingProxyType(
     {
@@ -144,6 +178,42 @@ FEATURES: Final[Mapping[tuple[str, int], FeatureSpec]] = MappingProxyType(
                 ),
                 uses_trailing_statistics_only=True,
             ),
+            FeatureSpec(
+                name="settled_funding_rate",
+                version=1,
+                settlement_rate_compute=settled_funding_rate,
+                inputs=_FUNDING_SETTLEMENTS,
+                lookback=_FUNDING_REGIME_WINDOW,
+                availability_lag=_FUNDING_PUBLICATION_LAG,
+                label_horizon=_FUNDING_REGIME_WINDOW,
+                point_in_time_proof=(
+                    "The value is the rate settled at t and nothing else enters it, so no "
+                    "observation after t can. It is stamped available one minute later, "
+                    "which is the measured envelope for the mark-price stream that "
+                    "broadcasts it; a decision taken at the settlement instant itself sees "
+                    "the previous settlement. A window holding no settlement at or before "
+                    "t-7d emits nothing, so this series and the trailing mean over the "
+                    "same window begin on the same date."
+                ),
+                uses_trailing_statistics_only=True,
+            ),
+            FeatureSpec(
+                name="trailing_mean_absolute_funding_rate",
+                version=1,
+                settlement_rate_compute=trailing_mean_absolute_funding_rate,
+                inputs=_FUNDING_SETTLEMENTS,
+                lookback=_FUNDING_REGIME_WINDOW,
+                availability_lag=_FUNDING_PUBLICATION_LAG,
+                label_horizon=_FUNDING_REGIME_WINDOW,
+                point_in_time_proof=(
+                    "Mean of |rate| over the settlements in (t-7d, t], the newest of which "
+                    "is the one being stamped and all of which had already settled at t. "
+                    "The oldest used is the newest settlement at or before t-7d, which "
+                    "also already existed. A window without one emits nothing rather than "
+                    "a mean over however many settlements happened to be loaded."
+                ),
+                uses_trailing_statistics_only=True,
+            ),
         )
     }
 )
@@ -193,8 +263,36 @@ def evaluate(
     digests move whenever it changed -- which would read as a definition change in every
     feature at once.
     """
+    if spec.compute is None:
+        raise FeatureContractError(
+            f"{spec.name} v{spec.version} is declared over settlement rates and was handed "
+            f"closed bars; call evaluate_settlement_rates. Computing it from the wrong "
+            f"series would produce a number under a name whose point-in-time proof "
+            f"describes a different input"
+        )
     _require_strictly_increasing(observations)
     return spec.compute(observations, spec.window())
+
+
+def evaluate_settlement_rates(
+    spec: FeatureSpec, observations: Sequence[SettlementRateObservation]
+) -> tuple[FeaturePoint, ...]:
+    """Compute one settlement-rate feature over one series, validating the series first.
+
+    A second entry point rather than a union parameter on `evaluate`. The two series carry
+    different validity conditions -- a price must be positive, a funding rate is signed and
+    routinely negative -- so one function would have to branch on the observation type and
+    would accept a mixed sequence that neither branch rejects.
+    """
+    if spec.settlement_rate_compute is None:
+        raise FeatureContractError(
+            f"{spec.name} v{spec.version} is declared over closed bars and was handed "
+            f"settlement rates; call evaluate. Computing it from the wrong series would "
+            f"produce a number under a name whose point-in-time proof describes a "
+            f"different input"
+        )
+    _require_strictly_increasing_settlements(observations)
+    return spec.settlement_rate_compute(observations, spec.window())
 
 
 def _require_strictly_increasing(observations: Sequence[FeatureObservation]) -> None:
@@ -218,6 +316,29 @@ def _require_strictly_increasing(observations: Sequence[FeatureObservation]) -> 
         if previous is not None and observation.event_time_utc <= previous.event_time_utc:
             raise FeatureContractError(
                 f"observations must ascend strictly by event_time_utc; "
+                f"{observation.event_time_utc.isoformat()} does not follow "
+                f"{previous.event_time_utc.isoformat()}"
+            )
+        previous = observation
+
+
+def _require_strictly_increasing_settlements(
+    observations: Sequence[SettlementRateObservation],
+) -> None:
+    """Ascending settlement instants, no duplicates.
+
+    There is deliberately no bound on the rate itself. A funding rate is signed, and
+    Binance's own cap moves per symbol and has been changed on live perpetuals, so a
+    plausibility band written here would be a second declaration of the venue's rules that
+    silently rejects real prints the day the venue widens one. Duplicates are still refused
+    for the reason the bar series refuses them: two rates claiming one settlement means two
+    sources disagree, and picking one buries the disagreement.
+    """
+    previous: SettlementRateObservation | None = None
+    for observation in observations:
+        if previous is not None and observation.event_time_utc <= previous.event_time_utc:
+            raise FeatureContractError(
+                f"settlements must ascend strictly by event_time_utc; "
                 f"{observation.event_time_utc.isoformat()} does not follow "
                 f"{previous.event_time_utc.isoformat()}"
             )

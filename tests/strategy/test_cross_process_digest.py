@@ -24,7 +24,7 @@ import pytest
 from fking.strategy import SHIPPED_STRATEGIES, StrategyBuilder, replay
 from tests.strategy.harness import (
     BTCUSDT,
-    bars_from_closes,
+    bars_for,
     exercising_closes,
     feature_values_for,
     signal_digest,
@@ -47,7 +47,7 @@ import sys
 from fking.strategy import SHIPPED_STRATEGIES, replay
 from tests.strategy.harness import (
     BTCUSDT,
-    bars_from_closes,
+    bars_for,
     exercising_closes,
     feature_values_for,
     signal_digest,
@@ -55,7 +55,7 @@ from tests.strategy.harness import (
 
 build = {builder}
 strategy = build((BTCUSDT,))
-series = bars_from_closes(exercising_closes({bar_count}))
+series = bars_for(strategy.spec, exercising_closes({bar_count}))
 signals = replay(
     strategy,
     series,
@@ -73,7 +73,7 @@ def _strategy_id(build: StrategyBuilder) -> str:
 @pytest.mark.parametrize("build", SHIPPED_STRATEGIES, ids=_strategy_id)
 def test_a_replay_in_a_second_process_produces_the_same_digest(build: StrategyBuilder) -> None:
     strategy = build((BTCUSDT,))
-    series = bars_from_closes(exercising_closes(_BAR_COUNT))
+    series = bars_for(strategy.spec, exercising_closes(_BAR_COUNT))
     here = replay(
         strategy,
         series,

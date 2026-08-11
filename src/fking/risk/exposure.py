@@ -54,6 +54,7 @@ from fking.domain import (
     Signal,
 )
 from fking.risk.ceilings import (
+    HARD_FLOORS,
     Ceiling,
     Floor,
     assert_above_floors,
@@ -113,11 +114,12 @@ EXPOSURE_HARD_CEILINGS: Final[Mapping[str, Ceiling]] = MappingProxyType(
 
 EXPOSURE_HARD_FLOORS: Final[Mapping[str, Floor]] = MappingProxyType(
     {
-        # 25% free margin. Below that a maintenance-margin call can precede the drawdown
-        # kill switch, which inverts the order in which the two safety mechanisms fire.
-        # Same value and same reason as `fking.risk.ceilings.HARD_FLOORS`; restated
-        # against this model because this is the object that governs the pre-trade check.
-        "min_free_margin_ratio": Floor(Decimal("0.25")),
+        # The same bound as the one governing `RiskLimits`, and therefore the same
+        # object rather than a second copy of 0.25: this model governs the pre-trade
+        # check and that one governs the configured limit, but a free-margin floor that
+        # can differ between the two is a floor whose value depends on which module
+        # asked. Provenance sits with the value, in `fking.platform.config`.
+        "min_free_margin_ratio": HARD_FLOORS["min_free_margin_ratio"],
     }
 )
 

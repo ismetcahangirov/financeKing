@@ -26,6 +26,7 @@ from fking.data.features.spec import (
     FeaturePoint,
     FeatureSpec,
     FeatureWindow,
+    SettlementRateObservation,
     definition_digest,
 )
 from fking.platform.errors import FeatureContractError
@@ -222,3 +223,37 @@ def test_a_lambda_cannot_be_registered_as_a_definition() -> None:
     """
     with pytest.raises(FeatureContractError, match="must be a plain function"):
         definition_digest(lambda _observations, _window: ())
+
+
+def _noop_settlements(
+    observations: Sequence[SettlementRateObservation], window: FeatureWindow
+) -> tuple[FeaturePoint, ...]:
+    """A settlement-rate compute that emits nothing, used to exercise the declaration."""
+    del observations, window
+    return ()
+
+
+def test_a_feature_declaring_no_computation_is_refused_by_name() -> None:
+    """Both computation fields default to `None`, so the refusal has to say which exist."""
+    fields = _valid_fields()
+    del fields["compute"]
+    with pytest.raises(FeatureContractError, match="neither compute nor"):
+        FeatureSpec(**fields)  # type: ignore[arg-type]  # the mapping is deliberately loose
+
+
+def test_a_feature_declaring_two_computations_is_refused() -> None:
+    """One name, one lookback, one lag -- and one primary key in `feature_values`."""
+    fields = _valid_fields()
+    fields["settlement_rate_compute"] = _noop_settlements
+    with pytest.raises(FeatureContractError, match="declares both compute"):
+        FeatureSpec(**fields)  # type: ignore[arg-type]  # the mapping is deliberately loose
+
+
+def test_the_declared_computation_is_the_one_reported() -> None:
+    """`computation` is what the digest lock hashes, and it must not prefer a fixed field."""
+    fields = _valid_fields()
+    del fields["compute"]
+    fields["settlement_rate_compute"] = _noop_settlements
+    spec = FeatureSpec(**fields)  # type: ignore[arg-type]  # the mapping is deliberately loose
+    assert spec.computation is _noop_settlements
+    assert FeatureSpec(**_valid_fields()).computation is _noop  # type: ignore[arg-type]

@@ -26,13 +26,29 @@ from decimal import Decimal
 import pytest
 
 from fking.data.features._definition_digests import DEFINITION_DIGESTS
-from fking.data.features.registry import FEATURES, evaluate, locked_digest, registered
-from fking.data.features.spec import FeatureObservation, definition_digest
+from fking.data.features.registry import (
+    FEATURES,
+    evaluate,
+    evaluate_settlement_rates,
+    locked_digest,
+    registered,
+)
+from fking.data.features.spec import (
+    FeatureObservation,
+    FeaturePoint,
+    FeatureSpec,
+    SettlementRateObservation,
+    definition_digest,
+)
 from fking.platform.errors import FeatureContractError
 
 pytestmark = pytest.mark.unit
 
 _START = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
+_BAR_STEP = timedelta(minutes=15)
+# Binance's perpetual funding cadence, and the grain every settlement-rate feature's
+# lookback is expressed over (`fking.data.alt.registry.BINANCE_FUNDING_RATE`).
+_SETTLEMENT_STEP = timedelta(hours=8)
 
 
 def _series(
@@ -76,6 +92,57 @@ def _probe_closes() -> list[str]:
     return [format(close, "f") for close in closes]
 
 
+def _settlements(rates: Sequence[str]) -> tuple[SettlementRateObservation, ...]:
+    """A funding series on the venue's eight-hourly grid."""
+    return tuple(
+        SettlementRateObservation(
+            event_time_utc=_START + _SETTLEMENT_STEP * index,
+            settlement_rate=Decimal(rate),
+        )
+        for index, rate in enumerate(rates)
+    )
+
+
+def _probe_rates() -> list[str]:
+    """Settlements long enough that every registered rate feature emits over them.
+
+    Signed and unequal in magnitude on purpose. A series of one repeated rate would make
+    the trailing mean equal to every element of it, so a mean computed over the wrong
+    window -- or over the whole sample -- would agree with the correct one and the probe
+    would pass while checking nothing. The sign changes matter for the same reason: a
+    *signed* mean and a mean of magnitudes coincide on a series that never crosses zero.
+    """
+    deepest = max(
+        spec.lookback for spec in FEATURES.values() if spec.settlement_rate_compute is not None
+    )
+    settlements_needed = deepest // _SETTLEMENT_STEP + 8
+    swing = ("0.0001", "-0.00035", "0.0006", "0.00002")
+    return [swing[index % len(swing)] for index in range(settlements_needed)]
+
+
+def _probe_over(spec: FeatureSpec, *, poisoned_tail: int = 0) -> tuple[FeaturePoint, ...]:
+    """Evaluate `spec` over the probe series its declared observation kind consumes.
+
+    Dispatching here rather than parametrising each test twice: the properties below hold
+    for every registered feature, and a test that enumerated the bar features by name
+    would stop covering the next kind the store learns to hold.
+    """
+    if spec.settlement_rate_compute is not None:
+        rates = _probe_rates()
+        if poisoned_tail:
+            rates = [*rates[:-poisoned_tail], *(["0.5", "-0.9", "0.75", "-0.4"][:poisoned_tail])]
+        return evaluate_settlement_rates(spec, _settlements(rates))
+    closes = _probe_closes()
+    if poisoned_tail:
+        closes = [*closes[:-poisoned_tail], *(["1000", "1", "5000", "2"][:poisoned_tail])]
+    return evaluate(spec, _series(closes))
+
+
+def _probe_step(spec: FeatureSpec) -> timedelta:
+    """The grain the probe series for `spec` is stamped on."""
+    return _SETTLEMENT_STEP if spec.settlement_rate_compute is not None else _BAR_STEP
+
+
 # ---------------------------------------------------------------------------
 # The lock
 # ---------------------------------------------------------------------------
@@ -92,7 +159,7 @@ def test_a_registered_definition_still_matches_its_locked_digest(
     never an edited digest at the same version.
     """
     spec = FEATURES[feature_key]
-    assert definition_digest(spec.compute) == locked_digest(spec.name, spec.version), (
+    assert definition_digest(spec.computation) == locked_digest(spec.name, spec.version), (
         f"{spec.name} v{spec.version} was edited without a version bump; register "
         f"version {spec.version + 1} instead of updating its digest"
     )
@@ -199,8 +266,11 @@ def test_no_partial_window_is_emitted(feature_key: tuple[str, int]) -> None:
     to start reading, and no live run would ever have had it.
     """
     spec = FEATURES[feature_key]
-    too_short = _series(["100", "101"], step=timedelta(minutes=1))
-    assert evaluate(spec, too_short) == ()
+    if spec.settlement_rate_compute is not None:
+        # Two settlements sixteen hours apart sit well inside any declared funding window.
+        assert evaluate_settlement_rates(spec, _settlements(["0.0001", "0.0002"])) == ()
+        return
+    assert evaluate(spec, _series(["100", "101"], step=timedelta(minutes=1))) == ()
 
 
 @pytest.mark.parametrize("feature_key", sorted(FEATURES), ids=str)
@@ -213,13 +283,10 @@ def test_a_value_does_not_move_when_the_future_is_replaced(feature_key: tuple[st
     moves read the future.
     """
     spec = FEATURES[feature_key]
-    closes = _probe_closes()
-    cut_index = len(closes) - 4
-    poisoned = [*closes[:cut_index], "1000", "1", "5000", "2"]
-
-    baseline = evaluate(spec, _series(closes))
-    perturbed = evaluate(spec, _series(poisoned))
-    cut = _START + timedelta(minutes=15) * (cut_index - 1)
+    poisoned_tail = 4
+    baseline = _probe_over(spec)
+    perturbed = _probe_over(spec, poisoned_tail=poisoned_tail)
+    cut = max(point.event_time_utc for point in baseline) - _probe_step(spec) * poisoned_tail
 
     before_cut = tuple(point for point in baseline if point.event_time_utc <= cut)
     after_poison = tuple(point for point in perturbed if point.event_time_utc <= cut)
@@ -232,7 +299,7 @@ def test_available_at_is_the_event_time_plus_the_declared_lag(feature_key: tuple
     """The writer cannot claim a value was knowable earlier than the declaration says,
     because it does not supply `available_at_utc` at all -- `compute` derives it."""
     spec = FEATURES[feature_key]
-    points = evaluate(spec, _series(_probe_closes()))
+    points = _probe_over(spec)
     assert points
     for point in points:
         assert point.available_at_utc == point.event_time_utc + spec.availability_lag
@@ -354,3 +421,80 @@ def test_a_flat_band_has_zero_width_rather_than_no_value() -> None:
     points = evaluate(spec, _series(["100"] * 22))
     assert points
     assert {point.feature_value for point in points} == {Decimal("0")}
+
+
+# ---------------------------------------------------------------------------
+# The settlement-rate kind
+# ---------------------------------------------------------------------------
+
+
+def test_a_settlement_feature_handed_closed_bars_refuses_rather_than_computing() -> None:
+    """The wrong series under the right name is worse than an exception.
+
+    A funding feature computed from closes would emit a number whose declared
+    point-in-time proof describes an input it never saw, and the value would carry a
+    funding availability lag it did not earn.
+    """
+    spec = registered("settled_funding_rate", 1)
+    with pytest.raises(FeatureContractError, match="declared over settlement rates"):
+        evaluate(spec, _series(["100", "101"]))
+
+
+def test_a_bar_feature_handed_settlement_rates_refuses_rather_than_computing() -> None:
+    spec = registered("bollinger_z_score", 1)
+    with pytest.raises(FeatureContractError, match="declared over closed bars"):
+        evaluate_settlement_rates(spec, _settlements(["0.0001", "0.0002"]))
+
+
+def test_duplicate_settlement_instants_are_refused() -> None:
+    """Two rates claiming one settlement means two sources disagree about what was paid."""
+    spec = registered("settled_funding_rate", 1)
+    duplicated = (
+        SettlementRateObservation(event_time_utc=_START, settlement_rate=Decimal("0.0001")),
+        SettlementRateObservation(event_time_utc=_START, settlement_rate=Decimal("-0.0001")),
+    )
+    with pytest.raises(FeatureContractError, match="ascend strictly"):
+        evaluate_settlement_rates(spec, duplicated)
+
+
+def test_a_negative_settlement_rate_is_a_real_print_and_is_not_refused() -> None:
+    """Shorts pay longs whenever the perpetual trades below the index, which is common.
+
+    Asserted explicitly because the bar series *does* refuse a non-positive value, and the
+    reflex that copies that guard across would silently drop every inverted-funding regime
+    -- which is precisely the regime the carry baseline goes long in.
+    """
+    spec = registered("settled_funding_rate", 1)
+    rates = ["-0.0004"] * (len(_probe_rates()))
+    points = evaluate_settlement_rates(spec, _settlements(rates))
+    assert points
+    assert {point.feature_value for point in points} == {Decimal("-0.0004")}
+
+
+def test_the_settled_rate_is_republished_one_publication_lag_after_settlement() -> None:
+    """The value is the venue's; the instant it becomes readable is this store's claim."""
+    spec = registered("settled_funding_rate", 1)
+    rates = _probe_rates()
+    points = evaluate_settlement_rates(spec, _settlements(rates))
+    assert points
+    first = points[0]
+    # Twenty-one settlements span the declared seven-day lookback, so the earliest point
+    # is stamped at the twenty-second, and it carries that settlement's own rate.
+    assert first.event_time_utc == _START + _SETTLEMENT_STEP * 21
+    assert first.feature_value == Decimal(rates[21])
+    assert first.available_at_utc == first.event_time_utc + timedelta(minutes=1)
+
+
+def test_the_trailing_mean_discards_sign_rather_than_netting_it() -> None:
+    """A window that paid and then received exchanged a great deal; its signed mean is nil.
+
+    Twenty-two settlements alternating +4bp and -4bp: the signed mean over any full window
+    is within one settlement of zero, and the magnitude mean is exactly 4bp. A
+    near-zero distance is the denominator of every position sized off this feature, so the
+    difference between the two statistics is an unbounded quantity rather than a nuance.
+    """
+    spec = registered("trailing_mean_absolute_funding_rate", 1)
+    alternating = ["0.0004" if index % 2 == 0 else "-0.0004" for index in range(24)]
+    points = evaluate_settlement_rates(spec, _settlements(alternating))
+    assert points
+    assert {point.feature_value for point in points} == {Decimal("0.0004")}

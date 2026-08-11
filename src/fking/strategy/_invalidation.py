@@ -51,11 +51,19 @@ class InvalidationRule:
     fraction of price is the same distance in a dead market and in a crash, so it is either
     too tight to survive normal noise or too wide to size against; every volatility-scaled
     stop in the literature exists for that reason. What makes this one safe is *where* the
-    scaling is declared. `volatility_feature` names a feature the specification already
+    scaling is declared. `scaling_feature` names a feature the specification already
     requires, and `fking.strategy.step` recomputes the level from the same value it handed
     the strategy -- so the strategy still cannot name a distance of its own, and the level
     remains predictable from the specification, mutable by the evolution engine, and
     checkable against what was emitted.
+
+    The field is `scaling_feature` and not `volatility_feature`, which is what it was
+    called while realised volatility was the only thing anybody scaled off. It is not a
+    cosmetic rename: `fking.strategy.funding_carry` scales its distance off an accumulated
+    funding rate, and a reader who trusted the old name would conclude that a carry
+    position's stop widens with volatility when it does not. What the field requires is a
+    non-negative magnitude in the same units as the price fraction it produces, and
+    nothing narrower.
 
     **The floor and the cap are not defensive coding.** The distance is the denominator of
     `q = (r_used * E) / |P_entry - P_invalidation|`. An unbounded feature-derived
@@ -68,34 +76,34 @@ class InvalidationRule:
     """
 
     adverse_move_fraction: Decimal
-    volatility_feature: FeatureRequirement | None = None
-    volatility_multiple: Decimal = _ZERO
+    scaling_feature: FeatureRequirement | None = None
+    scaling_multiple: Decimal = _ZERO
     maximum_adverse_move_fraction: Decimal | None = None
 
     def __post_init__(self) -> None:
         require_open_unit_fraction(self.adverse_move_fraction, "adverse_move_fraction")
-        if self.volatility_feature is None:
-            if self.volatility_multiple != _ZERO:
+        if self.scaling_feature is None:
+            if self.scaling_multiple != _ZERO:
                 raise StrategyContractError(
-                    f"volatility_multiple is {self.volatility_multiple} and no "
-                    f"volatility_feature is declared; a multiple of nothing is a number "
+                    f"scaling_multiple is {self.scaling_multiple} and no "
+                    f"scaling_feature is declared; a multiple of nothing is a number "
                     f"that reads as a scaled stop and behaves as a fixed one"
                 )
             if self.maximum_adverse_move_fraction is not None:
                 raise StrategyContractError(
                     "maximum_adverse_move_fraction caps a scaled distance and no "
-                    "volatility_feature is declared; a fixed fraction is already its own cap"
+                    "scaling_feature is declared; a fixed fraction is already its own cap"
                 )
             return
-        if self.volatility_multiple <= _ZERO:
+        if self.scaling_multiple <= _ZERO:
             raise StrategyContractError(
-                f"volatility_multiple must be positive when "
-                f"{self.volatility_feature.describe()} scales the distance; got "
-                f"{self.volatility_multiple}"
+                f"scaling_multiple must be positive when "
+                f"{self.scaling_feature.describe()} scales the distance; got "
+                f"{self.scaling_multiple}"
             )
         if self.maximum_adverse_move_fraction is None:
             raise StrategyContractError(
-                f"{self.volatility_feature.describe()} scales the invalidation distance "
+                f"{self.scaling_feature.describe()} scales the invalidation distance "
                 f"and no maximum_adverse_move_fraction bounds it; the distance is the "
                 f"denominator of every position sized from this strategy, and an "
                 f"unbounded one is an unbounded quantity"
@@ -118,24 +126,24 @@ class InvalidationRule:
         Both bounds are applied to the scaled value rather than to the feature, so the
         clamp is visible in the fraction a reader can compare against the emitted level.
         """
-        if self.volatility_feature is None:
+        if self.scaling_feature is None:
             return self.adverse_move_fraction
         supplied = _NO_FEATURES if feature_values is None else feature_values
-        observed = supplied.get(self.volatility_feature)
+        observed = supplied.get(self.scaling_feature)
         if observed is None:
             raise StrategyContractError(
                 f"the invalidation distance scales off "
-                f"{self.volatility_feature.describe()} and no value for it was supplied; "
+                f"{self.scaling_feature.describe()} and no value for it was supplied; "
                 f"substituting the floor would size a position against a distance nobody "
                 f"declared"
             )
         if observed < _ZERO:
             raise StrategyContractError(
-                f"{self.volatility_feature.describe()} reported {observed}; a dispersion "
+                f"{self.scaling_feature.describe()} reported {observed}; a scaling feature "
                 f"cannot be negative, and the value would invert the stop through the "
                 f"entry price"
             )
-        scaled = self.volatility_multiple * observed
+        scaled = self.scaling_multiple * observed
         if scaled < self.adverse_move_fraction:
             return self.adverse_move_fraction
         if (

@@ -1,11 +1,11 @@
-"""Four features that leak on purpose, one per known leak shape.
+"""Five features that leak on purpose, one per known leak shape.
 
 **This file lives under `tests/` and never under `src/`.** Nothing here is importable by
 the registry, so none of it can reach a strategy; the point is to have a leak the probe
 can be *observed* catching. A leak test that has never been seen to fail is not evidence
 of anything -- it might be asserting `True == True` (`DATA_PIPELINE.md` section 7).
 
-The four shapes, and why each is on the list rather than a different one:
+The five shapes, and why each is on the list rather than a different one:
 
 1. **A full-sample z-score.** The leak that most often survives review, because the slice
    handed to the function *is* bounded by `t` and looks point-in-time -- while inside it,
@@ -19,6 +19,12 @@ The four shapes, and why each is on the list rather than a different one:
    defaults vary by rule, which is why the posture is to state it and assert it.
 4. **A label measured from the decision bar's own close.** Inflates the measured edge by
    precisely the move the feature was computed from.
+5. **A settlement rate joined to the interval that begins at its stamp.** The venue stamps
+   a funding row with the instant of the settlement it *closes*, so reading it as the rate
+   for the interval starting there is a plausible misreading worth one settlement of
+   foresight -- which, on a strategy whose whole thesis is the funding rate, is the entire
+   edge. It is the first shape that is specific to an observation kind rather than to a
+   window, and it exists so the probe's settlement-rate branch has been observed failing.
 
 Adding a shape to `LEAKY_CASES` is how a newly discovered leak class gets permanently
 guarded: `test_probe_detects_a_known_leak.py` parametrises over it, so a probe that stops
@@ -42,8 +48,10 @@ from fking.data.features.spec import (
     FeaturePoint,
     FeatureSpec,
     FeatureWindow,
+    SettlementRateCompute,
+    SettlementRateObservation,
 )
-from tests.lookahead.harness import bars, probe_feature, probe_label
+from tests.lookahead.harness import bars, probe_feature, probe_label, settlements
 
 __all__ = ["LEAKY_CASES", "LeakyCase"]
 
@@ -53,6 +61,14 @@ _HORIZON: Final[timedelta] = timedelta(minutes=30)
 # that a leak cannot hide behind a constant series.
 _CLOSES: Final[tuple[str, ...]] = (
     "100", "104", "99", "108", "97", "112", "94", "118", "91", "124", "88", "131",
+)  # fmt: skip
+
+# Twelve settlements, three of which fill the sixteen-hour window the leaky settlement spec
+# declares. Signed and unequal for the same reason the closes are irregular: a repeated rate
+# lets a feature that read one settlement ahead report the correct number anyway.
+_RATES: Final[tuple[str, ...]] = (
+    "0.00031", "-0.00072", "0.00013", "-0.00049", "0.00088", "-0.00021",
+    "0.00054", "-0.00095", "0.00007", "-0.00038", "0.00066", "-0.00012",
 )  # fmt: skip
 
 
@@ -187,10 +203,57 @@ def decision_close_entry_label(
 # ---------------------------------------------------------------------------
 
 
+def next_settlements_rate(
+    observations: Sequence[SettlementRateObservation], window: FeatureWindow
+) -> tuple[FeaturePoint, ...]:
+    """Leak 5: a settlement-rate feature that reports the *next* settlement's rate.
+
+    The shape a funding join takes when the settlement stamped at `t` is matched to the
+    interval that *begins* at `t` rather than the one that ended there. Binance stamps a
+    funding row with the instant of the settlement it closes, so the off-by-one is a
+    plausible reading of the column rather than a careless one -- and it is worth exactly
+    one settlement of foresight, which on a carry strategy is the entire edge.
+
+    Same lag and same window as the honest version, so the probe's second clause passes and
+    only the perturbation clause can fail. A leak that fails both tells you less about
+    which clause is doing the work.
+    """
+    points: list[FeaturePoint] = []
+    for index, observation in enumerate(observations):
+        if index == 0 or index + 1 >= len(observations):
+            continue
+        points.append(
+            FeaturePoint(
+                event_time_utc=observation.event_time_utc,
+                available_at_utc=observation.event_time_utc + window.availability_lag,
+                feature_value=observations[index + 1].settlement_rate,
+            )
+        )
+    return tuple(points)
+
+
+def _leaky_settlement_spec(name: str, compute: SettlementRateCompute) -> FeatureSpec:
+    """The settlement-rate twin of `_leaky_spec`, declared over `fundingRate`."""
+    return FeatureSpec(
+        name=name,
+        version=1,
+        settlement_rate_compute=compute,
+        inputs=frozenset({"fundingRate"}),
+        lookback=timedelta(hours=16),
+        availability_lag=timedelta(minutes=1),
+        label_horizon=_HORIZON,
+        point_in_time_proof=(
+            "DELIBERATELY FALSE. This spec exists under tests/ so the probe can be "
+            "observed catching it, and is never registered."
+        ),
+        uses_trailing_statistics_only=True,
+    )
+
+
 def _leaky_spec(name: str, compute: FeatureCompute, *, availability_lag: timedelta) -> FeatureSpec:
     """A registrable-looking spec around a broken function.
 
-    `uses_trailing_statistics_only=True` is a lie in three of the four cases, and it has to
+    `uses_trailing_statistics_only=True` is a lie in three of the five cases, and it has to
     be: `FeatureSpec` refuses `False` outright, so the flag is a claim the author makes and
     the probe is what checks it. A leak that could not be declared could not be caught.
     """
@@ -252,5 +315,13 @@ LEAKY_CASES: Final[tuple[LeakyCase, ...]] = (
     LeakyCase(
         leak_shape="label entered at the decision bar's own close",
         run_probe=partial(probe_label, decision_close_entry_label, bars(_CLOSES), horizon=_HORIZON),
+    ),
+    LeakyCase(
+        leak_shape="settlement rate joined to the interval that begins at its stamp",
+        run_probe=partial(
+            probe_feature,
+            _leaky_settlement_spec("next_settlements_rate", next_settlements_rate),
+            settlements(_RATES),
+        ),
     ),
 )

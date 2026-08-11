@@ -35,12 +35,13 @@ nobody informed -- and they will make the next decision on the belief they still
 second-worst failure mode available. Every breach message therefore carries both the
 requested value and the bound.
 
-The ceiling *values* are not restated here. They are imported from
-`fking.platform.config`, which is where the configuration tree's own validator reads
+Neither set of *values* is restated here. Both are imported from
+`fking.platform.config`, which is where the configuration tree's own validators read
 them, because two compiled-in copies of a safety constant is two numbers that can
 disagree -- and the one that disagrees silently is whichever the reader is not looking
-at. This module adds the direction to them and adds the floors, which the configuration
-tree has no equivalent of.
+at. What this module adds is the direction, as a type. The floors used to be stated
+here and only here, which left `RiskSettings.conviction_floor` free to carry `ge=0`
+while this file said 0.10 (issue #171).
 
 `RISK_PHILOSOPHY.md` section 9, `CONFIGURATION.md` section 8.
 """
@@ -54,6 +55,7 @@ from types import MappingProxyType
 from typing import Final
 
 from fking.platform.config import HARD_CEILINGS as _CONFIGURED_CEILINGS
+from fking.platform.config import HARD_FLOORS as _CONFIGURED_FLOORS
 
 __all__ = [
     "HARD_CEILINGS",
@@ -113,26 +115,7 @@ HARD_CEILINGS: Final[Mapping[str, Ceiling]] = MappingProxyType(
 )
 
 HARD_FLOORS: Final[Mapping[str, Floor]] = MappingProxyType(
-    {
-        # RISK_PHILOSOPHY.md section 4, portfolio limits table: min free margin defaults
-        # to 40% of equity with a floor of 25%. Below that a maintenance-margin call can
-        # precede the drawdown kill switch, which inverts the order in which the two
-        # safety mechanisms are supposed to fire.
-        "min_free_margin_ratio": Floor(Decimal("0.25")),
-        # RISK_PHILOSOPHY.md section 3.3: the Kelly term is simply absent from the
-        # sizing min() below 100 closed trades, because the fractional standard error on
-        # the Kelly numerator is 1/(SR*sqrt(T)) and a short record makes a 2x
-        # overestimate a one-sigma event -- which takes expected log growth to zero.
-        # Configuration may demand a longer record; it may not accept a shorter one, so
-        # the floor is the documented value itself.
-        "min_trades_for_kelly": Floor(Decimal("100")),
-        # RISK_PHILOSOPHY.md section 2: conviction is consumed through a calibration map
-        # fitted on conviction *deciles*, so a floor finer than one decile discriminates
-        # on a difference the map that reads it cannot resolve. The shipped default is
-        # 0.15; 0.10 is one decile and the point below which the floor stops meaning
-        # anything.
-        "conviction_floor": Floor(Decimal("0.10")),
-    }
+    {name: Floor(bound) for name, bound in _CONFIGURED_FLOORS.items()}
 )
 
 

@@ -24,7 +24,7 @@ CONFIGURATION.md sections 2 and 5 through 12.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -45,7 +45,11 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from fking.platform.config._ceilings import AGENT_HARD_CEILINGS, HARD_CEILINGS
+from fking.platform.config._ceilings import (
+    AGENT_HARD_CEILINGS,
+    HARD_CEILINGS,
+    HARD_FLOORS,
+)
 
 ENV_PREFIX: Final[str] = "FKING_"
 ENV_NESTED_DELIMITER: Final[str] = "__"
@@ -57,6 +61,29 @@ HttpsUrl = Annotated[AnyUrl, UrlConstraints(allowed_schemes=["https"])]
 WebSocketUrl = Annotated[AnyUrl, UrlConstraints(allowed_schemes=["wss"])]
 
 _FROZEN = ConfigDict(frozen=True, extra="forbid")
+
+
+_BOUND_ADVICE: Final[str] = (
+    ". Configuration may only make this system more conservative. Moving a compiled-in "
+    "bound requires a source edit and a pull request labelled safety:critical."
+)
+
+
+def _submitted_bounds(model: BaseModel, names: Iterable[str], *, scope: str) -> dict[str, Decimal]:
+    """The model's value for each bounded field, as `Decimal`, refusing an absent field.
+
+    A bound naming a field the model does not carry constrains nothing, and nothing says
+    so -- which is the shape a bound takes the day after the field it guarded is
+    renamed. `int` limits are widened here so that one comparison serves both numeric
+    types and there is no second code path whose direction could be written backwards.
+    """
+    missing = sorted(name for name in names if name not in type(model).model_fields)
+    if missing:
+        raise ValueError(
+            f"bounded limits {missing} are not fields of {scope}; a bound on a field "
+            f"nobody reports constrains nothing"
+        )
+    return {name: Decimal(str(getattr(model, name))) for name in names}
 
 
 def _assert_within_ceilings(
@@ -71,18 +98,40 @@ def _assert_within_ceilings(
     Every breach is collected before raising. Fixing one and being told about the next
     on the following boot turns a misconfiguration into three restarts.
     """
+    submitted = _submitted_bounds(model, ceilings, scope=scope)
     breaches = [
-        f"{scope}.{name}={Decimal(str(getattr(model, name)))} exceeds the "
-        f"compiled-in hard ceiling {ceiling}"
+        f"{scope}.{name}={submitted[name]} exceeds the compiled-in hard ceiling {ceiling}"
         for name, ceiling in ceilings.items()
-        if Decimal(str(getattr(model, name))) > Decimal(str(ceiling))
+        if submitted[name] > Decimal(str(ceiling))
     ]
     if breaches:
-        raise ValueError(
-            "; ".join(breaches)
-            + ". Configuration may only make this system more conservative. Raising a "
-            "ceiling requires a source edit and a pull request labelled safety:critical."
-        )
+        raise ValueError("; ".join(breaches) + _BOUND_ADVICE)
+
+
+def _assert_above_floors(
+    model: BaseModel, floors: Mapping[str, Decimal | int], *, scope: str
+) -> None:
+    """Refuse any limit below its compiled-in floor, reporting every breach at once.
+
+    The half a ceilings-only validator gets backwards rather than wrong: `0 > 0.25` is
+    `False`, so a single `value > bound` loop accepts `min_free_margin_ratio = 0`,
+    authorises trading with no margin buffer at all, and reports a passing configuration
+    check. Written as its own function with its own comparison rather than as a
+    direction flag on the one above: a flag is a value, and a value can be wrong at one
+    call site out of nine.
+
+    `fking.risk.ceilings` makes the same distinction with two *types* and can, because
+    it is allowed trading vocabulary. This module is mechanism and sees plain Decimals,
+    so the separation it can offer is two functions (issue #171).
+    """
+    submitted = _submitted_bounds(model, floors, scope=scope)
+    breaches = [
+        f"{scope}.{name}={submitted[name]} is below the compiled-in hard floor {floor}"
+        for name, floor in floors.items()
+        if submitted[name] < Decimal(str(floor))
+    ]
+    if breaches:
+        raise ValueError("; ".join(breaches) + _BOUND_ADVICE)
 
 
 # ---------------------------------------------------------------------------
@@ -375,10 +424,20 @@ class BacktestSettings(BaseModel):
 
 
 class RiskSettings(BaseModel):
-    """Limits, bounded above by `HARD_CEILINGS`.
+    """Limits, bounded above by `HARD_CEILINGS` and below by `HARD_FLOORS`.
 
-    Tightening any of these is free. Loosening one past its ceiling is impossible from
+    Tightening any of these is free. Loosening one past its bound is impossible from
     configuration; it requires a source edit and a `safety:critical` pull request.
+    Which direction counts as "loosening" depends on the limit, which is why there are
+    two mappings and two validators: for `max_leverage` it is larger, for
+    `conviction_floor` it is smaller.
+
+    The lower bound on a floor-governed field is stated exactly once, in `HARD_FLOORS`,
+    and deliberately not repeated as a `Field(ge=...)` constraint. It used to be, as
+    `conviction_floor: Field(ge=0)`, and the two disagreed -- the field constraint
+    accepted 0, which authorises acting on a zero-conviction signal, while the compiled-in
+    floor said 0.10 (issue #171). Two statements of one bound is one statement too many;
+    the surviving `le=` constraints are shape ("this is a ratio"), not policy.
     """
 
     model_config = _FROZEN
@@ -396,14 +455,25 @@ class RiskSettings(BaseModel):
     # CLAUDE.md section 11 names the anti-pattern: adding a config flag to bypass a
     # gate. Gates exist because someone will be in a hurry later, and that someone is
     # you.
+    # Bounded below by HARD_FLOORS: for these three, smaller is riskier. Defaults are
+    # the shipped baseline from RISK_PHILOSOPHY.md section 4, each with room to tighten
+    # upwards; the provenance of each floor sits beside it in `_ceilings.py`.
+    min_free_margin_ratio: Decimal = Field(default=Decimal("0.40"), le=1)
+    min_trades_for_kelly: int = 100
+
     kill_switch_enabled: Literal[True] = True
     kill_switch_daily_loss_ratio: Decimal = Field(default=Decimal("0.03"), gt=0, le=1)
-    conviction_floor: Decimal = Field(default=Decimal("0.15"), ge=0, le=1)
+    conviction_floor: Decimal = Field(default=Decimal("0.15"), le=1)
     require_invalidation_level: Literal[True] = True
 
     @model_validator(mode="after")
     def _within_ceilings(self) -> Self:
         _assert_within_ceilings(self, HARD_CEILINGS, scope="risk")
+        return self
+
+    @model_validator(mode="after")
+    def _above_floors(self) -> Self:
+        _assert_above_floors(self, HARD_FLOORS, scope="risk")
         return self
 
     @model_validator(mode="after")
