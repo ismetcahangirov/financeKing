@@ -78,6 +78,11 @@ class VenueProfile(BaseModel):
     timestamp_unit: Literal["ms", "us"]
 
     order_rate_per_10s: int = Field(gt=0)
+    # `None` where the venue publishes no request-weight budget and sends no used-weight
+    # header. That is Bybit: v5 meters per endpoint and per UID, so a weight number here
+    # would be invented, and a throttle told to shed against an invented limit sheds
+    # against nothing. Absent is the honest encoding; a placeholder is not.
+    request_weight_per_minute: int | None = Field(default=None, gt=0)
     recv_window_ms: int = Field(gt=0, le=60_000)
     max_clock_drift_ms: int = Field(gt=0)
 
@@ -160,6 +165,12 @@ BINANCE_SPOT_TESTNET: Final = VenueProfile(
     # environment this system actually runs in; sizing a burst against the production
     # figure produces -1015 TOO_MANY_ORDERS here. Verified 2026-08-01.
     order_rate_per_10s=50,
+    # Binance spot meters request weight per IP per minute and reports consumption in
+    # `X-MBX-USED-WEIGHT-1M`. 6000 is the documented spot ceiling and testnet answers
+    # with the same header. Source: Binance spot API "Limits" section, checked
+    # 2026-08-11; also .claude/contexts/binance-testnet.md fact table row
+    # "Request weight per minute".
+    request_weight_per_minute=6_000,
     recv_window_ms=5_000,
     # Deliberately well below recv_window_ms: drift is a hard stop before it becomes a
     # -1021 in the order path, and a margin that equals the window gives no warning.
@@ -185,6 +196,10 @@ BINANCE_FUTURES_TESTNET: Final = VenueProfile(
     ws_stream_url="wss://stream.binancefuture.com/ws",
     timestamp_unit="ms",
     order_rate_per_10s=50,
+    # USD-M futures meters a *smaller* per-minute weight budget than spot and reports it
+    # in `X-MBX-USED-WEIGHT-1M` on every response. Source: Binance USD-M futures API
+    # "Limits" section, checked 2026-08-11.
+    request_weight_per_minute=2_400,
     recv_window_ms=5_000,
     max_clock_drift_ms=1_000,
     user_data_mechanism="listen_key",

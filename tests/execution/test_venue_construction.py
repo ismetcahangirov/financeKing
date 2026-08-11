@@ -39,6 +39,7 @@ from fking.execution import (
 )
 from fking.platform.safety import (
     SafetyViolation,
+    VenueResponseMetadata,
     assert_sandbox_urls_permitted,
     guarded_aiohttp_session,
     guarded_ccxt,
@@ -243,6 +244,10 @@ def test_a_non_binance_profile_is_refused_by_the_binance_adapter() -> None:
         @property
         def request_count(self) -> int:
             return 0
+
+        @property
+        def last_response_metadata(self) -> VenueResponseMetadata | None:
+            return None
 
         async def call(self, _endpoint: str, _params: object) -> str:  # pragma: no cover
             raise AssertionError("the adapter must refuse before it can call anything")

@@ -23,6 +23,7 @@ import pytest
 import yaml
 
 from fking.domain import Venue
+from fking.platform.safety import VenueResponseMetadata
 
 RECORDED_ROOT: Final[Path] = Path(__file__).resolve().parents[1] / "fixtures" / "recorded"
 
@@ -63,6 +64,11 @@ class Recording:
     body: str
     body_sha256: str
     derivation: Mapping[str, object] | None
+    # Absent from captures taken before the recorder learned to keep them. Empty rather
+    # than `None`, because "this recording carries no headers" and "this response had no
+    # headers" are the same thing to every consumer here, and a `None` would only add a
+    # branch at each of them.
+    headers: Mapping[str, str]
 
     @property
     def recomputed_sha256(self) -> str:
@@ -72,6 +78,7 @@ class Recording:
 def _load(path: Path) -> Recording:
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     header = document["_recording"]
+    recorded_headers = header.get("headers") or {}
     return Recording(
         path=path,
         venue=header["venue"],
@@ -80,6 +87,7 @@ def _load(path: Path) -> Recording:
         body=document["body"],
         body_sha256=header["body_sha256"],
         derivation=header["derivation"],
+        headers={str(name): str(value) for name, value in recorded_headers.items()},
     )
 
 
@@ -126,13 +134,27 @@ class RecordedExchange:
 
     def __init__(self, venue: Venue) -> None:
         self._venue = venue
-        self._bodies = {
-            endpoint: load_recording(venue, directory).body
+        self._recordings = {
+            endpoint: load_recording(venue, directory)
             for endpoint, directory in ENDPOINT_RECORDINGS[venue].items()
         }
         self._request_count = 0
+        self._last_response_metadata: VenueResponseMetadata | None = None
         self.calls: list[tuple[str, Mapping[str, str]]] = []
         self.closed = False
+        # Set to make `call` raise *after* it has recorded the response, which is how a
+        # transport failure that still saw a 429 behaves. Without it there is no way to
+        # prove the governor observes responses it never got to return.
+        self.raise_after_recording: BaseException | None = None
+
+    def override(self, endpoint: str, directory: str) -> None:
+        """Answer `endpoint` from a different recording in the same venue's corpus.
+
+        The rate-limit recordings are not endpoint-specific -- a 429 can answer any
+        request -- so binding one to an endpoint is the test's choice rather than the
+        corpus's, and it is made explicitly here rather than by a second fake.
+        """
+        self._recordings[endpoint] = load_recording(self._venue, directory)
 
     @property
     def venue_id(self) -> str:
@@ -142,10 +164,20 @@ class RecordedExchange:
     def request_count(self) -> int:
         return self._request_count
 
+    @property
+    def last_response_metadata(self) -> VenueResponseMetadata | None:
+        return self._last_response_metadata
+
     async def call(self, endpoint: str, params: Mapping[str, str]) -> str:
         self._request_count += 1
         self.calls.append((endpoint, dict(params)))
-        return self._bodies[endpoint]
+        recording = self._recordings[endpoint]
+        self._last_response_metadata = VenueResponseMetadata.of(
+            http_status=recording.http_status, headers=recording.headers
+        )
+        if self.raise_after_recording is not None:
+            raise self.raise_after_recording
+        return recording.body
 
     async def aclose(self) -> None:
         self.closed = True

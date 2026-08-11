@@ -116,10 +116,24 @@ def test_a_derived_recording_states_what_it_was_derived_from(recording: Recordin
     """`exchangeInfo` is stored as a declared symbol subset -- the full spot response is
     2.5 MB and 1,373 symbols, which is not a reviewable diff. The envelope is verbatim
     and the derivation records the source digest and both counts, so the narrowing is
-    checkable rather than asserted."""
+    checkable rather than asserted.
+
+    `synthetic_rate_limit_status` is the other sanctioned kind, and it is sanctioned for a
+    reason no amount of patience fixes: a `429` and a `418` cannot be captured without
+    deliberately exceeding the venue's budget, and the `418` that follows is a per-IP ban
+    lasting up to three days. Its derivation must still name a real source recording, so
+    the envelope is the venue's and only the status, code and headers are declared.
+    """
     derivation = recording.derivation
     assert derivation is not None
-    assert derivation["kind"] == "symbol_subset"
+    assert derivation["kind"] in {"symbol_subset", "synthetic_rate_limit_status"}
+
+    if derivation["kind"] == "synthetic_rate_limit_status":
+        assert len(str(derivation["derived_from_sha256"])) == SHA256_HEX_LENGTH
+        assert (RECORDED_ROOT / str(derivation["derived_from"])).is_file()
+        assert str(derivation["reason"])
+        return
+
     assert len(str(derivation["source_body_sha256"])) == SHA256_HEX_LENGTH
     assert int(str(derivation["kept_symbol_count"])) < int(str(derivation["source_symbol_count"]))
 

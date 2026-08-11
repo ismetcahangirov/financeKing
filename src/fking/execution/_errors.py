@@ -23,8 +23,10 @@ from fking.platform.errors import FkingError
 __all__ = [
     "ExchangeError",
     "PermanentExchangeError",
+    "RateBudgetExhausted",
     "TransientExchangeError",
     "UniverseUnavailableError",
+    "VenueIpBannedError",
     "VenueProfileError",
 ]
 
@@ -82,6 +84,55 @@ class UniverseUnavailableError(FkingError):
     list produces zero fills -- and zero fills score as "no edge", which retires a good
     strategy for an infrastructure reason.
     """
+
+
+# N818: the name is specified verbatim by issue #60 and is the identifier a caller
+# catches; renaming it to satisfy a suffix convention would silently break the contract
+# the acceptance criteria are written against.
+class RateBudgetExhausted(FkingError):  # noqa: N818
+    """Admission refused: issuing this request would exceed the venue's own budget.
+
+    Deliberately *not* an `ExchangeError`. No request was made, so there is no HTTP
+    status and no venue error code to carry, and inventing one would put a failure this
+    system chose into the same bucket as a failure the venue chose -- which is the
+    difference between "capacity was unavailable" and "the venue rejected our order",
+    and an operator needs to be able to tell those apart at a glance.
+
+    Equally deliberately not a `TransientExchangeError`: the retry machinery acts on that
+    classification, and a retry loop around an exhausted budget is a sleep with extra
+    steps. `budget_free_in_seconds` is telemetry -- the fact about capacity the risk
+    engine reasons over -- and never an instruction to wait. Nothing in this package
+    sleeps on it.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        venue_id: str,
+        request_class: str,
+        budget_free_in_seconds: float,
+    ) -> None:
+        super().__init__(message)
+        self.venue_id = venue_id
+        self.request_class = request_class
+        self.budget_free_in_seconds = budget_free_in_seconds
+
+
+class VenueIpBannedError(FkingError):
+    """The venue returned HTTP 418: this IP is banned, and the ban escalates on retry.
+
+    A hard stop with no recovery path inside the process. Binance escalates repeated
+    bans from 2 minutes to 3 days, and a three-day ban on the only venue this system
+    trades is an outage no backoff schedule recovers from -- so the governor that raises
+    this refuses every subsequent request for its own lifetime rather than timing the ban
+    out and resuming. Clearing it is an operator action taken after the cause is known,
+    which is the whole point of making it unclearable from code.
+    """
+
+    def __init__(self, message: str, *, venue_id: str) -> None:
+        super().__init__(message)
+        self.venue_id = venue_id
 
 
 class VenueProfileError(FkingError):

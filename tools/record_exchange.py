@@ -132,14 +132,34 @@ def narrow_exchange_info(body: str) -> tuple[str, dict[str, object]]:
     return subset_body, derivation
 
 
-async def _fetch(profile: VenueProfile, endpoint: _Endpoint) -> tuple[int, str]:
+# Headers worth keeping. An unfiltered capture would carry `Set-Cookie`, CloudFront
+# request ids and a `Date` that changes on every re-record, which makes an otherwise
+# identical recording look like a venue change in a diff. These four are the ones a
+# consumer reads: the rate-limit budget, the retry instruction, and the content type that
+# says whether the body is the venue's JSON or a gateway's HTML.
+_RECORDED_HEADERS: Final[frozenset[str]] = frozenset(
+    {
+        "content-type",
+        "retry-after",
+        "x-mbx-order-count-10s",
+        "x-mbx-used-weight-1m",
+    }
+)
+
+
+async def _fetch(profile: VenueProfile, endpoint: _Endpoint) -> tuple[int, str, dict[str, str]]:
     async with guarded_client(base_url=profile.rest_url, timeout_seconds=30) as client:
         response = await client.request(endpoint.method, endpoint.path)
-        return response.status_code, response.text
+        headers = {
+            name.lower(): value
+            for name, value in response.headers.items()
+            if name.lower() in _RECORDED_HEADERS
+        }
+        return response.status_code, response.text, headers
 
 
 def record_one(profile: VenueProfile, endpoint: _Endpoint) -> Path:
-    http_status, body = asyncio.run(_fetch(profile, endpoint))
+    http_status, body, headers = asyncio.run(_fetch(profile, endpoint))
 
     # Testnet returns a CloudFront/nginx 502 from time to time, and its body is HTML.
     # Refusing to record it matters more than it looks: a fixture holding a gateway
@@ -166,6 +186,7 @@ def record_one(profile: VenueProfile, endpoint: _Endpoint) -> Path:
             "captured_at_utc": captured_at,
             "body_sha256": sha256_hex(body),
             "derivation": derivation,
+            "headers": headers,
         },
         "body": body,
     }

@@ -150,6 +150,9 @@ LABEL_DOMAINS: Final[Mapping[str, int]] = {
     "outcome": 6,  # a closed enum per metric, never free text
     "provider": 3,  # gemini, groq, and one spare
     "reason": 24,  # a closed enum per metric, never a venue message
+    # `fking.execution.RequestClass` plus the pseudo-class "all", used when a refusal
+    # applies to every class at once because the venue banned the IP. Closed by the enum.
+    "request_class": 8,
     "side": 2,  # buy, sell
     "source": 2,  # archive, websocket
     "stage": 8,  # the order path's named stages
@@ -789,6 +792,30 @@ EXECUTION_REJECTIONS: Final = MetricSpec(
     ),
 )
 
+EXECUTION_RATE_BUDGET_REFUSALS: Final = MetricSpec(
+    name="fking_execution_rate_budget_refusals_total",
+    kind="counter",
+    labels=("venue", "request_class", "reason"),
+    description=(
+        "Requests the throttle refused rather than sent. `request_class` separates a "
+        "shed backfill, which is the design working, from a refused order, which means "
+        "a risk decision went unplaced."
+    ),
+)
+
+EXECUTION_REQUEST_WEIGHT_USED: Final = MetricSpec(
+    name="fking_execution_request_weight_utilisation_ratio",
+    kind="gauge",
+    labels=("venue",),
+    description=(
+        "Request weight consumed in the trailing minute as a fraction of the venue's "
+        "per-minute budget -- the larger of our own estimate and the venue's "
+        "X-MBX-USED-WEIGHT-1M header. A ratio rather than the raw weight so that spot's "
+        "6000 and futures' 2400 are comparable on one axis. Steady-state proximity to 1 "
+        "is a design finding, not a tuning opportunity."
+    ),
+)
+
 EXECUTION_SHORTFALL: Final = MetricSpec(
     name="fking_execution_shortfall_basis_points",
     kind="histogram",
@@ -897,9 +924,11 @@ REGISTERED_METRICS: Final[tuple[MetricSpec, ...]] = (
     DATA_STREAM_STALENESS,
     EXECUTION_FILLS,
     EXECUTION_ORDERS_SUBMITTED,
+    EXECUTION_RATE_BUDGET_REFUSALS,
     EXECUTION_RECONCILIATION_AGE,
     EXECUTION_RECONCILIATION_DIVERGENCES,
     EXECUTION_REJECTIONS,
+    EXECUTION_REQUEST_WEIGHT_USED,
     EXECUTION_SHORTFALL,
     EXECUTION_STAGE_LATENCY,
     LOG_FIELDS_DROPPED,

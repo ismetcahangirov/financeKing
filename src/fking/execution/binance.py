@@ -38,6 +38,7 @@ from fking.execution.models import (
 )
 from fking.execution.order_id import assert_client_order_id_acceptable
 from fking.execution.parsing import parse_venue_payload, raise_for_venue_error
+from fking.execution.throttle import RequestClass, ThrottledExchange, VenueRateGovernor
 from fking.execution.venue_profile import VENUE_PROFILES, VenueProfile
 from fking.platform.safety import GuardedExchange, guarded_ccxt
 
@@ -280,12 +281,18 @@ async def open_binance_venue(
     *,
     api_key: str | None = None,
     secret: str | None = None,
+    governor: VenueRateGovernor | None = None,
 ) -> BinanceVenue:
-    """Construct a Binance venue over a guarded transport.
+    """Construct a Binance venue over a guarded, rate-governed transport.
 
     The only constructor. There is no path from here to an exchange object whose
     requests are not host-validated, because `guarded_ccxt` is the only thing that
     produces one and `fking.execution` cannot import `ccxt` to build its own.
+
+    `governor` is shared, not owned: Binance meters weight per IP, so a process that also
+    runs a backfill must hand both the same instance or each will believe it owns the
+    whole budget and together they will spend twice it. Omitting it builds a private one,
+    which is correct only when this venue is the process's sole caller.
     """
     profile = VENUE_PROFILES[venue_id]
     exchange = await guarded_ccxt(
@@ -304,4 +311,13 @@ async def open_binance_venue(
         },
         timeout_seconds=profile.request_timeout_ms / 1000,
     )
-    return BinanceVenue(exchange, profile)
+    # `RequestClass.ORDER`, because this object *is* the order path: its reads feed
+    # reconciliation and its writes place orders, and neither may be shed as
+    # discretionary traffic. Research and backfill callers take their own view over the
+    # same governor and are refused first.
+    throttled = ThrottledExchange(
+        exchange,
+        governor if governor is not None else VenueRateGovernor(profile=profile),
+        request_class=RequestClass.ORDER,
+    )
+    return BinanceVenue(throttled, profile)

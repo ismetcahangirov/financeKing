@@ -1,0 +1,25 @@
+# SYNTHETIC: an HTTP 418 is an IP ban. Capturing one for real would mean earning a ban
+# of between 2 minutes and 3 days on testnet.binance.vision, and the ban is per IP -- it
+# would take out every developer and every CI runner sharing the egress address, not just
+# the process that provoked it. The envelope is the real `order_rejected` capture named
+# in `derived_from_sha256`; the code, message and headers are the ones Binance documents
+# for a ban (spot API "Limits", checked 2026-08-11). The `until` epoch in the message is
+# the venue's own format and is deliberately left unparsed by this system: the governor
+# hard-stops on the status and does not time the ban out.
+_recording:
+  body_sha256: 440a565dfab78f553157c8647cf721ff5f1f8ed9f5a363ee61086ef7db1302e1
+  captured_at_utc: 2026-08-11T09-00-01Z
+  derivation:
+    derived_from: binance-spot-testnet/order_rejected/2026-08-06T07-25-18Z.yaml
+    derived_from_sha256: 440a565dfab78f553157c8647cf721ff5f1f8ed9f5a363ee61086ef7db1302e1
+    kind: synthetic_rate_limit_status
+    reason: capturing a real 418 means earning a multi-day IP ban shared by every runner
+  endpoint: POST /api/v3/order
+  headers:
+    content-type: application/json;charset=UTF-8
+    retry-after: '120'
+    x-mbx-used-weight-1m: '6000'
+  http_status: 418
+  request_url: https://testnet.binance.vision/api/v3/order
+  venue: binance-spot-testnet
+body: '{"code":-1003,"msg":"Way too many requests; IP banned until 1786532400000. Please use WebSocket Streams for live updates to avoid bans."}'
