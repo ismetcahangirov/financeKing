@@ -53,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: github/codeql-action/init@v4.37.6
+      - uses: github/codeql-action/init@v4.37.7
         with:
           languages: python
           # security-and-quality over the default `security`: the extra queries
@@ -62,6 +62,6 @@ jobs:
           queries: security-and-quality
           config-file: ${{ matrix.scope.config }}
 
-      - uses: github/codeql-action/analyze@v4.37.6
+      - uses: github/codeql-action/analyze@v4.37.7
         with:
           category: ${{ matrix.scope.category }}
