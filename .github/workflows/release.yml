@@ -54,7 +54,7 @@ jobs:
       # Exact version, not a floating major: astral-sh/setup-uv publishes only precise
       # tags, and referencing a `v9` that does not exist fails at action resolution,
       # before any step has had the chance to say anything. Same pin as ci.yml.
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock

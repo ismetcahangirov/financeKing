@@ -47,7 +47,7 @@ jobs:
           # in a later commit is still in the pack file and still valid.
           fetch-depth: 0
 
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
